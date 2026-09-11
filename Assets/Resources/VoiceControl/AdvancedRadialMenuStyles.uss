@@ -1,0 +1,46 @@
+/* Native UI Toolkit styles; responsive layout and reduced motion are
+   coordinated in UIToolkitRadialMenuAdvanced. */
+.adv-menu-root { position: absolute; left: 50%; top: 50%; width: 0; height: 0; }
+.adv-ring-background, .adv-ripple-container, .adv-gesture-indicator { position: absolute; }
+.adv-main-segment, .adv-sub-segment {
+    position: absolute;
+    overflow: hidden;
+    transition-property: background-color, border-color;
+    transition-duration: 0.14s;
+    transition-timing-function: ease-out;
+}
+.adv-main-bg, .adv-sub-bg { position: absolute; }
+.adv-main-icon-container, .adv-sub-icon-container {
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+.adv-main-icon, .adv-sub-icon-img { -unity-background-scale-mode: scale-to-fit; }
+.adv-main-name, .adv-sub-name { color: rgb(226, 239, 243); white-space: normal; }
+.adv-center-info {
+    position: absolute;
+    align-items: center;
+    justify-content: center;
+}
+.adv-center-title, .adv-center-subtitle { -unity-text-align: middle-center; }
+.adv-collapsed-button {
+    position: absolute;
+    right: 34px;
+    top: 34px;
+    width: 48px;
+    height: 48px;
+    background-color: rgba(8, 25, 34, 0.96);
+    border-radius: 24px;
+    border-width: 1px;
+    border-color: rgba(113, 176, 189, 0.7);
+    align-items: center;
+    justify-content: center;
+}
+.adv-collapsed-button:hover { background-color: rgb(20, 54, 66); }
+.adv-collapsed-icon {
+    width: 24px;
+    height: 24px;
+    flex-shrink: 0;
+    -unity-background-scale-mode: scale-to-fit;
+    -unity-background-image-tint-color: rgb(199, 235, 244);
+}

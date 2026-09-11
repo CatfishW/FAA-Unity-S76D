@@ -1,0 +1,2247 @@
+using System.Collections;
+using System.Collections.Generic;
+using TMPro;
+using FAA.XPlaneIntegration.Runtime;
+using TrafficRadar;
+using TrafficRadar.Core;
+using TrafficRadar.Controls;
+using UnityEngine;
+using UnityEngine.EventSystems;
+using UnityEngine.Events;
+using UnityEngine.UI;
+using UnityEngine.XR.Interaction.Toolkit.UI;
+using WeatherRadar;
+
+namespace FAA.Customization
+{
+    [DefaultExecutionOrder(10020)]
+    [AddComponentMenu("FAA/Customization/FAA Radar Controls Overlay")]
+    public partial class FaaRadarControlsOverlay : MonoBehaviour
+    {
+        private const float CompactStripHeight = 60f;
+        private const float RowHeight = 44f;
+        private const float WeatherCollapsedWidth = 254f;
+        private const float WeatherCompactWidth = 382f;
+        private const float WeatherAdvancedWidth = 420f;
+        private const float TrafficCollapsedWidth = 346f;
+        private const float TrafficCompactWidth = 376f;
+        private const float TrafficAdvancedWidth = 488f;
+        private const float TrafficFocusToolbarWidth = 448f;
+        private const float ThreeRowStripHeight = 156f;
+        private const float EditorPointerRightMargin = 96f;
+        private const string WeatherSizePreferenceKey = "FAA.HUD.WeatherRadarSize";
+        private const string TrafficSizePreferenceKey = "FAA.HUD.TrafficRadarSize";
+        private static readonly Color StripBackgroundColor = FaaRadarVisualStyle.Glass;
+        private static readonly Color StripStrokeColor = FaaRadarVisualStyle.Stroke;
+        private static readonly Color ButtonNormalColor = FaaRadarVisualStyle.GlassRaised;
+        private static readonly Color ButtonActiveColor = new Color(0.035f, 0.235f, 0.205f, 1f);
+        private static readonly Color PrimaryTextColor = FaaRadarVisualStyle.TextPrimary;
+        private static readonly Color SecondaryTextColor = FaaRadarVisualStyle.TextSecondary;
+
+        [Header("Scene Names")]
+        [SerializeField] private string weatherRadarRootName = "X-Plane Weather Radar System";
+        [SerializeField] private string trafficRadarRootName = "Traffic Radar System";
+
+        [Header("Layout")]
+        [SerializeField] private Vector2 weatherStripSize = new Vector2(176f, 44f);
+        [SerializeField] private Vector2 trafficStripSize = new Vector2(226f, 44f);
+        [SerializeField] private Vector2 stripOffset = new Vector2(0f, 8f);
+        [SerializeField] private bool showOnStart = true;
+        [SerializeField] private bool startExpanded;
+        [SerializeField] private bool showConfigurationButtonsOnStart;
+        [SerializeField] private bool reducedMotion;
+
+        [Header("Radar Sizing")]
+        [SerializeField] private float defaultWeatherRadarSize = 280f;
+        [SerializeField] private float defaultTrafficRadarSize = 296f;
+        [SerializeField] private float minimumRadarSize = 220f;
+        [SerializeField] private float maximumRadarSize = 560f;
+        [SerializeField] private float radarSizeStep = 32f;
+        [SerializeField] private bool rememberRadarSizes = true;
+
+        [Header("Controls")]
+        [SerializeField] private bool enableWeatherControls = true;
+        [SerializeField] private bool enableTrafficControls = true;
+        [SerializeField] private bool enableKeyboardShortcuts;
+
+        [Header("Compatibility")]
+        [SerializeField] private bool suppressLegacyRadarControlPanels = true;
+        [SerializeField] private bool suppressInlineWeatherLabels = true;
+
+        [Header("Pilot Focus Presentation")]
+        [Tooltip("Fade unrelated flight/HUD overlays while the traffic map is maximized. The traffic canvas and REST strip remain visible.")]
+        [SerializeField] private bool hideOtherHudInTrafficFullscreen = true;
+        [Tooltip("Duration of the fade used when entering or leaving traffic pilot-focus mode.")]
+        [Min(0f)]
+        [SerializeField] private float trafficFullscreenHudFadeDuration = 0.18f;
+        [Tooltip("Root object names that are hidden during traffic pilot-focus mode. Keep the traffic canvas out of this list so REST remains reachable.")]
+        [SerializeField] private string[] trafficFullscreenHideObjectNames =
+        {
+            "FAASymbologyCanvas",
+            "FAASymbologyCanvasWorldSpace",
+            "XPlaneWeatherRadarCanvas",
+            "XPlaneWeatherIndicatorCanvas",
+            "VoiceCommandCanvas",
+            "FAAHeadingTapeCanvas",
+            "IndicatorCanvas",
+            "XR Interaction Simulator UI(Clone)",
+            "Second Interation GUI"
+        };
+
+        private Transform _weatherRoot;
+        private Transform _trafficRoot;
+        private WeatherRadarDataProvider _weatherDataProvider;
+        private XPlaneOriginalWeatherRadarProvider _weatherProvider;
+        private XPlane12ApiHudBridge _xPlaneBridge;
+        private XPlaneWeatherRadarOverlay[] _weatherOverlays;
+        private TrafficRadarController _trafficController;
+        private TrafficRadarDisplay _trafficDisplay;
+        private TrafficRadarDataManager _trafficDataManager;
+        private RectTransform _weatherStrip;
+        private XPlaneWeatherInfoStrip _weatherConditionsStrip;
+        private FaaRadarConfigurationDrawer _weatherDrawer;
+        private FaaRadarInteractionSurface _weatherInteractionSurface;
+        private RectTransform _trafficStrip;
+        private FaaRadarConfigurationDrawer _trafficDrawer;
+        private FaaRadarInteractionSurface _trafficInteractionSurface;
+        private TMP_Text _weatherRangeText;
+        private TMP_Text _weatherSummaryText;
+        private TMP_Text _weatherTiltText;
+        private TMP_Text _weatherGainText;
+        private TMP_Text _weatherModeText;
+        private TMP_Text _weatherPowerText;
+        private TMP_Text _weatherExpandText;
+        private TMP_Text _weatherAdvancedText;
+        private TMP_Text _weatherSizeText;
+        private TMP_Text _trafficRangeText;
+        private TMP_Text _trafficSummaryText;
+        private TMP_Text _trafficTargetText;
+        private TMP_Text _trafficMaxText;
+        private TMP_Text _trafficModeText;
+        private TMP_Text _trafficAutoText;
+        private TMP_Text _trafficChartText;
+        private TMP_Text _trafficBackgroundText;
+        private TMP_Text _trafficRingsText;
+        private TMP_Text _trafficOpacityText;
+        private TMP_Text _trafficExpandText;
+        private TMP_Text _trafficAdvancedText;
+        private TMP_Text _trafficSizeText;
+        private TMP_Text _trafficSizeDownText;
+        private TMP_Text _trafficSizeUpText;
+        private TMP_Text _trafficFullscreenText;
+        private TMP_Text _trafficFocusSourceText;
+        private TMP_Text _trafficFocusOpacityText;
+        private TMP_Text _trafficFocusRangeText;
+        // The weather panel is procedural/dataref-backed. Start with the
+        // legacy reference overlay hidden so it cannot mimic the native
+        // X-Plane raster presentation; pilots can still opt into vector
+        // guidance through the control surface when needed.
+        private bool _weatherOverlayVisible = false;
+        private bool _weatherExpanded;
+        private bool _trafficExpanded;
+        private bool _weatherConfigurationVisible;
+        private bool _trafficConfigurationVisible;
+        private bool _showWeatherAdvancedControls;
+        private bool _showTrafficAdvancedControls;
+        private bool _controlsVisible;
+        private bool _visibilityInitialized;
+        private float _nextRefreshTime;
+        private Transform _weatherSizedRoot;
+        private Transform _trafficSizedRoot;
+        private TrafficRadarDisplay _subscribedTrafficDisplay;
+
+        // Pilot-focus presentation state. We keep the exact authored state of
+        // each unrelated HUD root (including CanvasGroup input flags) so REST,
+        // scene reloads, and XR mode switches can restore it without guessing.
+        private sealed class TrafficFocusVisibilityState
+        {
+            public GameObject gameObject;
+            public CanvasGroup canvasGroup;
+            public float alpha;
+            public bool interactable;
+            public bool blocksRaycasts;
+        }
+
+        private readonly List<TrafficFocusVisibilityState> _trafficFocusStates =
+            new List<TrafficFocusVisibilityState>();
+        private Coroutine _trafficFocusFade;
+        private bool _trafficFocusPresentationActive;
+
+        public void Configure(Transform weatherRoot, Transform trafficRoot)
+        {
+            _weatherRoot = weatherRoot;
+            _trafficRoot = trafficRoot;
+            RefreshReferences();
+            EnsureRadarSizesInitialized();
+            EnsureControlStrips();
+            UpdateLabels();
+        }
+
+        private void Awake()
+        {
+            _weatherExpanded = startExpanded;
+            _trafficExpanded = startExpanded;
+            _weatherConfigurationVisible = showConfigurationButtonsOnStart;
+            _trafficConfigurationVisible = showConfigurationButtonsOnStart;
+            RefreshReferences();
+            EnsureRadarSizesInitialized();
+            EnsureControlStrips();
+            SetVisible(showOnStart);
+            if (_trafficDisplay != null && _trafficDisplay.IsFullscreen)
+            {
+                // If this overlay was enabled after the display entered focus
+                // (for example during an XR canvas handoff), replay the visual
+                // presentation without requiring another FULL press.
+                ApplyTrafficFocusPresentation(true);
+            }
+        }
+
+        private void OnEnable()
+        {
+            _weatherExpanded |= startExpanded;
+            _trafficExpanded |= startExpanded;
+            RefreshReferences();
+            EnsureRadarSizesInitialized();
+            EnsureControlStrips();
+            SetVisible(showOnStart);
+            if (_trafficDisplay != null && _trafficDisplay.IsFullscreen)
+            {
+                ApplyTrafficFocusPresentation(true);
+            }
+        }
+
+        private void Start()
+        {
+            // FaaHudRuntimeSanitizer performs a final deterministic layout pass in
+            // Start. Reapply the saved pilot sizes afterward (this component has a
+            // later execution order) so startup normalization never erases them.
+            _weatherSizedRoot = null;
+            _trafficSizedRoot = null;
+            EnsureRadarSizesInitialized();
+            EnsureControlStrips();
+            UpdateLabels();
+        }
+
+        private void OnDisable()
+        {
+            // A scene reload or XR mode switch can disable this overlay before
+            // the radar display sends its REST notification. Restore any HUD
+            // roots we faded so the next enable pass starts from authored state.
+            RestoreTrafficFocusPresentationImmediate();
+
+            if (_weatherConditionsStrip != null)
+            {
+                _weatherConditionsStrip.ExpandedChanged -= OnWeatherConditionsExpandedChanged;
+            }
+
+            if (_subscribedTrafficDisplay != null)
+            {
+                _subscribedTrafficDisplay.FullscreenChanged -= OnTrafficFullscreenChanged;
+                _subscribedTrafficDisplay = null;
+            }
+        }
+
+        private void Update()
+        {
+            if (enableKeyboardShortcuts)
+            {
+                HandleKeyboardShortcuts();
+            }
+
+            if (Time.unscaledTime >= _nextRefreshTime)
+            {
+                _nextRefreshTime = Time.unscaledTime + 0.25f;
+                RefreshReferences();
+                EnsureRadarSizesInitialized();
+                EnsureControlStrips();
+                UpdateLabels();
+            }
+        }
+
+        public void SetVisible(bool visible)
+        {
+            _controlsVisible = visible;
+            _visibilityInitialized = true;
+            if (_weatherConditionsStrip != null)
+            {
+                _weatherConditionsStrip.gameObject.SetActive(visible && enableWeatherControls);
+            }
+
+            ApplyRadarConfigurationVisibility();
+        }
+
+        public void ToggleVisible()
+        {
+            bool nextVisible = !_controlsVisible;
+            SetVisible(nextVisible);
+        }
+
+        public void ToggleRadarConfiguration(FaaRadarKind radarKind)
+        {
+            EnsureControlStrips();
+            bool show;
+            if (radarKind == FaaRadarKind.Weather)
+            {
+                show = !(_weatherConditionsStrip != null
+                    ? _weatherConditionsStrip.IsExpanded
+                    : _weatherConfigurationVisible);
+                _weatherConfigurationVisible = show;
+                if (show)
+                {
+                    _weatherExpanded = true;
+                    _trafficConfigurationVisible = false;
+                    _trafficInteractionSurface?.CloseContextMenu();
+                }
+
+                _weatherConditionsStrip?.SetExpanded(show);
+            }
+            else
+            {
+                show = !_trafficConfigurationVisible;
+                _trafficConfigurationVisible = show;
+                if (show)
+                {
+                    _trafficExpanded = true;
+                    _weatherConfigurationVisible = false;
+                    _weatherConditionsStrip?.SetExpanded(false);
+                }
+            }
+
+            EnsureControlStrips();
+            UpdateLabels();
+            ApplyRadarConfigurationVisibility();
+        }
+
+        public bool IsRadarConfigurationVisible(FaaRadarKind radarKind) =>
+            radarKind == FaaRadarKind.Weather ? _weatherConfigurationVisible : _trafficConfigurationVisible;
+
+        public void SetRadarConfigurationVisible(FaaRadarKind radarKind, bool visible, bool immediate = false)
+        {
+            if (radarKind == FaaRadarKind.Weather)
+            {
+                _weatherConfigurationVisible = visible;
+                if (visible) _weatherExpanded = true;
+                _weatherConditionsStrip?.SetExpanded(visible, immediate);
+                if (visible)
+                {
+                    _trafficConfigurationVisible = false;
+                    _trafficInteractionSurface?.CloseContextMenu();
+                }
+            }
+            else
+            {
+                _trafficConfigurationVisible = visible;
+                if (visible) _trafficExpanded = true;
+                if (visible)
+                {
+                    _weatherConfigurationVisible = false;
+                    _weatherConditionsStrip?.SetExpanded(false, immediate);
+                }
+            }
+
+            EnsureControlStrips();
+            ApplyRadarConfigurationVisibility(immediate);
+        }
+
+        public void ToggleWeatherExpanded()
+        {
+            _weatherExpanded = !_weatherExpanded;
+            if (!_weatherExpanded)
+            {
+                _showWeatherAdvancedControls = false;
+            }
+
+            EnsureControlStrips();
+            UpdateLabels();
+        }
+
+        public void ToggleTrafficExpanded()
+        {
+            _trafficExpanded = !_trafficExpanded;
+            if (!_trafficExpanded)
+            {
+                _showTrafficAdvancedControls = false;
+            }
+
+            EnsureControlStrips();
+            UpdateLabels();
+        }
+
+        public void ToggleWeatherAdvanced()
+        {
+            _weatherExpanded = true;
+            _showWeatherAdvancedControls = !_showWeatherAdvancedControls;
+            EnsureControlStrips();
+            UpdateLabels();
+        }
+
+        public void ToggleTrafficAdvanced()
+        {
+            _trafficExpanded = true;
+            _showTrafficAdvancedControls = !_showTrafficAdvancedControls;
+            EnsureControlStrips();
+            UpdateLabels();
+        }
+
+        public void WeatherRangeDown()
+        {
+            _weatherDataProvider?.DecreaseRange();
+            SyncWeatherProviderSettings();
+        }
+
+        public void WeatherRangeUp()
+        {
+            _weatherDataProvider?.IncreaseRange();
+            SyncWeatherProviderSettings();
+        }
+
+        public void WeatherTiltDown()
+        {
+            if (_weatherDataProvider == null)
+            {
+                return;
+            }
+
+            _weatherDataProvider.SetTilt(_weatherDataProvider.RadarData.tiltAngle - 0.5f);
+            SyncWeatherProviderSettings();
+        }
+
+        public void WeatherTiltUp()
+        {
+            if (_weatherDataProvider == null)
+            {
+                return;
+            }
+
+            _weatherDataProvider.SetTilt(_weatherDataProvider.RadarData.tiltAngle + 0.5f);
+            SyncWeatherProviderSettings();
+        }
+
+        public void WeatherGainDown()
+        {
+            if (_weatherDataProvider == null)
+            {
+                return;
+            }
+
+            _weatherDataProvider.SetGain(_weatherDataProvider.RadarData.gainOffset - 1f);
+            SyncWeatherProviderSettings();
+        }
+
+        public void WeatherGainUp()
+        {
+            if (_weatherDataProvider == null)
+            {
+                return;
+            }
+
+            _weatherDataProvider.SetGain(_weatherDataProvider.RadarData.gainOffset + 1f);
+            SyncWeatherProviderSettings();
+        }
+
+        public void CycleWeatherMode()
+        {
+            if (_weatherDataProvider == null)
+            {
+                return;
+            }
+
+            RadarMode current = _weatherDataProvider.RadarData.currentMode;
+            RadarMode next = current switch
+            {
+                RadarMode.WX => RadarMode.WX_T,
+                RadarMode.WX_T => RadarMode.TURB,
+                RadarMode.TURB => RadarMode.MAP,
+                RadarMode.MAP => RadarMode.STBY,
+                _ => RadarMode.WX
+            };
+            _weatherDataProvider.SetMode(next);
+            SyncWeatherProviderSettings();
+        }
+
+        public void ToggleWeatherOverlay()
+        {
+            _weatherOverlayVisible = !_weatherOverlayVisible;
+            ApplyWeatherOverlayVisibility();
+        }
+
+        public void RefreshWeatherTexture()
+        {
+            if (_weatherProvider == null)
+            {
+                return;
+            }
+
+            _weatherProvider.Activate();
+            _weatherProvider.RefreshData();
+        }
+
+        public void ToggleWeatherProvider()
+        {
+            // A local display control, not a transmitter-power command. The
+            // provider is kept connected so OFF cannot quietly auto-reactivate.
+            _weatherRoot?.GetComponent<FaaRadarPresentation>()?.ToggleDisplay();
+        }
+
+        public void TrafficRangeDown()
+        {
+            _trafficController?.SetAutoRangeEnabled(false);
+            _trafficController?.DecreaseRange();
+        }
+
+        public void TrafficRangeUp()
+        {
+            _trafficController?.SetAutoRangeEnabled(false);
+            _trafficController?.IncreaseRange();
+        }
+
+        public void TrafficMaxTargetsDown()
+        {
+            _trafficController?.DecreaseMaxTargets();
+        }
+
+        public void TrafficMaxTargetsUp()
+        {
+            _trafficController?.IncreaseMaxTargets();
+        }
+
+        public void ToggleTrafficAutoRange()
+        {
+            _trafficController?.ToggleAutoRange();
+        }
+
+        public void ToggleTrafficTrackMode()
+        {
+            _trafficDisplay?.ToggleTrackUpMode();
+        }
+
+        public void ToggleTrafficChart()
+        {
+            _trafficDisplay?.ToggleChartBackground();
+        }
+
+        /// <summary>
+        /// Toggle the traffic map's centered pilot-focus view from the visible
+        /// traffic control strip.  The same action is available in both the
+        /// compact and expanded layouts so pilots do not have to hunt through
+        /// the advanced drawer.
+        /// </summary>
+        public void ToggleTrafficFullscreen()
+        {
+            if (_trafficDisplay == null)
+            {
+                return;
+            }
+
+            _trafficDisplay.ToggleFullscreen();
+            EnsureControlStrips();
+            UpdateLabels();
+        }
+
+        /// <summary>
+        /// Cycle the active FAA/XYZ basemap from the compact fullscreen toolbar.
+        /// The provider keeps the last good composite visible while new tiles
+        /// load, so switching sources does not flash an empty map.
+        /// </summary>
+        public void CycleTrafficMapSource()
+        {
+            _trafficDisplay?.CycleMapSource();
+            UpdateLabels();
+        }
+
+        /// <summary>
+        /// Recenter the map's chart layer after a drag gesture.
+        /// </summary>
+        public void RecenterTrafficMap()
+        {
+            _trafficDisplay?.ResetMapPan(false);
+            UpdateLabels();
+        }
+
+        public void ToggleTrafficBackground()
+        {
+            _trafficDisplay?.ToggleRadarBackground();
+        }
+
+        public void TrafficRingsDown()
+        {
+            _trafficDisplay?.DecreaseRangeRingCount();
+        }
+
+        public void TrafficRingsUp()
+        {
+            _trafficDisplay?.IncreaseRangeRingCount();
+        }
+
+        public void TrafficOpacityDown()
+        {
+            if (_trafficDisplay != null)
+            {
+                _trafficDisplay.DecreaseChartOpacity(0.1f);
+            }
+        }
+
+        public void TrafficOpacityUp()
+        {
+            if (_trafficDisplay != null)
+            {
+                _trafficDisplay.IncreaseChartOpacity(0.1f);
+            }
+        }
+
+        public void WeatherSizeDown()
+        {
+            AdjustRadarSize(FaaRadarKind.Weather, -1f);
+        }
+
+        public void WeatherSizeUp()
+        {
+            AdjustRadarSize(FaaRadarKind.Weather, 1f);
+        }
+
+        public void TrafficSizeDown()
+        {
+            if (_trafficDisplay != null && _trafficDisplay.IsFullscreen)
+            {
+                _trafficDisplay.ZoomOut();
+                return;
+            }
+
+            AdjustRadarSize(FaaRadarKind.Traffic, -1f);
+        }
+
+        public void TrafficSizeUp()
+        {
+            if (_trafficDisplay != null && _trafficDisplay.IsFullscreen)
+            {
+                _trafficDisplay.ZoomIn();
+                return;
+            }
+
+            AdjustRadarSize(FaaRadarKind.Traffic, 1f);
+        }
+
+        /// <summary>
+        /// Resizes a radar by one configured step. This is shared by the visible
+        /// +/- controls and pointer-wheel interaction on the radar glass.
+        /// </summary>
+        public void AdjustRadarSize(FaaRadarKind radarKind, float direction)
+        {
+            // Once the map is maximized, pointer-wheel input should operate the
+            // chart/radar range rather than fighting the focus layout by trying
+            // to resize its root back down to the normal HUD footprint.
+            if (radarKind == FaaRadarKind.Traffic &&
+                _trafficDisplay != null &&
+                _trafficDisplay.IsFullscreen)
+            {
+                if (direction > 0f)
+                {
+                    _trafficDisplay.ZoomIn();
+                }
+                else if (direction < 0f)
+                {
+                    _trafficDisplay.ZoomOut();
+                }
+
+                return;
+            }
+
+            Transform root = radarKind == FaaRadarKind.Weather ? _weatherRoot : _trafficRoot;
+            RectTransform rootRect = root as RectTransform ?? root?.GetComponent<RectTransform>();
+            if (rootRect == null || Mathf.Approximately(direction, 0f))
+            {
+                return;
+            }
+
+            float current = GetRadarPixelSize(rootRect);
+            float next = ClampRadarSize(
+                current + Mathf.Sign(direction) * Mathf.Max(1f, radarSizeStep),
+                minimumRadarSize,
+                maximumRadarSize);
+            ApplyRadarSize(rootRect, next, radarKind, persist: true);
+            EnsureControlStrips();
+            UpdateLabels();
+        }
+
+        public static float ClampRadarSize(float size, float minimum, float maximum)
+        {
+            float safeMinimum = Mathf.Max(128f, minimum);
+            float safeMaximum = Mathf.Max(safeMinimum, maximum);
+            return Mathf.Clamp(size, safeMinimum, safeMaximum);
+        }
+
+        public void RefreshTraffic()
+        {
+            _trafficController?.RefreshData();
+            _trafficDataManager?.FetchDataNow();
+        }
+
+        private void EnsureRadarSizesInitialized()
+        {
+            if (_weatherRoot != null && _weatherSizedRoot != _weatherRoot)
+            {
+                _weatherSizedRoot = _weatherRoot;
+                float initial = ReadInitialRadarSize(WeatherSizePreferenceKey, defaultWeatherRadarSize);
+                RectTransform rect = _weatherRoot as RectTransform ?? _weatherRoot.GetComponent<RectTransform>();
+                ApplyRadarSize(rect, initial, FaaRadarKind.Weather, persist: false);
+            }
+
+            if (_trafficRoot != null && _trafficSizedRoot != _trafficRoot)
+            {
+                _trafficSizedRoot = _trafficRoot;
+                float initial = ReadInitialRadarSize(TrafficSizePreferenceKey, defaultTrafficRadarSize);
+                RectTransform rect = _trafficRoot as RectTransform ?? _trafficRoot.GetComponent<RectTransform>();
+                ApplyRadarSize(rect, initial, FaaRadarKind.Traffic, persist: false);
+            }
+        }
+
+        private float ReadInitialRadarSize(string preferenceKey, float fallback)
+        {
+            // Editor scene setup must be deterministic and must never serialize a
+            // developer machine's PlayerPrefs into the shared scene asset.
+            if (!Application.isPlaying || !rememberRadarSizes || !PlayerPrefs.HasKey(preferenceKey))
+            {
+                return ClampRadarSize(fallback, minimumRadarSize, maximumRadarSize);
+            }
+
+            float value = PlayerPrefs.GetFloat(preferenceKey);
+            float legacyDefault = preferenceKey == WeatherSizePreferenceKey ? 372f : 420f;
+            if (Mathf.Abs(value - legacyDefault) < 0.5f)
+            {
+                value = fallback;
+                PlayerPrefs.SetFloat(preferenceKey, value);
+                PlayerPrefs.Save();
+            }
+
+            return ClampRadarSize(value, minimumRadarSize, maximumRadarSize);
+        }
+
+        private void ApplyRadarSize(RectTransform rootRect, float requestedSize, FaaRadarKind radarKind, bool persist)
+        {
+            if (rootRect == null)
+            {
+                return;
+            }
+
+            float size = ClampRadarSize(requestedSize, minimumRadarSize, maximumRadarSize);
+            rootRect.sizeDelta = new Vector2(size, size);
+            LayoutRebuilder.MarkLayoutForRebuild(rootRect);
+
+            if (radarKind == FaaRadarKind.Weather)
+            {
+                foreach (XPlaneOriginalWeatherRadarDisplay display in
+                         rootRect.GetComponentsInChildren<XPlaneOriginalWeatherRadarDisplay>(true))
+                {
+                    display?.RefreshLayout();
+                }
+
+                ImproveWeatherLabelLegibility(rootRect);
+                if (_weatherStrip != null)
+                {
+                    MatchStripToRadarRoot(_weatherStrip, rootRect);
+                }
+            }
+            else if (_trafficStrip != null)
+            {
+                MatchStripToRadarRoot(_trafficStrip, rootRect);
+            }
+
+            if (persist && rememberRadarSizes)
+            {
+                PlayerPrefs.SetFloat(
+                    radarKind == FaaRadarKind.Weather ? WeatherSizePreferenceKey : TrafficSizePreferenceKey,
+                    size);
+                PlayerPrefs.Save();
+            }
+        }
+
+        private static float GetRadarPixelSize(RectTransform rect)
+        {
+            if (rect == null)
+            {
+                return 0f;
+            }
+
+            float width = rect.rect.width > 1f ? rect.rect.width : rect.sizeDelta.x;
+            float height = rect.rect.height > 1f ? rect.rect.height : rect.sizeDelta.y;
+            return Mathf.Max(1f, Mathf.Min(Mathf.Abs(width), Mathf.Abs(height)));
+        }
+
+        private void RefreshReferences()
+        {
+            if (_weatherRoot == null)
+            {
+                _weatherRoot = FindPreferredLoadedTransform(weatherRadarRootName);
+            }
+
+            if (_trafficRoot == null)
+            {
+                _trafficRoot = FindPreferredLoadedTransform(trafficRadarRootName);
+            }
+
+            if (_weatherRoot != null)
+            {
+                _weatherDataProvider = _weatherRoot.GetComponentInChildren<WeatherRadarDataProvider>(true);
+                _weatherProvider = _weatherRoot.GetComponentInChildren<XPlaneOriginalWeatherRadarProvider>(true);
+                _weatherOverlays = _weatherRoot.GetComponentsInChildren<XPlaneWeatherRadarOverlay>(true);
+                ApplyWeatherOverlayVisibility();
+            }
+
+            if (_xPlaneBridge == null)
+            {
+                _xPlaneBridge = FindAnyObjectByType<XPlane12ApiHudBridge>(FindObjectsInactive.Include);
+            }
+
+            if (_trafficRoot != null)
+            {
+                _trafficController = _trafficRoot.GetComponentInChildren<TrafficRadarController>(true);
+                _trafficDisplay = _trafficRoot.GetComponentInChildren<TrafficRadarDisplay>(true);
+                _trafficDataManager = _trafficRoot.GetComponentInChildren<TrafficRadarDataManager>(true);
+            }
+
+            if (_subscribedTrafficDisplay != _trafficDisplay)
+            {
+                if (_subscribedTrafficDisplay != null)
+                {
+                    _subscribedTrafficDisplay.FullscreenChanged -= OnTrafficFullscreenChanged;
+                }
+
+                _subscribedTrafficDisplay = _trafficDisplay;
+                if (_subscribedTrafficDisplay != null)
+                {
+                    _subscribedTrafficDisplay.FullscreenChanged += OnTrafficFullscreenChanged;
+                    // The display can already be focused when this overlay is
+                    // enabled after an XR scene/domain reload.  Apply the
+                    // presentation immediately instead of waiting for a
+                    // second fullscreen toggle.
+                    if (_subscribedTrafficDisplay.IsFullscreen)
+                    {
+                        ApplyTrafficFocusPresentation(true);
+                    }
+                }
+            }
+        }
+
+        private void OnTrafficFullscreenChanged(bool _)
+        {
+            bool focused = _trafficDisplay != null && _trafficDisplay.IsFullscreen;
+            if (focused)
+            {
+                // Preserve the pilot's open/closed choice across FULL/REST.
+                // Only the advanced content collapses in pilot-focus mode.
+                _showTrafficAdvancedControls = false;
+            }
+
+            ApplyTrafficFocusPresentation(focused);
+
+            // Re-dock the strip in the same frame the display completes its
+            // transition, so REST/FULL never lingers in the old position until
+            // the periodic refresh tick.
+            EnsureControlStrips();
+            UpdateLabels();
+        }
+
+        /// <summary>
+        /// Presents a clean pilot-focus map by fading unrelated HUD roots while
+        /// leaving the traffic canvas and its REST escape strip untouched. The
+        /// authored alpha/input state is captured once and restored exactly on
+        /// exit, which is important when a headset switches between simulator
+        /// and native XR canvases at runtime.
+        /// </summary>
+        private void ApplyTrafficFocusPresentation(bool focused)
+        {
+            if (!hideOtherHudInTrafficFullscreen)
+            {
+                if (!focused)
+                {
+                    RestoreTrafficFocusPresentationImmediate();
+                }
+
+                return;
+            }
+
+            if (focused)
+            {
+                if (_trafficFocusPresentationActive)
+                {
+                    return;
+                }
+
+                CaptureTrafficFocusStates();
+                if (_trafficFocusStates.Count == 0)
+                {
+                    return;
+                }
+
+                _trafficFocusPresentationActive = true;
+                StopTrafficFocusFade();
+                if (!Application.isPlaying || trafficFullscreenHudFadeDuration <= 0.001f)
+                {
+                    SetTrafficFocusStateVisibility(true);
+                    return;
+                }
+
+                _trafficFocusFade = StartCoroutine(AnimateTrafficFocusVisibility(true));
+                return;
+            }
+
+            if (!_trafficFocusPresentationActive && _trafficFocusStates.Count == 0)
+            {
+                return;
+            }
+
+            _trafficFocusPresentationActive = false;
+            StopTrafficFocusFade();
+            if (!Application.isPlaying || trafficFullscreenHudFadeDuration <= 0.001f)
+            {
+                RestoreTrafficFocusPresentationImmediate();
+                return;
+            }
+
+            _trafficFocusFade = StartCoroutine(AnimateTrafficFocusVisibility(false));
+        }
+
+        private void CaptureTrafficFocusStates()
+        {
+            if (_trafficFocusStates.Count > 0)
+            {
+                return;
+            }
+
+            HashSet<Transform> capturedTransforms = new HashSet<Transform>();
+            Transform[] transforms = FindObjectsByType<Transform>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+            for (int i = 0; i < transforms.Length; i++)
+            {
+                Transform candidate = transforms[i];
+                if (!IsTrafficFocusHideTarget(candidate) || !capturedTransforms.Add(candidate))
+                {
+                    continue;
+                }
+
+                CanvasGroup group = candidate.GetComponent<CanvasGroup>();
+                if (group == null)
+                {
+                    // Use the Type overload here rather than relying on a
+                    // generic AddComponent result. Unity's runtime compiler
+                    // can return a transient null for the generic overload
+                    // while a Canvas is being reloaded during XR startup.
+                    group = candidate.gameObject.AddComponent(typeof(CanvasGroup)) as CanvasGroup;
+                }
+
+                if (group == null)
+                {
+                    continue;
+                }
+                _trafficFocusStates.Add(new TrafficFocusVisibilityState
+                {
+                    gameObject = candidate.gameObject,
+                    canvasGroup = group,
+                    alpha = group.alpha,
+                    interactable = group.interactable,
+                    blocksRaycasts = group.blocksRaycasts
+                });
+            }
+        }
+
+        private bool IsTrafficFocusHideTarget(Transform candidate)
+        {
+            if (candidate == null || !candidate.gameObject.scene.IsValid() ||
+                !candidate.gameObject.scene.isLoaded ||
+                !MatchesTrafficFocusHideName(candidate.name))
+            {
+                return false;
+            }
+
+            // Never fade the radar itself (or a shared ancestor that contains
+            // it). Some legacy scenes nest both HUD and traffic under one
+            // canvas; hiding that ancestor would also hide the REST escape.
+            if (_trafficRoot != null &&
+                (_trafficRoot == candidate || _trafficRoot.IsChildOf(candidate) || candidate.IsChildOf(_trafficRoot)))
+            {
+                return false;
+            }
+
+            // The generated traffic strip is reparented to the traffic canvas
+            // (a sibling of this script's authored weather host), so fading the
+            // weather canvas cannot hide REST/source controls.  Only skip the
+            // component object itself in case a scene author adds that exact
+            // name to the configurable list.
+            if (candidate == transform)
+            {
+                return false;
+            }
+
+            // If a configured target is nested below another configured target,
+            // capture only the outer group to avoid multiplying alpha values.
+            for (Transform parent = candidate.parent; parent != null; parent = parent.parent)
+            {
+                if (MatchesTrafficFocusHideName(parent.name))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        private bool MatchesTrafficFocusHideName(string objectName)
+        {
+            if (string.IsNullOrWhiteSpace(objectName) || trafficFullscreenHideObjectNames == null)
+            {
+                return false;
+            }
+
+            for (int i = 0; i < trafficFullscreenHideObjectNames.Length; i++)
+            {
+                if (string.Equals(objectName, trafficFullscreenHideObjectNames[i],
+                        System.StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private IEnumerator AnimateTrafficFocusVisibility(bool hide)
+        {
+            float duration = Mathf.Max(0.001f, trafficFullscreenHudFadeDuration);
+            float elapsed = 0f;
+            Dictionary<TrafficFocusVisibilityState, float> startAlphas =
+                new Dictionary<TrafficFocusVisibilityState, float>();
+
+            for (int i = 0; i < _trafficFocusStates.Count; i++)
+            {
+                TrafficFocusVisibilityState state = _trafficFocusStates[i];
+                if (state == null || state.canvasGroup == null)
+                {
+                    continue;
+                }
+
+                startAlphas[state] = state.canvasGroup.alpha;
+                if (hide)
+                {
+                    state.canvasGroup.interactable = false;
+                    state.canvasGroup.blocksRaycasts = false;
+                }
+            }
+
+            while (elapsed < duration)
+            {
+                elapsed += Time.unscaledDeltaTime;
+                float progress = Mathf.Clamp01(elapsed / duration);
+                float eased = progress * progress * (3f - 2f * progress);
+                for (int i = 0; i < _trafficFocusStates.Count; i++)
+                {
+                    TrafficFocusVisibilityState state = _trafficFocusStates[i];
+                    if (state == null || state.canvasGroup == null || !startAlphas.ContainsKey(state))
+                    {
+                        continue;
+                    }
+
+                    float target = hide ? 0f : state.alpha;
+                    state.canvasGroup.alpha = Mathf.Lerp(startAlphas[state], target, eased);
+                }
+
+                yield return null;
+            }
+
+            SetTrafficFocusStateVisibility(hide);
+            _trafficFocusFade = null;
+            if (!hide)
+            {
+                ClearTrafficFocusStates();
+            }
+        }
+
+        private void SetTrafficFocusStateVisibility(bool hidden)
+        {
+            for (int i = 0; i < _trafficFocusStates.Count; i++)
+            {
+                TrafficFocusVisibilityState state = _trafficFocusStates[i];
+                if (state == null || state.canvasGroup == null)
+                {
+                    continue;
+                }
+
+                state.canvasGroup.alpha = hidden ? 0f : state.alpha;
+                state.canvasGroup.interactable = hidden ? false : state.interactable;
+                state.canvasGroup.blocksRaycasts = hidden ? false : state.blocksRaycasts;
+            }
+
+            if (!hidden)
+            {
+                ClearTrafficFocusStates();
+            }
+        }
+
+        private void RestoreTrafficFocusPresentationImmediate()
+        {
+            StopTrafficFocusFade();
+            SetTrafficFocusStateVisibility(false);
+            _trafficFocusPresentationActive = false;
+        }
+
+        private void ClearTrafficFocusStates()
+        {
+            _trafficFocusStates.Clear();
+        }
+
+        private void StopTrafficFocusFade()
+        {
+            if (_trafficFocusFade != null)
+            {
+                StopCoroutine(_trafficFocusFade);
+                _trafficFocusFade = null;
+            }
+        }
+
+        private void EnsureControlStrips()
+        {
+            EnsureEventSystem();
+            SuppressLegacyRadarControlPanels();
+
+            if (enableWeatherControls && _weatherRoot != null)
+            {
+                EnsurePresentation(_weatherRoot, FaaRadarKind.Weather);
+                if (suppressInlineWeatherLabels)
+                {
+                    ImproveWeatherLabelLegibility(_weatherRoot);
+                }
+
+                _weatherStrip = EnsureStrip(_weatherRoot, "WeatherControlStrip", GetWeatherStripSize());
+                EnsureReadableWeatherControls(_weatherStrip);
+                _weatherDrawer = EnsureDrawer(_weatherStrip);
+                _weatherInteractionSurface = EnsureInteractionSurface(_weatherRoot, FaaRadarKind.Weather);
+                _weatherConditionsStrip = EnsureWeatherConditionsStrip(_weatherRoot, _weatherStrip);
+            }
+            else if (_weatherConditionsStrip != null)
+            {
+                _weatherConditionsStrip.gameObject.SetActive(false);
+            }
+
+            if (enableTrafficControls && _trafficRoot != null)
+            {
+                EnsurePresentation(_trafficRoot, FaaRadarKind.Traffic);
+                _trafficStrip = EnsureStrip(_trafficRoot, "TrafficControlStrip", GetTrafficStripSize());
+                EnsureReadableTrafficControls(_trafficStrip);
+                _trafficDrawer = EnsureDrawer(_trafficStrip);
+                _trafficInteractionSurface = EnsureInteractionSurface(_trafficRoot, FaaRadarKind.Traffic);
+            }
+
+            ApplyRadarConfigurationVisibility();
+        }
+
+        private void EnsurePresentation(Transform root, FaaRadarKind kind)
+        {
+            var presentation = root.GetComponent<FaaRadarPresentation>() ?? root.gameObject.AddComponent<FaaRadarPresentation>();
+            presentation.Configure(kind, _xPlaneBridge);
+        }
+
+        private FaaRadarConfigurationDrawer EnsureDrawer(RectTransform strip)
+        {
+            if (strip == null)
+            {
+                return null;
+            }
+
+            FaaRadarConfigurationDrawer drawer = strip.GetComponent<FaaRadarConfigurationDrawer>() ??
+                                                   strip.gameObject.AddComponent<FaaRadarConfigurationDrawer>();
+            // The whole panel is a drawer, including its primary row. Leaving
+            // that row opaque was the reason the configuration bars never hid.
+            drawer.Configure(reducedMotion);
+            return drawer;
+        }
+
+        private static RectTransform[] FindDrawerContentRows(RectTransform strip)
+        {
+            if (strip == null)
+            {
+                return null;
+            }
+
+            List<RectTransform> rows = new List<RectTransform>();
+            for (int i = 0; i < strip.childCount; i++)
+            {
+                Transform child = strip.GetChild(i);
+                if (child == null)
+                {
+                    continue;
+                }
+
+                string name = child.name;
+                if (name.IndexOf("Secondary", System.StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    name.IndexOf("Tertiary", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    RectTransform row = child as RectTransform ?? child.GetComponent<RectTransform>();
+                    if (row != null)
+                    {
+                        rows.Add(row);
+                    }
+                }
+            }
+
+            return rows.ToArray();
+        }
+
+        private FaaRadarInteractionSurface EnsureInteractionSurface(Transform root, FaaRadarKind radarKind)
+        {
+            RectTransform rootRect = root as RectTransform ?? root.GetComponent<RectTransform>();
+            if (rootRect == null)
+            {
+                return null;
+            }
+
+            string objectName = radarKind == FaaRadarKind.Weather
+                ? FaaRadarInteractionSurface.WeatherObjectName
+                : FaaRadarInteractionSurface.TrafficObjectName;
+            Transform existing = root.Find(objectName);
+            GameObject surfaceObject = existing != null
+                ? existing.gameObject
+                : new GameObject(objectName, typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+            RectTransform surfaceRect = surfaceObject.GetComponent<RectTransform>();
+            surfaceRect.SetParent(root, false);
+            StretchToParent(surfaceRect);
+            surfaceRect.SetAsLastSibling();
+
+            FaaRadarInteractionSurface surface = surfaceObject.GetComponent<FaaRadarInteractionSurface>() ??
+                                                 surfaceObject.AddComponent<FaaRadarInteractionSurface>();
+            surface.Configure(this, radarKind, reducedMotion);
+            return surface;
+        }
+
+        private void ApplyRadarConfigurationVisibility(bool immediate = false)
+        {
+            bool overallVisible = _visibilityInitialized ? _controlsVisible : showOnStart;
+            bool weatherEnabled = overallVisible && enableWeatherControls;
+            // Keep a minimal traffic strip available while the map is focused,
+            // even if the pilot hid the general control overlay.  REST is the
+            // guaranteed escape hatch from fullscreen in an XR session.
+            bool trafficFocus = _trafficDisplay != null && _trafficDisplay.IsFullscreen;
+            bool trafficEnabled = (overallVisible || trafficFocus) && enableTrafficControls;
+
+            ApplyDrawerState(
+                _weatherStrip,
+                _weatherDrawer,
+                weatherEnabled && _weatherConfigurationVisible,
+                weatherEnabled,
+                immediate);
+            ApplyDrawerState(
+                _trafficStrip,
+                _trafficDrawer,
+                trafficEnabled && _trafficConfigurationVisible,
+                trafficEnabled,
+                immediate);
+
+            if (_weatherInteractionSurface != null)
+            {
+                _weatherInteractionSurface.SetInteractionEnabled(weatherEnabled);
+                _weatherInteractionSurface.SetOpen(weatherEnabled && _weatherConfigurationVisible);
+            }
+
+            if (_trafficInteractionSurface != null)
+            {
+                _trafficInteractionSurface.SetInteractionEnabled(trafficEnabled);
+                _trafficInteractionSurface.SetOpen(trafficEnabled && _trafficConfigurationVisible);
+            }
+        }
+
+        private static void ApplyDrawerState(
+            RectTransform strip,
+            FaaRadarConfigurationDrawer drawer,
+            bool drawerVisible,
+            bool controlsEnabled,
+            bool immediate)
+        {
+            if (strip == null)
+            {
+                return;
+            }
+
+            strip.gameObject.SetActive(controlsEnabled);
+            if (controlsEnabled)
+            {
+                drawer?.SetVisible(drawerVisible, immediate);
+            }
+        }
+
+        private XPlaneWeatherInfoStrip EnsureWeatherConditionsStrip(Transform root, RectTransform weatherControlStrip)
+        {
+            Transform stripParent = root.parent != null ? root.parent : transform;
+            Transform existing = stripParent.Find(XPlaneWeatherInfoStrip.StripObjectName) ??
+                                 root.Find(XPlaneWeatherInfoStrip.StripObjectName);
+            GameObject stripObject = existing != null
+                ? existing.gameObject
+                : new GameObject(
+                    XPlaneWeatherInfoStrip.StripObjectName,
+                    typeof(RectTransform),
+                    typeof(CanvasRenderer));
+            stripObject.transform.SetParent(stripParent, false);
+            XPlaneWeatherInfoStrip infoStrip = stripObject.GetComponent<XPlaneWeatherInfoStrip>() ??
+                                               stripObject.AddComponent<XPlaneWeatherInfoStrip>();
+            infoStrip.ExpandedChanged -= OnWeatherConditionsExpandedChanged;
+            infoStrip.ExpandedChanged += OnWeatherConditionsExpandedChanged;
+            infoStrip.Configure(_xPlaneBridge, root as RectTransform ?? root.GetComponent<RectTransform>(), weatherControlStrip);
+            stripObject.SetActive((_visibilityInitialized ? _controlsVisible : showOnStart) && enableWeatherControls);
+            stripObject.transform.SetAsLastSibling();
+            return infoStrip;
+        }
+
+        private void OnWeatherConditionsExpandedChanged(bool expanded)
+        {
+            _weatherConfigurationVisible = expanded;
+            if (expanded)
+            {
+                _trafficConfigurationVisible = false;
+                _trafficInteractionSurface?.CloseContextMenu();
+            }
+
+            ApplyRadarConfigurationVisibility();
+        }
+
+        private RectTransform EnsureStrip(Transform root, string stripName, Vector2 size)
+        {
+            Transform stripParent = root.parent != null ? root.parent : transform;
+            Transform existing = stripParent.Find(stripName) ?? root.Find(stripName);
+            GameObject stripObject = existing != null ? existing.gameObject : new GameObject(stripName, typeof(RectTransform));
+            RectTransform rectTransform = stripObject.GetComponent<RectTransform>();
+            rectTransform.SetParent(stripParent, false);
+            MatchStripToRadarRoot(rectTransform, root);
+            rectTransform.sizeDelta = size;
+            if (stripObject.GetComponent<FaaRadarConfigurationDrawer>() == null)
+            {
+                rectTransform.localScale = Vector3.one;
+            }
+            rectTransform.localRotation = Quaternion.identity;
+            stripObject.SetActive((_visibilityInitialized ? _controlsVisible : showOnStart) &&
+                                  (stripName.Contains("Weather") ? enableWeatherControls : enableTrafficControls));
+
+            Image background = stripObject.GetComponent<Image>() ?? stripObject.AddComponent<Image>();
+            FaaRadarVisualStyle.ApplyRounded(background, StripBackgroundColor, 14);
+            background.raycastTarget = true;
+
+            Outline outline = stripObject.GetComponent<Outline>() ?? stripObject.AddComponent<Outline>();
+            outline.effectColor = StripStrokeColor;
+            outline.effectDistance = new Vector2(1f, -1f);
+
+            // Keep the generated strip legible against bright sky, terrain,
+            // and chart ink without adding another opaque plate.  A small,
+            // low-alpha drop shadow gives the pilot controls a clean lifted
+            // edge in both compact HUD and fullscreen focus layouts.
+            // Outline derives from Shadow, so GetComponent<Shadow>() can
+            // return the outline itself. Find a dedicated drop-shadow
+            // component first to avoid overwriting the green outline offset.
+            FaaRadarVisualStyle.EnsureDropShadow(
+                stripObject,
+                new Color(0f, 0.01f, 0.015f, 0.64f),
+                new Vector2(0f, -5f));
+
+            HorizontalLayoutGroup oldHorizontalLayout = stripObject.GetComponent<HorizontalLayoutGroup>();
+            if (oldHorizontalLayout != null)
+            {
+                DestroyUnityObject(oldHorizontalLayout);
+            }
+
+            VerticalLayoutGroup layout = stripObject.GetComponent<VerticalLayoutGroup>() ?? stripObject.AddComponent<VerticalLayoutGroup>();
+            layout.padding = new RectOffset(6, 6, 6, 6);
+            layout.spacing = 6f;
+            layout.childAlignment = TextAnchor.MiddleCenter;
+            layout.childForceExpandWidth = false;
+            layout.childForceExpandHeight = false;
+            layout.childControlWidth = false;
+            layout.childControlHeight = false;
+
+            stripObject.transform.SetAsLastSibling();
+            return rectTransform;
+        }
+
+
+        private RectTransform EnsureRow(RectTransform strip, string rowName)
+        {
+            Transform existing = strip.Find(rowName);
+            GameObject rowObject = existing != null ? existing.gameObject : new GameObject(rowName, typeof(RectTransform));
+            rowObject.SetActive(true);
+            RectTransform rectTransform = rowObject.GetComponent<RectTransform>();
+            rectTransform.SetParent(strip, false);
+            rectTransform.SetAsLastSibling();
+            rectTransform.sizeDelta = new Vector2(strip.sizeDelta.x - 12f, RowHeight);
+            rectTransform.localScale = Vector3.one;
+            rectTransform.localRotation = Quaternion.identity;
+
+            LayoutElement layoutElement = rowObject.GetComponent<LayoutElement>() ?? rowObject.AddComponent<LayoutElement>();
+            layoutElement.preferredWidth = Mathf.Max(1f, strip.sizeDelta.x - 12f);
+            layoutElement.preferredHeight = RowHeight;
+            layoutElement.minHeight = RowHeight;
+
+            HorizontalLayoutGroup layout = rowObject.GetComponent<HorizontalLayoutGroup>() ?? rowObject.AddComponent<HorizontalLayoutGroup>();
+            layout.padding = new RectOffset(0, 0, 0, 0);
+            layout.spacing = 5f;
+            layout.childAlignment = TextAnchor.MiddleCenter;
+            layout.childForceExpandWidth = false;
+            layout.childForceExpandHeight = false;
+            layout.childControlWidth = false;
+            layout.childControlHeight = false;
+            return rectTransform;
+        }
+
+        private Button EnsureButton(RectTransform parent, string name, string text, UnityAction action, float width)
+        {
+            Transform existing = parent.Find(name);
+            GameObject buttonObject = existing != null ? existing.gameObject : new GameObject(name, typeof(RectTransform));
+            buttonObject.SetActive(true);
+            RectTransform rectTransform = buttonObject.GetComponent<RectTransform>();
+            rectTransform.SetParent(parent, false);
+            rectTransform.SetAsLastSibling();
+            rectTransform.sizeDelta = new Vector2(width, RowHeight);
+
+            LayoutElement layout = buttonObject.GetComponent<LayoutElement>() ?? buttonObject.AddComponent<LayoutElement>();
+            layout.preferredWidth = width;
+            layout.preferredHeight = RowHeight;
+            layout.minWidth = width;
+            layout.minHeight = RowHeight;
+
+            Image image = buttonObject.GetComponent<Image>() ?? buttonObject.AddComponent<Image>();
+            FaaRadarVisualStyle.ApplyRounded(image, ButtonNormalColor, 9);
+            image.raycastTarget = true;
+
+            Button button = buttonObject.GetComponent<Button>() ?? buttonObject.AddComponent<Button>();
+            button.onClick.RemoveAllListeners();
+            button.onClick.AddListener(action);
+            FaaRadarVisualStyle.ConfigureButton(button, image);
+
+            FaaRadarButtonMotion motion = buttonObject.GetComponent<FaaRadarButtonMotion>() ??
+                                          buttonObject.AddComponent<FaaRadarButtonMotion>();
+            motion.Configure(reducedMotion, 1.035f);
+
+            TMP_Text label = EnsureText(buttonObject.transform, "Label", text, 14.5f);
+            StretchToParent(label.rectTransform);
+            label.alignment = TextAlignmentOptions.Center;
+            label.fontStyle = FontStyles.Bold;
+            label.color = PrimaryTextColor;
+            return button;
+        }
+
+        private TMP_Text EnsureLabel(RectTransform parent, string name, string text, float width)
+        {
+            Transform existing = parent.Find(name);
+            GameObject labelObject = existing != null ? existing.gameObject : new GameObject(name, typeof(RectTransform));
+            labelObject.SetActive(true);
+            RectTransform rectTransform = labelObject.GetComponent<RectTransform>();
+            rectTransform.SetParent(parent, false);
+            rectTransform.SetAsLastSibling();
+            rectTransform.sizeDelta = new Vector2(width, RowHeight);
+
+            LayoutElement layout = labelObject.GetComponent<LayoutElement>() ?? labelObject.AddComponent<LayoutElement>();
+            layout.preferredWidth = width;
+            layout.preferredHeight = RowHeight;
+            layout.minWidth = width;
+            layout.minHeight = RowHeight;
+
+            Image plate = labelObject.GetComponent<Image>() ?? labelObject.AddComponent<Image>();
+            FaaRadarVisualStyle.ApplyRounded(
+                plate,
+                new Color(0.020f, 0.080f, 0.092f, 0.92f),
+                9);
+            plate.raycastTarget = false;
+
+            TMP_Text label = EnsureText(labelObject.transform, "Text", text, 14.5f);
+            StretchToParent(label.rectTransform);
+            label.alignment = TextAlignmentOptions.Center;
+            label.fontStyle = FontStyles.Bold;
+            label.color = SecondaryTextColor;
+            return label;
+        }
+
+        private TMP_Text EnsureText(Transform parent, string name, string text, float fontSize)
+        {
+            Transform existing = parent.Find(name);
+            GameObject textObject = existing != null ? existing.gameObject : new GameObject(name, typeof(RectTransform));
+            textObject.SetActive(true);
+            RectTransform rectTransform = textObject.GetComponent<RectTransform>();
+            rectTransform.SetParent(parent, false);
+
+            TextMeshProUGUI label = textObject.GetComponent<TextMeshProUGUI>() ?? textObject.AddComponent<TextMeshProUGUI>();
+            label.text = text;
+            label.fontSize = fontSize;
+            label.enableAutoSizing = false;
+            label.fontSizeMin = Mathf.Min(12f, fontSize);
+            label.fontSizeMax = fontSize;
+            label.extraPadding = true;
+            label.textWrappingMode = TextWrappingModes.NoWrap;
+            label.overflowMode = TextOverflowModes.Truncate;
+            label.raycastTarget = false;
+            return label;
+        }
+
+        private void UpdateLabels() => RefreshReadableValues();
+
+        private void SyncWeatherProviderSettings()
+        {
+            if (_weatherProvider == null || _weatherDataProvider == null)
+            {
+                return;
+            }
+
+            WeatherRadarData data = _weatherDataProvider.RadarData;
+            _weatherProvider.SetRange(data.currentRange);
+            _weatherProvider.SetTilt(data.tiltAngle);
+            _weatherProvider.SetGain(data.gainOffset);
+        }
+
+        private void ApplyWeatherOverlayVisibility()
+        {
+            if (_weatherRoot == null)
+            {
+                return;
+            }
+
+            foreach (XPlaneOriginalWeatherRadarDisplay display in
+                     _weatherRoot.GetComponentsInChildren<XPlaneOriginalWeatherRadarDisplay>(true))
+            {
+                if (display != null)
+                {
+                    display.ShowReferenceOverlay = _weatherOverlayVisible;
+                }
+            }
+
+            _weatherOverlays = _weatherRoot.GetComponentsInChildren<XPlaneWeatherRadarOverlay>(true);
+
+            foreach (XPlaneWeatherRadarOverlay overlay in _weatherOverlays)
+            {
+                if (overlay != null)
+                {
+                    overlay.gameObject.SetActive(_weatherOverlayVisible);
+                    overlay.enabled = _weatherOverlayVisible;
+                    RawImage image = overlay.GetComponent<RawImage>();
+                    if (image != null)
+                    {
+                        image.enabled = _weatherOverlayVisible;
+                        image.raycastTarget = false;
+                    }
+                }
+            }
+        }
+
+        private void HandleKeyboardShortcuts()
+        {
+            bool resize = Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift);
+            if (Input.GetKeyDown(KeyCode.LeftBracket))
+            {
+                if (resize) WeatherSizeDown(); else WeatherRangeDown();
+            }
+            else if (Input.GetKeyDown(KeyCode.RightBracket))
+            {
+                if (resize) WeatherSizeUp(); else WeatherRangeUp();
+            }
+            else if (Input.GetKeyDown(KeyCode.Comma))
+            {
+                if (resize) TrafficSizeDown(); else TrafficRangeDown();
+            }
+            else if (Input.GetKeyDown(KeyCode.Period))
+            {
+                if (resize) TrafficSizeUp(); else TrafficRangeUp();
+            }
+        }
+
+        private static void SetStripVisible(RectTransform strip, bool visible)
+        {
+            if (strip != null)
+            {
+                strip.gameObject.SetActive(visible);
+            }
+        }
+
+        private static void SetText(TMP_Text label, string text)
+        {
+            if (label != null)
+            {
+                label.text = text;
+            }
+        }
+
+        private static string CompactMapSourceName(string sourceName)
+        {
+            if (string.IsNullOrWhiteSpace(sourceName))
+            {
+                return "MAP";
+            }
+
+            string compact = sourceName.Trim().ToUpperInvariant();
+            if (compact == "SECTIONAL")
+            {
+                return "SEC";
+            }
+
+            if (compact == "TERMINAL AREA")
+            {
+                return "TAC";
+            }
+
+            if (compact == "TERMINAL")
+            {
+                return "TAC";
+            }
+
+            if (compact == "WORLD AERONAUTICAL")
+            {
+                return "WAC";
+            }
+
+            if (compact == "STREET")
+            {
+                return "OSM";
+            }
+
+            if (compact == "CUSTOM")
+            {
+                return "CUST";
+            }
+
+            if (compact.Length > 7)
+            {
+                compact = compact.Substring(0, 7);
+            }
+
+            return compact;
+        }
+
+        private static void SetButtonActive(TMP_Text label, bool active)
+        {
+            if (label == null)
+            {
+                return;
+            }
+
+            Image image = label.GetComponentInParent<Image>();
+            if (image != null)
+            {
+                image.color = active ? ButtonActiveColor : ButtonNormalColor;
+            }
+        }
+
+        private static string Signed(float value, string format)
+        {
+            return value >= 0f ? "+" + value.ToString(format) : value.ToString(format);
+        }
+
+        private Vector2 GetWeatherStripSize()
+        {
+            return new Vector2(SettingsPanelWidth, SettingsPanelHeight);
+        }
+
+        private Vector2 GetTrafficStripSize()
+        {
+            if (_trafficDisplay != null && _trafficDisplay.IsFullscreen)
+            {
+                // The focused toolbar is intentionally the only extra row in
+                // pilot-focus mode: REST, map source, chart opacity, range,
+                // and recenter remain reachable without reopening the full
+                // configuration drawer.
+                return new Vector2(
+                    ReadableFocusWidth,
+                    ReadableFocusHeight);
+            }
+
+            return new Vector2(SettingsPanelWidth, SettingsPanelHeight);
+        }
+
+        private void SuppressLegacyRadarControlPanels()
+        {
+            if (!suppressLegacyRadarControlPanels)
+            {
+                return;
+            }
+
+            foreach (TrafficRadarRangeUI rangeUi in FindObjectsByType<TrafficRadarRangeUI>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+            {
+                SuppressLegacyPanel(rangeUi);
+            }
+
+            foreach (TrafficRadarFilterUI filterUi in FindObjectsByType<TrafficRadarFilterUI>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+            {
+                SuppressLegacyPanel(filterUi);
+            }
+
+            foreach (TrafficRadarClickHandler clickHandler in FindObjectsByType<TrafficRadarClickHandler>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+            {
+                if (clickHandler != null)
+                {
+                    clickHandler.enabled = false;
+                }
+            }
+
+            foreach (WeatherRadarClickHandler clickHandler in FindObjectsByType<WeatherRadarClickHandler>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+            {
+                if (clickHandler != null)
+                {
+                    clickHandler.enabled = false;
+                }
+            }
+        }
+
+        private static void ImproveWeatherLabelLegibility(Transform weatherRoot)
+        {
+            if (weatherRoot == null)
+            {
+                return;
+            }
+
+            if (weatherRoot.GetComponent<FaaRadarPresentation>() != null) return;
+
+            foreach (Transform child in weatherRoot.GetComponentsInChildren<Transform>(true))
+            {
+                if (child == null || child == weatherRoot)
+                {
+                    continue;
+                }
+
+                switch (child.name)
+                {
+                    case "ModeLabel":
+                    case "TextureStatusLabel":
+                    case "SourceLabel":
+                    case "TextureAgeLabel":
+                        // The power badge owns the authoritative live mode. Source and
+                        // texture diagnostics remain available in the conditions drawer,
+                        // where they do not crowd the compact radar presentation.
+                        child.gameObject.SetActive(false);
+                        break;
+                    case "RangeLabel":
+                    case "TiltLabel":
+                    case "WeatherPowerBadge":
+                        child.gameObject.SetActive(true);
+                        LayoutWeatherReadout(child, child.name, weatherRoot);
+                        StyleWeatherReadout(child, WeatherReadoutFontSize(child.name));
+                        break;
+                }
+            }
+        }
+
+        private static void LayoutWeatherReadout(Transform root, string objectName, Transform weatherRoot)
+        {
+            RectTransform rect = root as RectTransform ?? root.GetComponent<RectTransform>();
+            if (rect == null)
+            {
+                return;
+            }
+
+            float scale = CalculateWeatherLayoutScale(weatherRoot);
+
+            switch (objectName)
+            {
+                case "SourceLabel":
+                    rect.anchoredPosition = new Vector2(-105f, 142f) * scale;
+                    rect.sizeDelta = new Vector2(132f, 26f) * scale;
+                    break;
+                case "TextureAgeLabel":
+                    rect.anchoredPosition = new Vector2(137f, 142f) * scale;
+                    rect.sizeDelta = new Vector2(64f, 26f) * scale;
+                    break;
+                case "TextureStatusLabel":
+                    rect.anchoredPosition = new Vector2(-105f, -126f) * scale;
+                    rect.sizeDelta = new Vector2(138f, 26f) * scale;
+                    break;
+                case "TiltLabel":
+                    rect.anchoredPosition = new Vector2(82f, -104f) * scale;
+                    rect.sizeDelta = new Vector2(112f, 26f) * scale;
+                    break;
+                case "RangeLabel":
+                    rect.anchoredPosition = new Vector2(0f, -127f) * scale;
+                    rect.sizeDelta = new Vector2(112f, 28f) * scale;
+                    break;
+                case "WeatherPowerBadge":
+                    rect.sizeDelta = new Vector2(116f, 26f) * Mathf.Max(0.9f, scale);
+                    break;
+            }
+        }
+
+        private static float CalculateWeatherLayoutScale(Transform weatherRoot)
+        {
+            RectTransform rootRect = weatherRoot as RectTransform ?? weatherRoot?.GetComponent<RectTransform>();
+            if (rootRect == null)
+            {
+                return 1f;
+            }
+
+            float width = rootRect.rect.width > 1f ? rootRect.rect.width : rootRect.sizeDelta.x;
+            float height = rootRect.rect.height > 1f ? rootRect.rect.height : rootRect.sizeDelta.y;
+            float shortest = Mathf.Min(Mathf.Abs(width), Mathf.Abs(height));
+            return Mathf.Clamp(shortest / 280f, 0.78f, 2f);
+        }
+
+        private static void SetInlineWeatherText(Transform weatherRoot, string objectName, string value)
+        {
+            if (weatherRoot == null)
+            {
+                return;
+            }
+
+            foreach (TMP_Text text in weatherRoot.GetComponentsInChildren<TMP_Text>(true))
+            {
+                if (text != null && text.name == objectName)
+                {
+                    text.text = value;
+                }
+            }
+        }
+
+        private static float WeatherReadoutFontSize(string objectName)
+        {
+            switch (objectName)
+            {
+                case "RangeLabel": return 17f;
+                case "TiltLabel": return 16f;
+                case "SourceLabel": return 15f;
+                case "WeatherPowerBadge": return 16f;
+                case "TextureAgeLabel": return 13f;
+                default: return 11f;
+            }
+        }
+
+        private static void StyleWeatherReadout(Transform root, float fontSize)
+        {
+            foreach (TMP_Text text in root.GetComponentsInChildren<TMP_Text>(true))
+            {
+                if (text == null)
+                {
+                    continue;
+                }
+
+                text.enableAutoSizing = false;
+                text.fontSize = fontSize;
+                text.fontStyle |= FontStyles.Bold;
+                text.extraPadding = true;
+                text.outlineWidth = 0.18f;
+                text.outlineColor = new Color32(0, 10, 7, 235);
+                text.color = new Color(0.78f, 1f, 0.8f, 1f);
+                text.textWrappingMode = TextWrappingModes.NoWrap;
+                text.overflowMode = TextOverflowModes.Overflow;
+                text.raycastTarget = false;
+            }
+        }
+
+        private void SuppressLegacyPanel(MonoBehaviour panel)
+        {
+            if (panel == null)
+            {
+                return;
+            }
+
+            panel.enabled = false;
+            CanvasGroup canvasGroup = panel.GetComponent<CanvasGroup>();
+            if (canvasGroup != null)
+            {
+                canvasGroup.alpha = 0f;
+                canvasGroup.interactable = false;
+                canvasGroup.blocksRaycasts = false;
+            }
+
+            if (CanDeactivateLegacyPanelObject(panel.transform))
+            {
+                panel.gameObject.SetActive(false);
+                return;
+            }
+
+            HideLegacyGeneratedChild(panel.transform, "RangeButtonContainer");
+            HideLegacyGeneratedChild(panel.transform, "FilterContainer");
+        }
+
+        private bool CanDeactivateLegacyPanelObject(Transform panelTransform)
+        {
+            if (panelTransform == null)
+            {
+                return false;
+            }
+
+            if (_weatherRoot != null && panelTransform == _weatherRoot)
+            {
+                return false;
+            }
+
+            if (_trafficRoot != null && panelTransform == _trafficRoot)
+            {
+                return false;
+            }
+
+            if (_trafficDisplay != null && panelTransform == _trafficDisplay.transform)
+            {
+                return false;
+            }
+
+            return panelTransform.GetComponent<TrafficRadarDisplay>() == null &&
+                   panelTransform.GetComponent<WeatherRadarPanel>() == null;
+        }
+
+        private static void HideLegacyGeneratedChild(Transform parent, string childName)
+        {
+            Transform child = parent != null ? parent.Find(childName) : null;
+            if (child != null)
+            {
+                child.gameObject.SetActive(false);
+            }
+        }
+
+        private static void EnsureEventSystem()
+        {
+            EventSystem eventSystem = FindAnyObjectByType<EventSystem>(FindObjectsInactive.Include);
+            if (eventSystem == null)
+            {
+                GameObject eventSystemObject = new GameObject("FAA Radar Controls EventSystem");
+                eventSystem = eventSystemObject.AddComponent<EventSystem>();
+            }
+
+            // XR Interaction Simulator publishes tracked-device pointer rays
+            // through XRUIInputModule.PerformRaycast. A legacy
+            // StandaloneInputModule (or the regular InputSystemUIInputModule)
+            // can render buttons but cannot provide that simulator raycast, so
+            // prefer XRUIInputModule for every FAA scene. XRUI also keeps its
+            // built-in mouse/touch actions enabled for desktop preview.
+            XRUIInputModule xrInputModule = eventSystem.GetComponent<XRUIInputModule>();
+            bool createdXrInputModule = false;
+            if (xrInputModule == null)
+            {
+                // Disable competing modules before adding the XR module so the
+                // EventSystem never spends a frame with two active UI drivers.
+                foreach (BaseInputModule module in eventSystem.GetComponents<BaseInputModule>())
+                {
+                    if (module != null)
+                    {
+                        module.enabled = false;
+                    }
+                }
+
+                xrInputModule = eventSystem.gameObject.AddComponent<XRUIInputModule>();
+                createdXrInputModule = true;
+            }
+
+            // XR input is required for native Varjo controllers and should be
+            // enabled even when a scene supplied the module. Do not reset the
+            // mouse/touch toggles on an existing module: the XR simulator
+            // intentionally manages those while simulated devices are active.
+            xrInputModule.enableXRInput = true;
+            if (createdXrInputModule)
+            {
+                xrInputModule.enableMouseInput = true;
+                xrInputModule.enableTouchInput = true;
+                xrInputModule.enableGamepadInput = true;
+                xrInputModule.enableJoystickInput = true;
+            }
+
+            foreach (BaseInputModule module in eventSystem.GetComponents<BaseInputModule>())
+            {
+                if (module != null && module != xrInputModule)
+                {
+                    module.enabled = false;
+                }
+            }
+
+            if (!eventSystem.gameObject.activeSelf)
+            {
+                eventSystem.gameObject.SetActive(true);
+            }
+
+            if (!xrInputModule.enabled)
+            {
+                xrInputModule.enabled = true;
+            }
+        }
+
+        private static Transform FindPreferredLoadedTransform(string objectName)
+        {
+            if (string.IsNullOrWhiteSpace(objectName))
+            {
+                return null;
+            }
+
+            Transform best = null;
+            int bestScore = int.MinValue;
+            foreach (Transform transform in FindObjectsByType<Transform>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+            {
+                if (transform == null || transform.name != objectName ||
+                    !transform.gameObject.scene.IsValid() || !transform.gameObject.scene.isLoaded)
+                {
+                    continue;
+                }
+
+                string path = GetHierarchyPath(transform).ToLowerInvariant();
+                int score = 0;
+                if (transform.gameObject.activeSelf)
+                {
+                    score += 500;
+                }
+                if (transform.gameObject.activeInHierarchy)
+                {
+                    score += 500;
+                }
+                if (path.Contains("/xplanetrafficradarcanvas/") ||
+                    path.Contains("/xplaneweatherradarcanvas/"))
+                {
+                    score += 5000;
+                }
+                if (path.Contains("/faasymbologycanvas/radarcanvas") ||
+                    path.Contains("faasymbologycanvasworldspace"))
+                {
+                    score -= 2000;
+                }
+                if (transform.GetComponentInChildren<TrafficRadarDisplay>(true) != null)
+                {
+                    score += 100;
+                }
+
+                if (best == null || score > bestScore)
+                {
+                    best = transform;
+                    bestScore = score;
+                }
+            }
+
+            return best;
+        }
+
+        private static string GetHierarchyPath(Transform current)
+        {
+            if (current == null)
+            {
+                return string.Empty;
+            }
+
+            string path = current.name;
+            while (current.parent != null)
+            {
+                current = current.parent;
+                path = current.name + "/" + path;
+            }
+
+            return "/" + path;
+        }
+
+        private void MatchStripToRadarRoot(RectTransform strip, Transform root)
+        {
+            RectTransform rootRect = root as RectTransform;
+            if (rootRect == null)
+            {
+                rootRect = root.GetComponent<RectTransform>();
+            }
+
+            if (rootRect == null)
+            {
+                strip.anchorMin = new Vector2(0.5f, 1f);
+                strip.anchorMax = new Vector2(0.5f, 1f);
+                strip.pivot = new Vector2(0.5f, 0f);
+                strip.anchoredPosition = stripOffset;
+                return;
+            }
+
+            // A focused traffic root is centered on the Canvas.  The normal
+            // right-anchored formula below uses the root's bottom edge, but a
+            // centered RectTransform's anchored Y is relative to the Canvas
+            // midpoint.  Dock the focus strip just *outside* the map's top
+            // edge (with a top pivot).  Keeping the controls in their own
+            // quiet band prevents the NORTH cue and perimeter stroke from
+            // being hidden beneath the toolbar while leaving REST reachable
+            // in an XR view.
+            if (root == _trafficRoot && _trafficDisplay != null && _trafficDisplay.IsFullscreen)
+            {
+                strip.anchorMin = new Vector2(0.5f, 0.5f);
+                strip.anchorMax = new Vector2(0.5f, 0.5f);
+                strip.pivot = new Vector2(0.5f, 1f);
+                float focusedRootHeight = rootRect.rect.height > 1f ? rootRect.rect.height : rootRect.sizeDelta.y;
+                float stripHeight = strip.rect.height > 1f ? strip.rect.height : strip.sizeDelta.y;
+                strip.anchoredPosition = new Vector2(
+                    rootRect.anchoredPosition.x,
+                    rootRect.anchoredPosition.y + focusedRootHeight * 0.5f +
+                    Mathf.Max(8f, stripOffset.y) + stripHeight + FaaRadarPresentation.HeaderClearance);
+                return;
+            }
+
+            strip.anchorMin = rootRect.anchorMin;
+            strip.anchorMax = rootRect.anchorMax;
+            float rootWidth = rootRect.rect.width > 1f ? rootRect.rect.width : rootRect.sizeDelta.x;
+            float rootHeight = rootRect.rect.height > 1f ? rootRect.rect.height : rootRect.sizeDelta.y;
+            bool rightAnchored = rootRect.anchorMin.x > 0.5f || rootRect.pivot.x > 0.5f;
+
+            if (rightAnchored)
+            {
+                strip.pivot = new Vector2(1f, 0f);
+                if (root == _trafficRoot)
+                {
+                    // Keep the primary flight instruments clear. The quick
+                    // action menu sits beside the scope; detailed settings
+                    // dock beside that menu in the lower, unused HUD area.
+                    strip.anchoredPosition = CalculateTrafficSettingsDock(rootRect.anchoredPosition, rootWidth);
+                    return;
+                }
+                float rootRightEdge = rootRect.anchoredPosition.x + (rootWidth * (1f - rootRect.pivot.x));
+                float desiredRightAnchorOffset = rootRightEdge - stripOffset.x;
+                // The editor Game view can expose a render target that is
+                // slightly narrower than the Canvas reference resolution
+                // (for example 1830 px against a 1920 px reference). Keep
+                // the escape/fullscreen button inside that visible pointer
+                // region instead of leaving the last controls beyond the
+                // EventSystem's screen bounds.
+                float safeRightAnchorOffset = GetSafeRightAnchorOffset(strip);
+                if (!float.IsPositiveInfinity(safeRightAnchorOffset))
+                {
+                    desiredRightAnchorOffset = Mathf.Min(desiredRightAnchorOffset, safeRightAnchorOffset);
+                }
+
+                strip.anchoredPosition = new Vector2(desiredRightAnchorOffset, rootRect.anchoredPosition.y + rootHeight + stripOffset.y + FaaRadarPresentation.HeaderClearance);
+                return;
+            }
+
+            strip.pivot = new Vector2(0f, 0f);
+            float rootLeftEdge = rootRect.anchoredPosition.x - (rootWidth * rootRect.pivot.x);
+            strip.anchoredPosition = new Vector2(rootLeftEdge + stripOffset.x, rootRect.anchoredPosition.y + rootHeight + stripOffset.y + FaaRadarPresentation.HeaderClearance);
+        }
+
+        private static float GetSafeRightAnchorOffset(RectTransform strip)
+        {
+            RectTransform parent = strip != null ? strip.parent as RectTransform : null;
+            if (parent == null)
+            {
+                return float.PositiveInfinity;
+            }
+
+            float parentWidth = parent.rect.width > 1f ? parent.rect.width : parent.sizeDelta.x;
+            if (parentWidth <= 1f)
+            {
+                return float.PositiveInfinity;
+            }
+
+            Canvas canvas = parent.GetComponentInParent<Canvas>();
+            // Camera-space/native XR layouts have their own projection and
+            // should not inherit the editor Game-view pointer clamp.
+            bool isScreenSpaceOverlay = canvas == null || canvas.renderMode == RenderMode.ScreenSpaceOverlay;
+
+            // Screen.width can briefly report the requested Game-view
+            // reference size while Display.main already reports the actual
+            // drawable/input surface.  Use the smallest valid surface so the
+            // pointer-safe clamp is stable across editor and player startup.
+            float visibleWidth = parentWidth;
+            if (Screen.width > 0)
+            {
+                visibleWidth = Mathf.Min(visibleWidth, Screen.width);
+            }
+
+            if (Display.main != null && Display.main.renderingWidth > 0)
+            {
+                visibleWidth = Mathf.Min(visibleWidth, Display.main.renderingWidth);
+            }
+
+            // Unity's editor Game view can report its requested 1920 px
+            // reference size to a layout pass even when the actual pointer
+            // surface is narrower. Reserve a small, deterministic editor
+            // margin so the FULL/REST escape control remains reachable in
+            // that transient state as well.
+            if (Application.isEditor && isScreenSpaceOverlay)
+            {
+                visibleWidth = Mathf.Min(
+                    visibleWidth,
+                    Mathf.Max(1f, parentWidth - EditorPointerRightMargin));
+            }
+
+            if (visibleWidth >= parentWidth)
+            {
+                return float.PositiveInfinity;
+            }
+
+            const float safeMargin = 8f;
+            float safeRight = Mathf.Max(1f, visibleWidth - safeMargin);
+            return -(parentWidth - safeRight);
+        }
+
+        private static void HideDirectControlChildren(RectTransform strip, params RectTransform[] rowsToKeep)
+        {
+            for (int i = 0; i < strip.childCount; i++)
+            {
+                Transform child = strip.GetChild(i);
+                if (child == null || IsKeptRow(child, rowsToKeep))
+                {
+                    continue;
+                }
+
+                if (child.name.Contains("ControlRow"))
+                {
+                    continue;
+                }
+
+                child.gameObject.SetActive(false);
+            }
+        }
+
+        private static bool IsKeptRow(Transform child, RectTransform[] rowsToKeep)
+        {
+            for (int i = 0; i < rowsToKeep.Length; i++)
+            {
+                if (rowsToKeep[i] != null && child == rowsToKeep[i])
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static void HideUnexpectedRowChildren(RectTransform row, params string[] visibleNames)
+        {
+            if (row == null)
+            {
+                return;
+            }
+
+            for (int i = 0; i < row.childCount; i++)
+            {
+                Transform child = row.GetChild(i);
+                if (child != null && !IsVisibleControlName(child.name, visibleNames))
+                {
+                    child.gameObject.SetActive(false);
+                }
+            }
+        }
+
+        private static bool IsVisibleControlName(string childName, string[] visibleNames)
+        {
+            for (int i = 0; i < visibleNames.Length; i++)
+            {
+                if (childName == visibleNames[i])
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static TMP_Text GetButtonLabel(Button button)
+        {
+            return button != null ? button.GetComponentInChildren<TMP_Text>(true) : null;
+        }
+
+        private static void StretchToParent(RectTransform rectTransform)
+        {
+            rectTransform.anchorMin = Vector2.zero;
+            rectTransform.anchorMax = Vector2.one;
+            rectTransform.offsetMin = Vector2.zero;
+            rectTransform.offsetMax = Vector2.zero;
+            rectTransform.localScale = Vector3.one;
+            rectTransform.localRotation = Quaternion.identity;
+        }
+
+        private static void DestroyUnityObject(UnityEngine.Object target)
+        {
+            if (target == null)
+            {
+                return;
+            }
+
+            if (Application.isPlaying)
+            {
+                Destroy(target);
+            }
+            else
+            {
+                DestroyImmediate(target);
+            }
+        }
+    }
+}

@@ -1,0 +1,335 @@
+using UnityEngine;
+using System.Collections.Generic;
+using AviationUI;
+
+namespace FAA.XPlaneIntegration.Core
+{
+    /// <summary>
+    /// Data normalization layer that maps X-Plane DataRef names to AviationFlightData fields.
+    /// </summary>
+    public static class XPlaneDataRefMapper
+    {
+        #region X-Plane DataRef Paths
+
+        public const string DataRef_Pitch = "sim/flightmodel/position/theta";
+        public const string DataRef_Roll = "sim/flightmodel/position/phi";
+        public const string DataRef_Heading = "sim/flightmodel/position/psi";
+
+        public const string DataRef_IAS = "sim/flightmodel/position/indicated_airspeed";
+        public const string DataRef_TAS = "sim/flightmodel/position/true_airspeed";
+        public const string DataRef_GS = "sim/flightmodel/position/groundspeed";
+
+        public const string DataRef_Latitude = "sim/flightmodel/position/latitude";
+        public const string DataRef_Longitude = "sim/flightmodel/position/longitude";
+        public const string DataRef_Elevation = "sim/flightmodel/position/elevation";
+
+        public const string DataRef_WindSpeed = "sim/weather/aircraft/wind_speed_kt";
+        public const string DataRef_WindDirection = "sim/weather/aircraft/wind_direction_deg";
+        public const string DataRef_Pressure = "sim/weather/aircraft/barometer_sealevel_inhg";
+        public const string DataRef_Temperature = "sim/weather/aircraft/ambient_temperature_c";
+
+        public const string DataRef_VerticalSpeed = "sim/flightmodel/position/vh_ind";
+        public const string DataRef_AGL = "sim/flightmodel/position/y_agl";
+
+        public const string DataRef_GpsValid = "sim/cockpit2/gauges/indicators/gps_status";
+        public const string DataRef_AutopilotMode = "sim/cockpit2/autopilot/autopilot_mode";
+        public const string DataRef_AutopilotEngaged = DataRef_AutopilotMode;
+        public const string DataRef_IlsValid = "sim/cockpit2/radios/nav1_has_glideslope";
+
+        public const string DataRef_FlapsRatio = "sim/cockpit2/controls/flap_ratio";
+        public const string DataRef_SpeedbrakeRatio = "sim/cockpit2/controls/speedbrake_ratio";
+        public const string DataRef_ParkingBrakeRatio = "sim/cockpit2/controls/parking_brake_ratio";
+        public const string DataRef_LeftBrakeRatio = "sim/cockpit2/controls/left_brake_ratio";
+        public const string DataRef_RightBrakeRatio = "sim/cockpit2/controls/right_brake_ratio";
+        public const string DataRef_ElevatorTrim = "sim/cockpit2/controls/elevator_trim";
+        public const string DataRef_AileronTrim = "sim/cockpit2/controls/aileron_trim";
+        public const string DataRef_RudderTrim = "sim/cockpit2/controls/rudder_trim";
+        public const string DataRef_GearHandleDown = "sim/cockpit/switches/gear_handle_status";
+        public const string DataRef_GearDeployRatio = "sim/flightmodel2/gear/deploy_ratio[0]";
+
+        #endregion
+
+        #region Conversion Constants
+
+        private const float MetersToFeetFactor = 3.28084f;
+
+        #endregion
+
+        #region Conversion Utilities
+
+        /// <summary>
+        /// Convert meters to feet
+        /// </summary>
+        public static float MetersToFeet(float meters)
+        {
+            return meters * MetersToFeetFactor;
+        }
+
+        /// <summary>
+        /// Normalize heading to 0-360 range
+        /// </summary>
+        public static float NormalizeHeading(float headingDeg)
+        {
+            headingDeg = headingDeg % 360f;
+            if (headingDeg < 0f)
+            {
+                headingDeg += 360f;
+            }
+            return headingDeg;
+        }
+
+        /// <summary>
+        /// Normalize angle to -180 to 180 range
+        /// </summary>
+        public static float NormalizeAngle(float angleDeg)
+        {
+            angleDeg = angleDeg % 360f;
+            if (angleDeg > 180f)
+            {
+                angleDeg -= 360f;
+            }
+            else if (angleDeg < -180f)
+            {
+                angleDeg += 360f;
+            }
+            return angleDeg;
+        }
+
+        #endregion
+
+        #region Safe Value Extraction
+
+        private static float SafeGet(IDictionary<string, float> dataRefs, string key, float defaultValue = 0f)
+        {
+            if (dataRefs == null)
+            {
+                return defaultValue;
+            }
+
+            if (dataRefs.TryGetValue(key, out float value))
+            {
+                return float.IsNaN(value) ? defaultValue : value;
+            }
+
+            return defaultValue;
+        }
+
+        public static float GetDataRef(IDictionary<string, float> dataRefs, string key, float defaultValue = 0f)
+        {
+            return SafeGet(dataRefs, key, defaultValue);
+        }
+
+        public static float ClampRatio01(float value)
+        {
+            return Mathf.Clamp01(float.IsNaN(value) ? 0f : value);
+        }
+
+        public static float ClampTrim(float value)
+        {
+            return Mathf.Clamp(float.IsNaN(value) ? 0f : value, -1f, 1f);
+        }
+
+        /// <summary>
+        /// Safely extract a float value from an array index, returning default if out of bounds
+        /// </summary>
+        private static float SafeGet(float[] array, int index, float defaultValue = 0f)
+        {
+            if (array == null || index < 0 || index >= array.Length)
+            {
+                return defaultValue;
+            }
+
+            return array[index];
+        }
+
+        #endregion
+
+        #region Main Mapping Function
+
+        /// <summary>
+        /// Map raw X-Plane DataRef values to AviationFlightData
+        /// </summary>
+        /// <param name="dataRefs">Dictionary of X-Plane DataRef paths to values</param>
+        /// <returns>Populated AviationFlightData instance</returns>
+        public static AviationFlightData Map(IDictionary<string, float> dataRefs)
+        {
+            var flightData = new AviationFlightData();
+
+            flightData.pitch = Mathf.Clamp(SafeGet(dataRefs, DataRef_Pitch), -90f, 90f);
+            flightData.roll = NormalizeAngle(SafeGet(dataRefs, DataRef_Roll));
+            flightData.heading = NormalizeHeading(SafeGet(dataRefs, DataRef_Heading));
+
+            flightData.indicatedAirspeed = SafeGet(dataRefs, DataRef_IAS);
+            flightData.trueAirspeed = SafeGet(dataRefs, DataRef_TAS);
+            flightData.groundSpeed = SafeGet(dataRefs, DataRef_GS);
+
+            flightData.altitudeMSL = MetersToFeet(SafeGet(dataRefs, DataRef_Elevation));
+            flightData.altitudeAGL = MetersToFeet(SafeGet(dataRefs, DataRef_AGL));
+            float vsFpm = MetersToFeet(SafeGet(dataRefs, DataRef_VerticalSpeed)) * 60f;
+            flightData.verticalSpeed = float.IsNaN(vsFpm) ? 0f : vsFpm;
+
+            flightData.windSpeed = SafeGet(dataRefs, DataRef_WindSpeed);
+            flightData.windDirection = NormalizeHeading(SafeGet(dataRefs, DataRef_WindDirection));
+            
+            flightData.barometricSetting = SafeGet(dataRefs, DataRef_Pressure, 29.92f);
+            
+            flightData.gpsValid = SafeGet(dataRefs, DataRef_GpsValid, 1f) > 0.5f;
+            flightData.ilsValid = SafeGet(dataRefs, DataRef_IlsValid, 0f) > 0.5f;
+            flightData.autopilotEngaged = SafeGet(dataRefs, DataRef_AutopilotMode, 0f) >= 2f;
+
+            return flightData;
+        }
+
+        /// <summary>
+        /// Map raw X-Plane DataRef array values to AviationFlightData
+        /// Alternative overload for array-based data structures
+        /// </summary>
+        /// <param name="dataRefValues">Array of X-Plane DataRef values in expected order</param>
+        /// <returns>Populated AviationFlightData instance</returns>
+        public static AviationFlightData Map(float[] dataRefValues)
+        {
+            if (dataRefValues == null || dataRefValues.Length == 0)
+            {
+                return new AviationFlightData();
+            }
+
+            var flightData = new AviationFlightData();
+            int idx = 0;
+
+            if (idx < dataRefValues.Length)
+                flightData.pitch = Mathf.Clamp(dataRefValues[idx++], -90f, 90f);
+            if (idx < dataRefValues.Length)
+                flightData.roll = NormalizeAngle(dataRefValues[idx++]);
+            if (idx < dataRefValues.Length)
+                flightData.heading = NormalizeHeading(dataRefValues[idx++]);
+
+            if (idx < dataRefValues.Length)
+                flightData.indicatedAirspeed = dataRefValues[idx++];
+            if (idx < dataRefValues.Length)
+                flightData.trueAirspeed = dataRefValues[idx++];
+            if (idx < dataRefValues.Length)
+                flightData.groundSpeed = dataRefValues[idx++];
+
+            if (idx < dataRefValues.Length)
+                idx++;
+            if (idx < dataRefValues.Length)
+                idx++;
+            if (idx < dataRefValues.Length)
+                flightData.altitudeMSL = MetersToFeet(dataRefValues[idx++]);
+
+            if (idx < dataRefValues.Length)
+                flightData.windSpeed = dataRefValues[idx++];
+            if (idx < dataRefValues.Length)
+                flightData.windDirection = NormalizeHeading(dataRefValues[idx++]);
+            if (idx < dataRefValues.Length)
+                flightData.barometricSetting = dataRefValues[idx++];
+            if (idx < dataRefValues.Length)
+                idx++;
+
+            if (idx < dataRefValues.Length)
+            {
+                float vsFpm = MetersToFeet(dataRefValues[idx++]) * 60f;
+                flightData.verticalSpeed = float.IsNaN(vsFpm) ? 0f : vsFpm;
+            }
+
+            if (idx < dataRefValues.Length)
+                flightData.altitudeAGL = MetersToFeet(dataRefValues[idx++]);
+
+            return flightData;
+        }
+
+        #endregion
+
+        #region Individual Field Mappers
+
+        /// <summary>
+        /// Map pitch from X-Plane DataRef value
+        /// </summary>
+        public static float MapPitch(float thetaDegrees)
+        {
+            return Mathf.Clamp(thetaDegrees, -90f, 90f);
+        }
+
+        /// <summary>
+        /// Map roll from X-Plane DataRef value
+        /// </summary>
+        public static float MapRoll(float phiDegrees)
+        {
+            return NormalizeAngle(phiDegrees);
+        }
+
+        /// <summary>
+        /// Map heading from X-Plane DataRef value
+        /// </summary>
+        public static float MapHeading(float psiDegrees)
+        {
+            return NormalizeHeading(psiDegrees);
+        }
+
+        /// <summary>
+        /// Map indicated airspeed from X-Plane DataRef value
+        /// </summary>
+        public static float MapIndicatedAirspeed(float iasKnots)
+        {
+            return iasKnots;
+        }
+
+        /// <summary>
+        /// Map true airspeed from X-Plane DataRef value
+        /// </summary>
+        public static float MapTrueAirspeed(float tasKnots)
+        {
+            return tasKnots;
+        }
+
+        /// <summary>
+        /// Map ground speed from X-Plane DataRef value
+        /// </summary>
+        public static float MapGroundSpeed(float gsKnots)
+        {
+            return gsKnots;
+        }
+
+        /// <summary>
+        /// Map altitude from X-Plane DataRef value
+        /// </summary>
+        public static float MapAltitude(float elevationMeters)
+        {
+            return MetersToFeet(elevationMeters);
+        }
+
+        /// <summary>
+        /// Map wind speed from X-Plane DataRef value
+        /// </summary>
+        public static float MapWindSpeed(float windSpeedKnots)
+        {
+            return windSpeedKnots;
+        }
+
+        /// <summary>
+        /// Map wind direction from X-Plane DataRef value
+        /// </summary>
+        public static float MapWindDirection(float windDirectionDeg)
+        {
+            return NormalizeHeading(windDirectionDeg);
+        }
+
+        /// <summary>
+        /// Map barometric pressure from X-Plane DataRef value
+        /// </summary>
+        public static float MapBarometricPressure(float pressureInHg)
+        {
+            return pressureInHg;
+        }
+
+        /// <summary>
+        /// Map vertical speed from X-Plane DataRef value
+        /// </summary>
+        public static float MapVerticalSpeed(float vsMps)
+        {
+            return MetersToFeet(vsMps) * 60f;
+        }
+
+        #endregion
+    }
+}
