@@ -35,6 +35,7 @@ or MQTT interface.
 - [Scenes and hierarchy](#scenes-and-hierarchy)
 - [First-run editor setup](#first-run-editor-setup)
 - [Pilot/operator workflow](#pilotoperator-workflow)
+- [Conformal HUD presentation](#conformal-hud-presentation-and-pilot-look-around)
 - [Traffic radar](#traffic-radar)
 - [FAA sectional chart provider](#faa-sectional-chart-provider)
 - [Weather radar](#weather-radar)
@@ -268,7 +269,7 @@ This is a research validation plan, not an aircraft certification procedure.
 
 | Area | What is implemented |
 | --- | --- |
-| Flight HUD | Attitude, airspeed, altitude, heading, vertical speed, torque, NR/N2, localizer, glideslope, flight-path and compass elements. The default implementation is the uGUI HUD; a UI Toolkit HUD can be enabled as a secondary presentation. |
+| Flight HUD | Attitude, airspeed, altitude, heading, vertical speed, torque, NR/N2, localizer, glideslope, flight-path and compass elements. The default implementation is the uGUI HUD; a UI Toolkit HUD can be enabled as a secondary presentation. The primary HUD defaults to aircraft-referenced conformal projection while retaining a head-fixed compatibility mode. |
 | Traffic radar | Circular, masked radar with threat-level symbology, range rings, bearing ticks, compass labels, ownship cue, altitude labels, smooth zoom, track-up mode, animated linework, and a compact/fullscreen presentation. |
 | Contextual controls | A modern radar menu opens on demand, keeps its state after an action, and closes when the radar is tapped again. Animated leader lines point from each action to the affected radar region. |
 | Sectional maps | FAA VFR Sectional, Terminal Area, World Aeronautical, StreetMap, and configurable custom tile sources. Chart opacity, source, range/zoom, linework, panning, and recentering are controllable at runtime. |
@@ -556,9 +557,65 @@ preview, never incoming X-Plane data. Intermediate ticks and the low-speed
 threshold are inspector settings. Retired bitmap renderers remain in the
 hierarchy for compatibility but do not draw over the new instrument.
 
-This is a **head-fixed research attitude instrument**, not a certified or
-optically calibrated conformal rotorcraft HUD. The authored HUD position is
-retained; camera FOV scaling alone does not align it to the outside world.
+### Conformal HUD presentation and pilot look-around
+
+The primary flight symbology defaults to **Conformal** mode. The HUD reference
+is derived from the aircraft attitude and the camera's no-look aircraft
+reference, then projected into the current camera viewport. It is not parented
+to the pilot camera's manual yaw/pitch offset: looking out a side window moves
+the symbology off-boresight instead of dragging it with the head. The projected
+anchor also carries aircraft roll so the pitch ladder and flight-path cues keep
+the same outside-world relationship. The separate heading-tape overlay is
+projected from the same reference, so it does not remain stranded at the old
+screen center.
+
+The implementation is a configurable research presentation, not an
+FAA-certified or optically calibrated combiner. Its nominal projection distance
+and screen-space reference resolution are explicit inspector settings, but they
+have not yet been physically calibrated in the S-76D/Varjo installation. Native
+XR tracked pose remains the authority for headset pose. The dormant authored
+`FAASymbologyCanvasWorldSpace` is retained for scenes that have a fully
+calibrated world-space layout; legacy scenes use the safer screen-projection
+path automatically.
+
+Use `FaaConformalHudController.SetPresentationMode` to switch between
+`Conformal` and `HeadFixed` from a pilot-facing control. Head-fixed mode restores
+the authored HUD anchor and is useful for desktop familiarisation, UI review,
+and regression comparisons. The camera's existing smooth return still returns
+the view to aircraft-forward when look input is released; it does not modify
+the conformal reference.
+
+Runtime-bootstrap defaults are:
+
+| Setting | Default | Operational intent |
+| --- | --- | --- |
+| Presentation mode | `Conformal` | Keep primary symbology tied to the aircraft reference rather than manual look offset. |
+| Projection path | Screen-space | Support existing FAA scenes without requiring a calibrated world-space canvas. |
+| Nominal reference distance | `175.6 m` | Provide the projection reference used by the controller; tune only through a documented calibration run. |
+| Heading-tape projection | On | Move the heading overlay with the same conformal anchor as the primary HUD. |
+| World-space conformal canvas | Off | Opt in only after the S-76D/Varjo combiner geometry is measured and validated. |
+| Conformal raycasts | Off | Prevent outside-view scanning from being captured as HUD interaction. |
+
+`FaaConformalHudController` is created after scene load when a scene-authored
+instance is absent. It resolves `Camera.main`, the active
+`AircraftCameraController`/`AircraftController`, `FAASymbologyCanvas`, and
+`FAAHeadingTapeCanvas`. For a production scene, author the component explicitly
+and assign the aircraft transform and projection camera so those bindings are
+reviewable. Bind a compact pilot control to `TogglePresentationMode`, or bind
+separate controls to `SetPresentationMode`, rather than requiring typed input.
+
+Before an S-76D or XR demonstration, verify all of the following:
+
+1. At forward view, the conformal anchor matches the documented boresight.
+2. During left/right look, aircraft-referenced symbology leaves screen center
+   in the opposite direction and does not follow the pilot's manual head look.
+3. Pitch, bank, flight-path cues, and the separate heading tape retain a common
+   aircraft reference through manoeuvres and the desktop auto-return.
+4. Switching to `HeadFixed` restores the exact authored anchor and rotation.
+5. Each Varjo eye, display latency, clipping, distortion, and physical combiner
+   alignment passes the pending hardware-validation plan before results are
+   described as calibrated.
+
 Per-eye XR projection, eye position, combiner optics, display latency and
 aircraft integration require separate validation. The 5°/2.5° layout is a
 project design choice, not a claimed FAA rotorcraft requirement. General HUD
