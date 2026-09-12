@@ -4,8 +4,8 @@ The FAA Symbology Unity Project is a Unity 6.5 cockpit-display demonstrator for
 FAA-style flight symbology, real-time traffic and weather awareness, sectional
 chart context, and headset output. It is the integration workspace for the
 OPL/FAA display work: the same flight state can drive the desktop HUD, the
-traffic and weather radars, a Cesium-backed environment, and either a Varjo
-XR-3 workflow or the SA-147 multi-display output path.
+traffic and weather radars, X-Plane-derived terrain with optional Cesium hooks,
+and either a Varjo XR-3 workflow or the SA-147 multi-display output path.
 
 > **Project status:** active integration/prototyping software. This repository is
 > not a certified flight instrument, navigation database, collision-avoidance
@@ -40,6 +40,7 @@ or MQTT interface.
 - [FAA sectional chart provider](#faa-sectional-chart-provider)
 - [Weather radar](#weather-radar)
 - [X-Plane integration](#x-plane-integration)
+- [X-Plane terrain streaming](#x-plane-terrain-streaming)
 - [XR-3 and SA-147 headset support](#xr-3-and-sa-147-headset-support)
 - [Extension points](#extension-points)
 - [Testing, diagnostics, and builds](#testing-diagnostics-and-builds)
@@ -277,7 +278,7 @@ This is a research validation plan, not an aircraft certification procedure.
 | Weather radar | Shared provider abstraction with X-Plane, NOAA, IEM, MQTT, and simulated providers. Range, tilt, gain, mode, power, and presentation controls are available. The current X-Plane bridge can synthesize a radar texture from live weather DataRefs. |
 | X-Plane data | HTTP snapshot polling, WebSocket stream, TCP newline-delimited JSON, optional MQTT snapshots, and direct X-Plane UDP/RREF integration. Aircraft, weather, systems, multiplayer traffic, and render assets can be routed into the existing FAA systems. |
 | XR output | Varjo XR-3 loader configuration and the XR Interaction Toolkit desktop simulator are provided for development. A separate SA-147/S compatibility adapter supports multi-display routing, Archer tracking, and headset prewarp where the vendor hardware is installed. |
-| Environment | Cesium georeferencing/terrain hooks, optional terrain synchronization, aircraft position anchoring, and legacy/vendor environment content. |
+| Environment | Read-only streaming of installed X-Plane DSF elevation into georeferenced Unity terrain, shared ownship/MSL anchoring, optional Cesium hooks, and legacy/vendor environment content. |
 | Automation and diagnostics | Editor setup wizards, hierarchy organization, missing-script diagnostics, radar evidence capture, remote-relay smoke tests, and test assemblies are included. |
 
 ## Architecture
@@ -334,6 +335,9 @@ X-Plane 12 / remote relay / mock source / web API
 
 - **X-Plane 12**: a running simulator and either the local API service/tunnel,
   direct UDP output, or one of the stream transports described below.
+- **X-Plane terrain service**: Python 3.10+ on the simulator host, `7z` when
+  installed scenery uses compressed DSF files, and an SSH local forward to
+  loopback port 12679. Installed scenery remains on the simulator host.
 - **Remote 4090 relay**: Python 3 on the GPU host; real X-Plane relay mode also
   needs NASA XPlaneConnect and an importable Python xpc client.
 - **Varjo XR-3**: Windows, Varjo Base/runtime, the headset, and the native Varjo
@@ -569,6 +573,14 @@ the same outside-world relationship. The separate heading-tape overlay is
 projected from the same reference, so it does not remain stranded at the old
 screen center.
 
+Screen projection is rotation-only (collimated): camera-position smoothing,
+packet-stepped aircraft translation, and geographic-origin rebasing cannot
+displace the HUD anchor. The controller runs after the final desktop camera
+pose, refreshes before canvas rendering for late pose changes, and uses the
+camera's non-jittered projection matrix. It deliberately adds no second HUD
+smoothing buffer. When the reference is behind the pilot, it leaves the view
+instead of freezing at a misleading screen position.
+
 The implementation is a configurable research presentation, not an
 FAA-certified or optically calibrated combiner. Its nominal projection distance
 and screen-space reference resolution are explicit inspector settings, but they
@@ -591,7 +603,7 @@ Runtime-bootstrap defaults are:
 | --- | --- | --- |
 | Presentation mode | `Conformal` | Keep primary symbology tied to the aircraft reference rather than manual look offset. |
 | Projection path | Screen-space | Support existing FAA scenes without requiring a calibrated world-space canvas. |
-| Nominal reference distance | `175.6 m` | Provide the projection reference used by the controller; tune only through a documented calibration run. |
+| Nominal reference distance | `175.6 m` | Applies to the optional world-space path; the default rotation-only screen projection is independent of camera translation and reference distance. |
 | Heading-tape projection | On | Move the heading overlay with the same conformal anchor as the primary HUD. |
 | World-space conformal canvas | Off | Opt in only after the S-76D/Varjo combiner geometry is measured and validated. |
 | Conformal raycasts | Off | Prevent outside-view scanning from being captured as HUD interaction. |
@@ -1061,6 +1073,77 @@ flight-safety system. See the
 and the [XP12 integration guide](Assets/_Project/Scripts/XPlaneIntegration/README_XP12_INTEGRATION.md)
 for the longer protocol notes.
 
+## X-Plane terrain streaming
+
+The project can reconstruct local Unity terrain from the elevation raster in
+an operator's installed X-Plane 12 scenery. The source scenery is opened
+read-only on the simulator host and never copied into this repository:
+
+~~~text
+installed X-Plane DSF elevation raster
+                 │
+                 ▼
+  loopback-only Python terrain service :8767
+                 │
+                 ▼
+       SSH local forward :12679
+                 │
+                 ▼
+ XPlaneTerrainStreamer → georeferenced Unity meshes
+~~~
+
+Start the service on the simulator host and the tunnel on the Unity host:
+
+~~~bash
+# Simulator host
+python3 terrain_server.py --xplane-root '/path/to/X-Plane 12' --port 8767
+
+# Unity host; 4090 is the configured SSH host alias
+sh Tools/XPlaneTerrain/start_tunnel.sh 4090
+curl -fsS http://127.0.0.1:12679/health
+~~~
+
+In `ExperimentScene`, `XPlane12TerrainSync` creates the terrain streamer when
+**Generate Installed XPlane Terrain** is enabled. Terrain uses its own port and
+can be restarted independently of the aircraft-telemetry bridge on port 12678.
+The default streamer:
+
+- maintains a world-aligned 4°×4° quadtree around ownship;
+- requests 129×129 samples for 0.1° near tiles, 65×65 for 0.2° tiles, and
+  33×33 for 0.4° and 0.8° distant tiles;
+- shares geographic origin and MSL altitude conventions with ownship;
+- uses deterministic tile edges, seam skirts, parent retention, origin
+  rebasing, bounded requests, and last-good-tile retention;
+- extends the configured camera far clip to 150 km for the distant bands; and
+- leaves the old terrain underlay hidden through a reversible runtime setting
+  so two surfaces do not z-fight.
+
+The service respects X-Plane scenery-pack order and validates the DSF format,
+raster bounds, and source checksum before serving a tile. It fails closed and
+retains the last known-good Unity terrain during transient service errors.
+This path currently reconstructs the installed elevation raster only—not
+airport mesh flattening, water masks, buildings, or X-Plane textures. It does
+not add a flight-physics collider and must not be used for terrain-clearance or
+navigation decisions.
+
+For service installation, the HTTP schema, systemd example, performance
+limits, validation evidence, and rollback procedure, see
+[X-Plane terrain generation](Tools/XPlaneTerrain/README.md).
+
+Run the portable service tests with:
+
+~~~bash
+python3 -m unittest discover -s Tools/XPlaneTerrain -v
+~~~
+
+With the target project open in a connected Unity editor, run the focused
+terrain assertions with:
+
+~~~bash
+unity command eval_file Tools/ExplanationVerification/RunTerrainAssertions.cs \
+  --project-path "$PWD" --format json
+~~~
+
 ## XR-3 and SA-147 headset support
 
 ### Varjo XR-3 and Unity simulator
@@ -1430,6 +1513,7 @@ README, commit, or build artifact.
 
 Additional implementation notes are available in:
 
+- [X-Plane terrain generation, setup, source limits, and tests](Tools/XPlaneTerrain/README.md)
 - [project structure](Assets/_Project/Docs/PROJECT_STRUCTURE.md)
 - [XP12 integration](Assets/_Project/Scripts/XPlaneIntegration/README_XP12_INTEGRATION.md)
 - [remote relay](Assets/_Project/Scripts/XPlaneIntegration/README_XP11_REMOTE_RELAY.md)

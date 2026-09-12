@@ -227,7 +227,13 @@ namespace AircraftControl.Camera
             // A real HMD (or explicit XR simulator test) owns its pose. Never
             // spring a physically tracked head back to the aircraft direction.
             var trackedPose = GetComponent<TrackedPoseDriver>();
-            if (trackedPose != null && trackedPose.isActiveAndEnabled) return;
+            if (trackedPose != null && trackedPose.isActiveAndEnabled)
+            {
+                // Keep the conformal reference current without taking ownership
+                // of the tracked head pose or applying desktop look compensation.
+                _aircraftReferenceRotation = aircraftTransform.rotation;
+                return;
+            }
 #endif
             
             // Check for mode cycle

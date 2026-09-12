@@ -1885,9 +1885,11 @@ namespace FAA.XPlaneIntegration.Runtime
             GeoPosUnityPosProjectManager geoProjection = GeoPosUnityPosProjectManager.Instance;
             if (geoProjection != null)
             {
-                float projectedAltitudeMeters = Mathf.Max(
-                    altitudeMeters,
-                    GeoAltitudeFromAgl(data) + Mathf.Max(0f, minimumUnityTerrainClearanceMeters));
+                // Generated DSF terrain and ownship share the same MSL reference.
+                // Never lift the aircraft by the legacy fake-terrain clearance.
+                bool simulatorTerrain = XPlaneTerrainStreamer.Active != null && XPlaneTerrainStreamer.Active.UsesSimulatorAltitude;
+                float projectedAltitudeMeters = simulatorTerrain ? altitudeMeters : Mathf.Max(
+                    altitudeMeters, GeoAltitudeFromAgl(data) + Mathf.Max(0f, minimumUnityTerrainClearanceMeters));
                 aircraftController.transform.position = geoProjection.GeoToUnityPosition(latitude, longitude, projectedAltitudeMeters);
             }
 
