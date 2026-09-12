@@ -24,6 +24,7 @@ or MQTT interface.
 
 - [Capabilities](#capabilities)
 - [Current pilot-system update](#current-pilot-system-update)
+- [Gameplay screenshots](#gameplay-screenshots)
 - [Quick start with Git LFS](#quick-start-with-git-lfs)
 - [S-76D simulator integration](#s-76d-simulator-integration)
 - [MQTT implementation](#mqtt-implementation)
@@ -60,6 +61,47 @@ operator behavior, verification evidence, known limitations, rollback notes,
 and a dated implementation timeline. The matching X-Plane API work is published
 on the same branch name, `codex/pilot-hud-telemetry-release`, in the
 `CatfishW/xplane12api` repository.
+
+## Gameplay screenshots
+
+These captures come from the Unity `ExperimentScene` runtime and cover the
+pilot-facing functions of the current build. A status label in a capture is
+authoritative: **DATA LIVE**, **SIM WX**, and simulation-return labels identify
+the source actually shown at that moment. The imagery documents a research
+prototype; it is not approved flight guidance.
+
+### Integrated rotorcraft display
+
+![Integrated Unity flight display with conformal HUD, rotorcraft instruments, traffic, weather, screen cues, and pilot controls](docs/images/gameplay/integrated-flight-display.png)
+
+The integrated view combines the conformal pitch ladder and flight-path
+symbology with IAS, altitude, vertical speed, heading, target bearing,
+dual-channel torque, N2/NR, weather, traffic, compact Pilot Brief actions, and
+typed on/off-screen cues. Panels stay at the perimeter to protect the primary
+flight-information region.
+
+| Conformal look behavior and screen cues | Sectional full-map workspace |
+| --- | --- |
+| ![Conformal HUD viewed off-boresight with typed traffic cues and a compact expandable legend](docs/images/gameplay/conformal-look-and-screen-cues.png) | ![Fullscreen sectional chart with opacity and range controls, traffic actions, sources, and Pilot Brief](docs/images/gameplay/sectional-full-map-and-controls.png) |
+| **World-referenced HUD and cues.** The rotation-only conformal anchor leaves boresight during pilot look, while typed aircraft markers, relative altitude, direction, in-view/off-screen state, and the collapsible cue key remain readable. | **Chart and navigation workspace.** Pilots can change chart source, opacity, and range; pan or recenter; set a target; restore the HUD; inspect sources; and open a chart brief without typed input. |
+
+| Traffic surveillance detail | Weather and turbulence mode |
+| --- | --- |
+| ![Traffic radar with track-up sectional chart, aircraft symbols, relative-altitude tags, and vertical trends](docs/images/gameplay/traffic-radar-altitude-tags.png) | ![Weather radar in turbulence mode with range, tilt, gain, and live weather status](docs/images/gameplay/weather-turbulence-mode.png) |
+| **Traffic radar.** The scope shares track-up orientation with the chart and screen cues. Vector aircraft types, range rings, relative-altitude tags, vertical-trend arrows, target count, crowding state, and display status support fast visual cross-checking. | **Weather radar.** The sector display exposes immediate range, mode, antenna-tilt, and gain controls. Turbulence mode, precipitation, wind, visibility, temperature, QNH, power uncertainty, and source status are explicitly labeled. |
+
+| Evidence-grounded Pilot Brief | X-Plane-derived terrain |
+| --- | --- |
+| ![Compact chart briefing with evidence count, snapshot age, source link, and one-tap pilot actions](docs/images/gameplay/pilot-brief-chart.png) | ![Conformal rotorcraft HUD over streamed X-Plane elevation terrain](docs/images/gameplay/xplane-terrain-hud.png) |
+| **Pilot Brief.** One-tap Traffic, Weather, Chart, and Status actions produce compact snapshot-based explanations with evidence counts, source age, refresh state, and source links—without asking a pilot to type during flight. | **Terrain alignment.** Read-only X-Plane DSF elevation streams through the terrain service into a world-aligned Unity quadtree while the HUD retains its aircraft reference through translation, packet updates, and origin rebasing. |
+
+Together, the gallery covers the flight HUD, rotorcraft engine indications,
+conformal look/return behavior, screen cues, traffic radar, sectional maps,
+navigation controls, weather/turbulence presentation, Pilot Brief, and streamed
+terrain. MQTT, HTTP/WebSocket/TCP/UDP transport, editor setup tools, tests, and
+diagnostics are backend or authoring functions documented below rather than
+cockpit pictures. Native S-76D/Varjo XR-3 hardware imagery is intentionally not
+shown because the physical headset test campaign is still pending.
 
 ## Quick start with Git LFS
 
