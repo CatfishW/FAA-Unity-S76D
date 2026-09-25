@@ -23,11 +23,11 @@ logger = logging.getLogger(__name__)
 class AircraftDataBridge:
     def __init__(self):
         # MQTT Configuration
-        self.broker_address = os.getenv("FAA_MQTT_HOST", "127.0.0.1")
-        self.broker_port = int(os.getenv("FAA_MQTT_PORT", "1883"))
+        self.broker_address = "agist.org"
+        self.broker_port = 1883
         self.client_id = f"PythonAircraftBridge_{int(time.time())}"
-        self.mqtt_username = os.getenv("FAA_MQTT_USERNAME") or None
-        self.mqtt_password = os.getenv("FAA_MQTT_PASSWORD") or None
+        self.mqtt_username = "TangClinic"
+        self.mqtt_password = "Tang123"
         
         # MQTT Topics
         self.aircraft_data_topic = "aircraft/traffic"

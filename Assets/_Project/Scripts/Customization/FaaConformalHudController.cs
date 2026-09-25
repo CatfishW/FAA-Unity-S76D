@@ -10,11 +10,10 @@ namespace FAA.Customization
     /// <summary>
     /// Chooses how the primary flight symbology is presented.
     ///
-    /// Conformal mode projects the aircraft reference (not the camera's
-    /// look-offset) into the screen-space HUD. The presentation therefore
-    /// follows aircraft attitude and moves off-boresight as the pilot looks
-    /// through a side window. HeadFixed preserves the traditional overlay for
-    /// desktop familiarisation.
+    /// Conformal mode defaults to a separate native world-space rotorcraft cue
+    /// layer while instruments stay fixed. The earlier aircraft-reference group
+    /// projection remains an explicit compatibility option. HeadFixed preserves
+    /// the traditional overlay for desktop familiarisation.
     /// </summary>
     // AircraftCameraController commits its final pose at 11100. Projecting
     // before it creates a one-frame registration error even with fresh data.
@@ -33,6 +32,10 @@ namespace FAA.Customization
         [Header("Presentation")]
         [SerializeField] private HudPresentationMode presentationMode = HudPresentationMode.Conformal;
         [SerializeField] private bool fallbackToHeadFixed = true;
+
+        [Tooltip("Render earth/scene-referenced rotorcraft cues separately from the fixed instruments. Legacy projection remains available when disabled.")]
+        [SerializeField] private bool useRotorcraftSceneLayer = true;
+        private FaaRotorcraftConformalLayer _rotorcraftLayer;
 
         [Header("Scene bindings")]
         [SerializeField] private string screenCanvasName = "FAASymbologyCanvas";
@@ -77,7 +80,10 @@ namespace FAA.Customization
         public HudPresentationMode PresentationMode => presentationMode;
         public bool IsConformal => presentationMode == HudPresentationMode.Conformal &&
                                     (_screenCanvas != null || _conformalCanvas != null);
-        public bool UsesScreenProjection => presentationMode == HudPresentationMode.Conformal && !useWorldSpaceConformalCanvas;
+        public bool UsesRotorcraftSceneLayer => Application.isPlaying && useRotorcraftSceneLayer &&
+            _rotorcraftLayer != null && _rotorcraftLayer.enabled;
+        public bool UsesScreenProjection => presentationMode == HudPresentationMode.Conformal &&
+            !useWorldSpaceConformalCanvas && !UsesRotorcraftSceneLayer;
         public Canvas ScreenCanvas => _screenCanvas;
         public Canvas ConformalCanvas => _conformalCanvas;
 
@@ -132,6 +138,7 @@ namespace FAA.Customization
         {
             Canvas.preWillRenderCanvases -= RefreshRenderProjection;
             Application.onBeforeRender -= RefreshRenderProjection;
+            if (_rotorcraftLayer != null) _rotorcraftLayer.enabled = false;
             RestoreHeadFixedRoot();
         }
 
@@ -156,6 +163,7 @@ namespace FAA.Customization
         {
             if (!ResolveTargets())
             {
+                if (_rotorcraftLayer != null) _rotorcraftLayer.enabled = false;
                 return;
             }
 
@@ -280,6 +288,21 @@ namespace FAA.Customization
 
         private void EnforceCanvasState()
         {
+            if (Application.isPlaying && useRotorcraftSceneLayer &&
+                presentationMode == HudPresentationMode.Conformal && _screenCanvas != null)
+            {
+                // Do not rotate/translate IAS, ALT, RA, torque, NR or the heading
+                // tape with the pilot's gaze. Only the separate scene layer is projected.
+                SetCanvasVisible(_screenCanvas, true);
+                SetCanvasVisible(_conformalCanvas, false);
+                RestoreHeadFixedRoot();
+                if (_rotorcraftLayer == null)
+                    _rotorcraftLayer = GetComponent<FaaRotorcraftConformalLayer>() ?? gameObject.AddComponent<FaaRotorcraftConformalLayer>();
+                _rotorcraftLayer.Bind(projectionCamera, aircraftTransform, _screenCanvas);
+                _rotorcraftLayer.enabled = true;
+                return;
+            }
+            if (_rotorcraftLayer != null) _rotorcraftLayer.enabled = false;
             bool useWorldSpace = presentationMode == HudPresentationMode.Conformal &&
                                  useWorldSpaceConformalCanvas && _conformalCanvas != null;
 

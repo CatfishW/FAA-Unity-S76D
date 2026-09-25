@@ -51,13 +51,3 @@
 *.asf filter=lfs diff=lfs merge=lfs -text
 *.zip filter=lfs diff=lfs merge=lfs -text
 *.jpg filter=lfs diff=lfs merge=lfs -text
-*.jpeg filter=lfs diff=lfs merge=lfs -text
-*.tif filter=lfs diff=lfs merge=lfs -text
-*.nc filter=lfs diff=lfs merge=lfs -text
-*.pptx filter=lfs diff=lfs merge=lfs -text
-
-# Large Unity YAML assets that exceed the practical normal-Git threshold.
-# Keep ordinary scenes/assets text-diffable unless explicitly listed here.
-Assets/_Project/Scenes/ExperimentScene.unity filter=lfs diff=lfs merge=lfs -text
-"Assets/_Project/Terrain/FAA_OPL/1MDEMKIOWA/Divided Heightmaps/*.asset" filter=lfs diff=lfs merge=lfs -text
-"deprecated codes/VolumetricClouds/Textures_Generated/*.asset" filter=lfs diff=lfs merge=lfs -text

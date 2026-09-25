@@ -68,17 +68,19 @@ crashlytics-build.properties
 # Ignore any other generated files
 *.slnx
 .DS_Store
-.env
-.env.*
-!.env.example
-*.pem
-*.p12
-*.pfx
 *.py[cod]
 *.py[cod].meta
 __pycache__/
 
 # Agent/runtime evidence and local automation artifacts
+/artifacts/
+/Assets/artifacts/
+/Assets/artifacts.meta
+/Assets/Resources/PerformanceTestRunInfo.json
+/Assets/Resources/PerformanceTestRunInfo.json.meta
+/Assets/Resources/PerformanceTestRunSettings.json
+/Assets/Resources/PerformanceTestRunSettings.json.meta
+/Assets/XR/Temp.meta
 /_artifacts/
 /_remote_verification/
 /.sisyphus/

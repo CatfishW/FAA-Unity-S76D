@@ -14,7 +14,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::VisualUnderstanding.Core.VisionSettings
   serverUrl: https://game.agaii.org/llm/v1
   modelName: Qwen/Qwen3-VL-8B-Instruct
-  apiKey:
+  apiKey: empty
   timeout: 120
   temperature: 0.4
   maxTokens: 250

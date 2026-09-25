@@ -1,11 +1,11 @@
-# FAA Unity S-76D Symbology Project
+# FAA Symbology Unity Project
 
 The FAA Symbology Unity Project is a Unity 6.5 cockpit-display demonstrator for
 FAA-style flight symbology, real-time traffic and weather awareness, sectional
 chart context, and headset output. It is the integration workspace for the
 OPL/FAA display work: the same flight state can drive the desktop HUD, the
-traffic and weather radars, X-Plane-derived terrain with optional Cesium hooks,
-and either a Varjo XR-3 workflow or the SA-147 multi-display output path.
+traffic and weather radars, X-Plane-derived terrain (with optional Cesium hooks), and either a Varjo
+XR-3 workflow or the SA-147 multi-display output path.
 
 > **Project status:** active integration/prototyping software. This repository is
 > not a certified flight instrument, navigation database, collision-avoidance
@@ -14,34 +14,20 @@ and either a Varjo XR-3 workflow or the SA-147 multi-display output path.
 > aeronautical sources, aircraft procedures, and ATC before making a flight
 > decision.
 
-This is the **Unity-only repository** for the display application. It contains
-Unity scenes, C# code, editor tools, XR configuration, tests, documentation,
-and the binary assets needed by the project. The separate X-Plane snapshot
-service is not vendored here; Unity consumes its documented HTTP, stream, UDP,
-or MQTT interface.
-
 ## Contents
 
 - [Capabilities](#capabilities)
 - [Current pilot-system update](#current-pilot-system-update)
-- [Gameplay screenshots](#gameplay-screenshots)
-- [Quick start with Git LFS](#quick-start-with-git-lfs)
-- [S-76D simulator integration](#s-76d-simulator-integration)
-- [MQTT implementation](#mqtt-implementation)
-- [Varjo XR-3 deployment](#varjo-xr-3-deployment)
-- [Physical hardware validation](#physical-hardware-validation)
 - [Architecture](#architecture)
 - [Requirements](#requirements)
 - [Clone and open the project](#clone-and-open-the-project)
 - [Scenes and hierarchy](#scenes-and-hierarchy)
 - [First-run editor setup](#first-run-editor-setup)
 - [Pilot/operator workflow](#pilotoperator-workflow)
-- [Conformal HUD presentation](#conformal-hud-presentation-and-pilot-look-around)
 - [Traffic radar](#traffic-radar)
 - [FAA sectional chart provider](#faa-sectional-chart-provider)
 - [Weather radar](#weather-radar)
 - [X-Plane integration](#x-plane-integration)
-- [X-Plane terrain streaming](#x-plane-terrain-streaming)
 - [XR-3 and SA-147 headset support](#xr-3-and-sa-147-headset-support)
 - [Extension points](#extension-points)
 - [Testing, diagnostics, and builds](#testing-diagnostics-and-builds)
@@ -62,252 +48,6 @@ and a dated implementation timeline. The matching X-Plane API work is published
 on the same branch name, `codex/pilot-hud-telemetry-release`, in the
 `CatfishW/xplane12api` repository.
 
-## Gameplay screenshots
-
-These captures come from the Unity `ExperimentScene` runtime and cover the
-pilot-facing functions of the current build. A status label in a capture is
-authoritative: **DATA LIVE**, **SIM WX**, and simulation-return labels identify
-the source actually shown at that moment. The imagery documents a research
-prototype; it is not approved flight guidance.
-
-### Integrated rotorcraft display
-
-![Integrated Unity flight display with conformal HUD, rotorcraft instruments, traffic, weather, screen cues, and pilot controls](docs/images/gameplay/integrated-flight-display.png)
-
-The integrated view combines the conformal pitch ladder and flight-path
-symbology with IAS, altitude, vertical speed, heading, target bearing,
-dual-channel torque, N2/NR, weather, traffic, compact Pilot Brief actions, and
-typed on/off-screen cues. Panels stay at the perimeter to protect the primary
-flight-information region.
-
-| Conformal look behavior and screen cues | Sectional full-map workspace |
-| --- | --- |
-| ![Conformal HUD viewed off-boresight with typed traffic cues and a compact expandable legend](docs/images/gameplay/conformal-look-and-screen-cues.png) | ![Fullscreen sectional chart with opacity and range controls, traffic actions, sources, and Pilot Brief](docs/images/gameplay/sectional-full-map-and-controls.png) |
-| **World-referenced HUD and cues.** The rotation-only conformal anchor leaves boresight during pilot look, while typed aircraft markers, relative altitude, direction, in-view/off-screen state, and the collapsible cue key remain readable. | **Chart and navigation workspace.** Pilots can change chart source, opacity, and range; pan or recenter; set a target; restore the HUD; inspect sources; and open a chart brief without typed input. |
-
-| Traffic surveillance detail | Weather and turbulence mode |
-| --- | --- |
-| ![Traffic radar with track-up sectional chart, aircraft symbols, relative-altitude tags, and vertical trends](docs/images/gameplay/traffic-radar-altitude-tags.png) | ![Weather radar in turbulence mode with range, tilt, gain, and live weather status](docs/images/gameplay/weather-turbulence-mode.png) |
-| **Traffic radar.** The scope shares track-up orientation with the chart and screen cues. Vector aircraft types, range rings, relative-altitude tags, vertical-trend arrows, target count, crowding state, and display status support fast visual cross-checking. | **Weather radar.** The sector display exposes immediate range, mode, antenna-tilt, and gain controls. Turbulence mode, precipitation, wind, visibility, temperature, QNH, power uncertainty, and source status are explicitly labeled. |
-
-| Evidence-grounded Pilot Brief | X-Plane-derived terrain |
-| --- | --- |
-| ![Compact chart briefing with evidence count, snapshot age, source link, and one-tap pilot actions](docs/images/gameplay/pilot-brief-chart.png) | ![Conformal rotorcraft HUD over streamed X-Plane elevation terrain](docs/images/gameplay/xplane-terrain-hud.png) |
-| **Pilot Brief.** One-tap Traffic, Weather, Chart, and Status actions produce compact snapshot-based explanations with evidence counts, source age, refresh state, and source links—without asking a pilot to type during flight. | **Terrain alignment.** Read-only X-Plane DSF elevation streams through the terrain service into a world-aligned Unity quadtree while the HUD retains its aircraft reference through translation, packet updates, and origin rebasing. |
-
-Together, the gallery covers the flight HUD, rotorcraft engine indications,
-conformal look/return behavior, screen cues, traffic radar, sectional maps,
-navigation controls, weather/turbulence presentation, Pilot Brief, and streamed
-terrain. MQTT, HTTP/WebSocket/TCP/UDP transport, editor setup tools, tests, and
-diagnostics are backend or authoring functions documented below rather than
-cockpit pictures. Native S-76D/Varjo XR-3 hardware imagery is intentionally not
-shown because the physical headset test campaign is still pending.
-
-## Quick start with Git LFS
-
-Git LFS is required because the Unity project includes terrain, models,
-textures, audio, documentation, and other large binary assets.
-
-~~~bash
-git lfs install
-git clone git@github.com:CatfishW/FAA-Unity-S76D.git
-cd FAA-Unity-S76D
-git lfs pull
-git lfs ls-files
-~~~
-
-Open the repository root—not a parent folder—in Unity `6000.5.10f1`. Unity
-regenerates `Library`, `Temp`, `Logs`, `Obj`, and local user settings, so those
-directories are intentionally excluded from Git. Do not copy them from another
-workstation.
-
-Before committing a new large asset, confirm that it is LFS-backed:
-
-~~~bash
-git check-attr filter -- path/to/asset
-git lfs status
-~~~
-
-The expected filter result for a binary or explicitly listed heavyweight Unity
-asset is `lfs`. Source code, Markdown, JSON, and ordinary Unity YAML remain
-normal Git text unless a large file has an explicit rule in `.gitattributes`.
-
-## S-76D simulator integration
-
-The project separates simulator transport, normalized aircraft state, and XR
-presentation. That boundary allows the same HUD, radar, traffic cues, weather
-display, and Pilot Brief modules to run with the X-Plane S-76 development feed
-and the intended physical S-76D laboratory simulator.
-
-~~~text
-X-Plane S-76 test feed        S-76D lab publisher (to validate)
-            \                 /
-             transport + health
-                      │
-                      ▼
-     XPlane12ApiHudBridge / normalized snapshot
-                      │
-        ┌─────────────┼──────────────┬──────────────┐
-        ▼             ▼              ▼              ▼
-       HUD       traffic/chart   weather radar   Pilot Brief
-                      │
-                      ▼
-           XR3HeadsetCompatibility
-                      │
-                      ▼
-                 Varjo XR-3
-~~~
-
-The current development path is implemented in
-`Assets/_Project/Scripts/XPlaneIntegration/Runtime/XPlane12ApiHudBridge.cs`.
-It accepts a coherent snapshot, retains source health and packet age, and
-applies one normalized frame to the aircraft controller, HUD, traffic radar,
-weather radar, and related display consumers. The physical S-76D publisher
-must provide equivalent units and coordinate conventions or be adapted before
-the snapshot reaches the bridge.
-
-Do not treat successful X-Plane testing as physical S-76D acceptance. On the
-lab simulator, verify at least:
-
-1. attitude axes and signs, heading convention, position, airspeed, altitude,
-   vertical speed, torque, N2, NR, and discrete system states;
-2. source timestamps, sequence behavior, packet age, stale-data handling, and
-   recovery after an interruption;
-3. traffic identity, latitude/longitude, altitude reference, velocity, and the
-   agreement between map targets and screen-edge cues;
-4. control/input focus so headset or cockpit input does not accidentally drive
-   the aircraft while interacting with the UI.
-
-## MQTT implementation
-
-MQTT is an optional transport, not a second display architecture. Publishers
-send named payloads; Unity validates the topic and applies the received data on
-the Unity thread. Keep broker connectivity and data validity as separate
-states—a connected client can still be receiving stale or malformed data.
-
-### Coherent S-76 / X-Plane snapshot
-
-The primary topic is:
-
-~~~text
-xplane12/snapshot
-~~~
-
-`XPlane12ApiHudBridge` uses MQTTnet, subscribes to the exact configured topic,
-stores the callback payload under a lock, parses it during Unity update, and
-supports reconnect. Its preferred envelope is:
-
-~~~json
-{
-  "health": {
-    "status": "ok",
-    "last_packet_age_sec": 0.1,
-    "last_error": ""
-  },
-  "source_mode": "s76d-lab",
-  "aircraft": {},
-  "weather": {},
-  "systems": {},
-  "traffic": [],
-  "raw": {}
-}
-~~~
-
-Configure the `XPlane12ApiHudBridge` component in the Unity Inspector:
-
-- set **Transport Mode** to `MqttSnapshot`, or use its
-  **Transport/Use MQTT Snapshot** context action;
-- set broker host, port, client ID, and `xplane12/snapshot` topic;
-- leave username and password empty for an anonymous local broker, or provide
-  deployment credentials outside version control;
-- enable auto-reconnect and choose a reconnect delay appropriate for the lab;
-- keep the stale threshold tighter than the maximum age acceptable to the
-  display experiment.
-
-The checked-in scene currently demonstrates HTTP snapshots by default. MQTT
-support in code is therefore not proof that the physical lab broker, topics,
-or timing have been validated.
-
-### Route and weather topics
-
-Optional adapters keep route and weather payloads independent:
-
-| Topic | Direction | Payload responsibility |
-| --- | --- | --- |
-| `XP-S76-Route` | publisher → Unity | S-76 waypoint/route messages consumed by `WaypointController` |
-| `NOAAWeatherCoordinates` | Unity → weather service | `latitude,longitude,tilt,gain,heading` request |
-| `NOAAWeatherData` | weather service → Unity | JSON weather values |
-| `NEXRADImage` | weather service → Unity | Base64-encoded radar image |
-
-The optional Python weather service is under
-`Assets/_Project/Scripts/MQTT/Weather`. Run it from a Python environment with
-its dependencies installed:
-
-~~~bash
-export FAA_MQTT_HOST=127.0.0.1
-export FAA_MQTT_PORT=1883
-export FAA_MQTT_USERNAME=
-export FAA_MQTT_PASSWORD=
-python -m MqttWeather.main mqtt
-~~~
-
-The legacy Python traffic bridge uses the same `FAA_MQTT_*` environment
-variables. No broker password, API key, SSH secret, or Cesium token belongs in
-a scene, ScriptableObject, source file, command history, or commit. Use local
-environment variables, Unity Editor preferences, a deployment secret store, or
-another lab-approved injection mechanism.
-
-### Broker acceptance checklist
-
-- Confirm publisher and subscriber use the same topic and QoS policy.
-- Validate payload schema and units with a recorded known-value case.
-- Include UTC/source timestamps and reject data that exceeds the stale limit.
-- Test broker restart, reconnect, duplicate/out-of-order delivery, and loss.
-- Measure publish-to-display latency on the intended network.
-- Restrict broker listeners and credentials to the lab deployment policy.
-
-## Varjo XR-3 deployment
-
-The Unity project pins the Varjo XR plugin to 3.7.3 and includes XR Management
-and XR Interaction Toolkit support. Use **FAA → Headset → Configure XR-3 +
-Simulator In FAA Scenes** to configure the Standalone Varjo loader and the FAA
-scenes.
-
-`XR3HeadsetCompatibility` performs the project-specific adaptation:
-
-- selects native Varjo mode when the runtime is available and a desktop
-  simulator fallback for development;
-- targets both stereo eyes and binds HMD position and rotation;
-- routes FAA overlay canvases to the XR camera in native mode;
-- retains world-space canvases and restores prior canvas state when disabled;
-- avoids forcing desktop return-to-forward behavior over a native tracked pose;
-- suspends the separate legacy SA-147 path while the Varjo path is active.
-
-Desktop Game-view screenshots demonstrate the Unity UI, not the headset image.
-The software configuration does not by itself validate optical alignment,
-binocular readability, display timing, field of view, clipping, distortion,
-passthrough, calibration, or eye tracking.
-
-## Physical hardware validation
-
-Physical S-76D and Varjo XR-3 testing is still pending. A responsible first
-hardware session should record the Unity/Varjo versions, simulator build,
-broker settings, synchronized source and display logs, both-eye captures where
-possible, and pilot observations. Agree pass/fail criteria before collecting
-results.
-
-Recommended test blocks:
-
-1. **Data alignment:** compare every required S-76D channel against the source.
-2. **Native rendering:** verify both eyes, pose, scale, clipping, and alignment.
-3. **Timing/resilience:** measure latency and exercise stale/lost/recovered data.
-4. **Pilot interaction:** verify cockpit controls, focus, readability, and UI
-   occlusion under representative tasks.
-5. **Flight stability:** evaluate the chosen S-76D control/autoflight strategy
-   separately from display compatibility, including turbulence scenarios.
-
-This is a research validation plan, not an aircraft certification procedure.
-
 ## Capabilities
 
 | Area | What is implemented |
@@ -320,7 +60,7 @@ This is a research validation plan, not an aircraft certification procedure.
 | Weather radar | Shared provider abstraction with X-Plane, NOAA, IEM, MQTT, and simulated providers. Range, tilt, gain, mode, power, and presentation controls are available. The current X-Plane bridge can synthesize a radar texture from live weather DataRefs. |
 | X-Plane data | HTTP snapshot polling, WebSocket stream, TCP newline-delimited JSON, optional MQTT snapshots, and direct X-Plane UDP/RREF integration. Aircraft, weather, systems, multiplayer traffic, and render assets can be routed into the existing FAA systems. |
 | XR output | Varjo XR-3 loader configuration and the XR Interaction Toolkit desktop simulator are provided for development. A separate SA-147/S compatibility adapter supports multi-display routing, Archer tracking, and headset prewarp where the vendor hardware is installed. |
-| Environment | Read-only streaming of installed X-Plane DSF elevation into georeferenced Unity terrain, shared ownship/MSL anchoring, optional Cesium hooks, and legacy/vendor environment content. |
+| Environment | Installed X-Plane DSF elevation streaming into georeferenced Unity terrain, shared ownship/MSL anchoring, optional Cesium hooks, and legacy/vendor environment content. |
 | Automation and diagnostics | Editor setup wizards, hierarchy organization, missing-script diagnostics, radar evidence capture, remote-relay smoke tests, and test assemblies are included. |
 
 ## Architecture
@@ -377,9 +117,6 @@ X-Plane 12 / remote relay / mock source / web API
 
 - **X-Plane 12**: a running simulator and either the local API service/tunnel,
   direct UDP output, or one of the stream transports described below.
-- **X-Plane terrain service**: Python 3.10+ on the simulator host, `7z` when
-  installed scenery uses compressed DSF files, and an SSH local forward to
-  loopback port 12679. Installed scenery remains on the simulator host.
 - **Remote 4090 relay**: Python 3 on the GPU host; real X-Plane relay mode also
   needs NASA XPlaneConnect and an importable Python xpc client.
 - **Varjo XR-3**: Windows, Varjo Base/runtime, the headset, and the native Varjo
@@ -399,8 +136,8 @@ X-Plane 12 / remote relay / mock source / web API
 Use either the repository's SSH remote or an HTTPS URL:
 
 ~~~bash
-git clone git@github.com:CatfishW/FAA-Unity-S76D.git
-cd FAA-Unity-S76D
+git clone git@github.com:CatfishW/FAA.git
+cd FAA
 git lfs install
 git lfs pull
 ~~~
@@ -615,19 +352,17 @@ the same outside-world relationship. The separate heading-tape overlay is
 projected from the same reference, so it does not remain stranded at the old
 screen center.
 
-Screen projection is rotation-only (collimated): camera-position smoothing,
-packet-stepped aircraft translation, and geographic-origin rebasing cannot
-displace the HUD anchor. The controller runs after the final desktop camera
-pose, refreshes before canvas rendering for late pose changes, and uses the
-camera's non-jittered projection matrix. It deliberately adds no second HUD
-smoothing buffer. When the reference is behind the pilot, it leaves the view
-instead of freezing at a misleading screen position.
+Projection is now rotation-only (collimated): camera position smoothing,
+packet-stepped aircraft translation and geo-origin rebasing cannot displace the
+HUD anchor. It runs after the final desktop camera pose, refreshes before canvas
+rendering for late pose changes, and uses the non-jittered projection matrix.
+There is no additional HUD smoothing buffer. Looking behind moves the reference
+out of view rather than leaving a frozen forward reference on-screen.
 
-The implementation is a configurable research presentation, not an
-FAA-certified or optically calibrated combiner. Its nominal projection distance
-and screen-space reference resolution are explicit inspector settings, but they
-have not yet been physically calibrated in the S-76D/Varjo installation. Native
-XR tracked pose remains the authority for headset pose. The dormant authored
+The implementation is a calibrated research presentation, not an FAA-certified
+or optically calibrated combiner. The screen-space reference resolution and
+optional world-space canvas distance are explicit inspector settings, and native XR tracked
+pose remains the authority for headset pose. The dormant authored
 `FAASymbologyCanvasWorldSpace` is retained for scenes that have a fully
 calibrated world-space layout; legacy scenes use the safer screen-projection
 path automatically.
@@ -638,38 +373,6 @@ the authored HUD anchor and is useful for desktop familiarisation, UI review,
 and regression comparisons. The camera's existing smooth return still returns
 the view to aircraft-forward when look input is released; it does not modify
 the conformal reference.
-
-Runtime-bootstrap defaults are:
-
-| Setting | Default | Operational intent |
-| --- | --- | --- |
-| Presentation mode | `Conformal` | Keep primary symbology tied to the aircraft reference rather than manual look offset. |
-| Projection path | Screen-space | Support existing FAA scenes without requiring a calibrated world-space canvas. |
-| Nominal reference distance | `175.6 m` | Applies to the optional world-space path; the default rotation-only screen projection is independent of camera translation and reference distance. |
-| Heading-tape projection | On | Move the heading overlay with the same conformal anchor as the primary HUD. |
-| World-space conformal canvas | Off | Opt in only after the S-76D/Varjo combiner geometry is measured and validated. |
-| Conformal raycasts | Off | Prevent outside-view scanning from being captured as HUD interaction. |
-
-`FaaConformalHudController` is created after scene load when a scene-authored
-instance is absent. It resolves `Camera.main`, the active
-`AircraftCameraController`/`AircraftController`, `FAASymbologyCanvas`, and
-`FAAHeadingTapeCanvas`. For a production scene, author the component explicitly
-and assign the aircraft transform and projection camera so those bindings are
-reviewable. Bind a compact pilot control to `TogglePresentationMode`, or bind
-separate controls to `SetPresentationMode`, rather than requiring typed input.
-
-Before an S-76D or XR demonstration, verify all of the following:
-
-1. At forward view, the conformal anchor matches the documented boresight.
-2. During left/right look, aircraft-referenced symbology leaves screen center
-   in the opposite direction and does not follow the pilot's manual head look.
-3. Pitch, bank, flight-path cues, and the separate heading tape retain a common
-   aircraft reference through manoeuvres and the desktop auto-return.
-4. Switching to `HeadFixed` restores the exact authored anchor and rotation.
-5. Each Varjo eye, display latency, clipping, distortion, and physical combiner
-   alignment passes the pending hardware-validation plan before results are
-   described as calibrated.
-
 Per-eye XR projection, eye position, combiner optics, display latency and
 aircraft integration require separate validation. The 5°/2.5° layout is a
 project design choice, not a claimed FAA rotorcraft requirement. General HUD
@@ -1115,77 +818,6 @@ flight-safety system. See the
 and the [XP12 integration guide](Assets/_Project/Scripts/XPlaneIntegration/README_XP12_INTEGRATION.md)
 for the longer protocol notes.
 
-## X-Plane terrain streaming
-
-The project can reconstruct local Unity terrain from the elevation raster in
-an operator's installed X-Plane 12 scenery. The source scenery is opened
-read-only on the simulator host and never copied into this repository:
-
-~~~text
-installed X-Plane DSF elevation raster
-                 │
-                 ▼
-  loopback-only Python terrain service :8767
-                 │
-                 ▼
-       SSH local forward :12679
-                 │
-                 ▼
- XPlaneTerrainStreamer → georeferenced Unity meshes
-~~~
-
-Start the service on the simulator host and the tunnel on the Unity host:
-
-~~~bash
-# Simulator host
-python3 terrain_server.py --xplane-root '/path/to/X-Plane 12' --port 8767
-
-# Unity host; 4090 is the configured SSH host alias
-sh Tools/XPlaneTerrain/start_tunnel.sh 4090
-curl -fsS http://127.0.0.1:12679/health
-~~~
-
-In `ExperimentScene`, `XPlane12TerrainSync` creates the terrain streamer when
-**Generate Installed XPlane Terrain** is enabled. Terrain uses its own port and
-can be restarted independently of the aircraft-telemetry bridge on port 12678.
-The default streamer:
-
-- maintains a world-aligned 4°×4° quadtree around ownship;
-- requests 129×129 samples for 0.1° near tiles, 65×65 for 0.2° tiles, and
-  33×33 for 0.4° and 0.8° distant tiles;
-- shares geographic origin and MSL altitude conventions with ownship;
-- uses deterministic tile edges, seam skirts, parent retention, origin
-  rebasing, bounded requests, and last-good-tile retention;
-- extends the configured camera far clip to 150 km for the distant bands; and
-- leaves the old terrain underlay hidden through a reversible runtime setting
-  so two surfaces do not z-fight.
-
-The service respects X-Plane scenery-pack order and validates the DSF format,
-raster bounds, and source checksum before serving a tile. It fails closed and
-retains the last known-good Unity terrain during transient service errors.
-This path currently reconstructs the installed elevation raster only—not
-airport mesh flattening, water masks, buildings, or X-Plane textures. It does
-not add a flight-physics collider and must not be used for terrain-clearance or
-navigation decisions.
-
-For service installation, the HTTP schema, systemd example, performance
-limits, validation evidence, and rollback procedure, see
-[X-Plane terrain generation](Tools/XPlaneTerrain/README.md).
-
-Run the portable service tests with:
-
-~~~bash
-python3 -m unittest discover -s Tools/XPlaneTerrain -v
-~~~
-
-With the target project open in a connected Unity editor, run the focused
-terrain assertions with:
-
-~~~bash
-unity command eval_file Tools/ExplanationVerification/RunTerrainAssertions.cs \
-  --project-path "$PWD" --format json
-~~~
-
 ## XR-3 and SA-147 headset support
 
 ### Varjo XR-3 and Unity simulator
@@ -1555,7 +1187,7 @@ README, commit, or build artifact.
 
 Additional implementation notes are available in:
 
-- [X-Plane terrain generation, setup, source limits, and tests](Tools/XPlaneTerrain/README.md)
+- [X-Plane terrain generation, setup, source limits and tests](Tools/XPlaneTerrain/README.md)
 - [project structure](Assets/_Project/Docs/PROJECT_STRUCTURE.md)
 - [XP12 integration](Assets/_Project/Scripts/XPlaneIntegration/README_XP12_INTEGRATION.md)
 - [remote relay](Assets/_Project/Scripts/XPlaneIntegration/README_XP11_REMOTE_RELAY.md)

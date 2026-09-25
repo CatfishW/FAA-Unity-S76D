@@ -65,6 +65,9 @@ namespace FAA.XPlaneIntegration.Runtime
         private int _failures;
         private double _nextUiUpdate;
         private string _lastError = "Waiting for live position";
+        private string _endpoint;
+        private bool _endpointValid;
+        public string ServiceEndpoint => _endpoint ?? string.Empty;
 
         public static XPlaneTerrainStreamer Active { get; private set; }
         public int LoadedTileCount => _tiles.Count;
@@ -81,6 +84,8 @@ namespace FAA.XPlaneIntegration.Runtime
         {
             if (Active != null && Active != this) { enabled = false; return; }
             Active = this;
+            _endpointValid = XPlaneTerrainConnection.Load(serviceUrl, out _endpoint, out string connectionError);
+            if (!_endpointValid) _lastError = connectionError;
             _stream = StartCoroutine(Stream());
         }
 
@@ -121,9 +126,12 @@ namespace FAA.XPlaneIntegration.Runtime
             if (_statusCanvas == null) return;
             _statusCanvas.SetActive(true);
             bool live = telemetry != null && telemetry.IsFeedHealthy;
-            string state = !live ? "POSITION STALE" : !HasOwnshipCoverage ? "NO COVERAGE" :
+            string state = !_endpointValid ? "CONFIGURATION ERROR" : !live ? "POSITION STALE" :
+                !HasOwnshipCoverage && _failures > 0 ? "CONNECTION REQUIRED" : !HasOwnshipCoverage ? "NO COVERAGE" :
                 _lastError.Length > 0 ? "PARTIAL / RETRY" : ReadyTileCount < _desired.Count ? "LOADING" : "READY";
-            _statusText.text = $"TERRAIN · {state} · {ReadyTileCount}/{_desired.Count}\nX-PLANE ELEVATION · NEAR / DISTANT LOD";
+            _statusText.text = $"TERRAIN · {state} · {ReadyTileCount}/{_desired.Count}\n" +
+                (!_endpointValid ? "CHECK TerrainConnection.json / --terrain-url" :
+                 !HasOwnshipCoverage && _failures > 0 ? "START TERRAIN TUNNEL · DATA CONNECTION IS SEPARATE" : "X-PLANE ELEVATION · NEAR / DISTANT LOD");
             _statusText.color = live && HasOwnshipCoverage && _lastError.Length == 0
                 ? new Color(.63f, .83f, .78f) : new Color(1f, .73f, .32f);
         }
@@ -133,6 +141,7 @@ namespace FAA.XPlaneIntegration.Runtime
             while (enabled)
             {
                 Resolve();
+                if (!_endpointValid) { yield return new WaitForSecondsRealtime(1f); continue; }
                 if (hideLegacyTerrain) HideLegacyTerrain();
                 if (projection == null || aircraft?.State == null || telemetry == null || !telemetry.IsFeedHealthy)
                 {
@@ -186,7 +195,7 @@ namespace FAA.XPlaneIntegration.Runtime
         private IEnumerator Fetch(Vector3Int key)
         {
             int requestedResolution = key.z == 1 ? (resolution == 33 || resolution == 65 ? resolution : 129) : _desired[key];
-            string url = serviceUrl.TrimEnd('/') + $"/v1/terrain/tile?lat_index={key.x}&lon_index={key.y}&resolution={requestedResolution}&span={key.z}";
+            string url = _endpoint + $"/v1/terrain/tile?lat_index={key.x}&lon_index={key.y}&resolution={requestedResolution}&span={key.z}";
             using (var request = UnityWebRequest.Get(url))
             {
                 _request = request;
@@ -340,9 +349,12 @@ namespace FAA.XPlaneIntegration.Runtime
         [ContextMenu("Refresh Installed Terrain")]
         public void RefreshTerrain()
         {
+            _endpointValid = XPlaneTerrainConnection.Load(serviceUrl, out _endpoint, out string connectionError);
+            if (!_endpointValid) _lastError = connectionError;
             foreach (var tile in _tiles.Values) tile.fetched = double.NegativeInfinity;
             _retryAt.Clear();
             _networkRetryAt = 0;
+            _failures = 0;
         }
 
         private void OnDisable()

@@ -26,10 +26,10 @@ def main():
     
     # MQTT service command
     mqtt_parser = subparsers.add_parser("mqtt", help="Start MQTT service")
-    mqtt_parser.add_argument("--broker", type=str, default=os.getenv("FAA_MQTT_HOST", "127.0.0.1"), help="MQTT broker address")
-    mqtt_parser.add_argument("--port", type=int, default=int(os.getenv("FAA_MQTT_PORT", "1883")), help="MQTT broker port")
-    mqtt_parser.add_argument("--username", type=str, default=os.getenv("FAA_MQTT_USERNAME"), help="MQTT username")
-    mqtt_parser.add_argument("--password", type=str, default=os.getenv("FAA_MQTT_PASSWORD"), help="MQTT password")
+    mqtt_parser.add_argument("--broker", type=str, default="agist.org", help="MQTT broker address")
+    mqtt_parser.add_argument("--port", type=int, default=1883, help="MQTT broker port")
+    mqtt_parser.add_argument("--username", type=str, default="TangClinic", help="MQTT username")
+    mqtt_parser.add_argument("--password", type=str, default="Tang123", help="MQTT password")
     mqtt_parser.add_argument("--weather-topic", type=str, default="NOAAWeatherData", help="MQTT topic for weather data")
     mqtt_parser.add_argument("--coordinates-topic", type=str, default="NOAAWeatherCoordinates", help="MQTT topic for coordinates")
     mqtt_parser.add_argument("--radar-topic", type=str, default="NEXRADImage", help="MQTT topic for radar images")

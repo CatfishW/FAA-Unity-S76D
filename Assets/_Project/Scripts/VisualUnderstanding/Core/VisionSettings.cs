@@ -17,7 +17,7 @@ namespace VisualUnderstanding.Core
         public string modelName = "Qwen/Qwen3-VL-4B-Instruct-FP8";
         
         [Tooltip("API key (leave empty if not required)")]
-        public string apiKey = string.Empty;
+        public string apiKey = "empty";
         
         [Tooltip("Request timeout in seconds")]
         [Range(30, 300)]

@@ -18,16 +18,16 @@ public class WeatherDataReceiver : MonoBehaviour
     #region MQTT Configuration
     [Header("MQTT Settings")]
     [Tooltip("MQTT server IP address")]
-    public string mqttServerIp = "127.0.0.1";
+    public string mqttServerIp = "agist.org";
     
     [Tooltip("MQTT server port")]
     public int mqttServerPort = 1883;
     
     [Tooltip("MQTT username (optional)")]
-    public string mqttUsername = string.Empty;
+    public string mqttUsername = "TangClinic";
     
     [Tooltip("MQTT password (optional)")]
-    public string mqttPassword = string.Empty;
+    public string mqttPassword = "Tang123";
     
     [Tooltip("MQTT topic for weather data")]
     public string MQTT_WEATHER_TOPIC = "NOAAWeatherData";
