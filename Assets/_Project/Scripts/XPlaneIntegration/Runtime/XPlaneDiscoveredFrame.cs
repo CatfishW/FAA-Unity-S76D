@@ -31,6 +31,9 @@ namespace FAA.XPlaneIntegration.Runtime
             "sim/aircraft/controls/acf_RSC_redline_prp","sim/cockpit2/engine/indicators/N1_percent[0]","sim/cockpit2/engine/indicators/N2_percent[0]",
             "sim/cockpit2/engine/indicators/N1_percent[1]","sim/cockpit2/engine/indicators/N2_percent[1]",
             "sim/cockpit/autopilot/autopilot_state","sim/cockpit2/autopilot/flight_director_mode","sim/cockpit/autopilot/autopilot_mode",
+            // Selected heading for the heading-tape bug (degrees magnetic; the second is the legacy fallback) and the baro altimeter
+            // (read-only, offset-applied to the geometric altitude by XPlane12ApiHudBridge.TryGetIndicatedAltitudeFeet).
+            "sim/cockpit2/autopilot/heading_dial_deg_mag_pilot","sim/cockpit/autopilot/heading_mag","sim/cockpit2/gauges/indicators/altitude_ft_pilot",
             "sim/cockpit2/radios/nav1_has_glideslope","sim/cockpit2/radios/indicators/nav1_hdef_dots_pilot","sim/cockpit2/radios/indicators/nav1_vdef_dots_pilot",
             "sim/weather/aircraft/wind_speed_kt","sim/weather/aircraft/wind_direction_deg","sim/weather/aircraft/barometer_sealevel_inhg",
             "sim/weather/aircraft/ambient_temperature_c","sim/weather/visibility_reported_m","sim/weather/aircraft/precipitation_on_aircraft_ratio"

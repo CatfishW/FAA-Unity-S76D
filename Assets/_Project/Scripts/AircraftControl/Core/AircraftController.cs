@@ -57,8 +57,9 @@ namespace AircraftControl.Core
         [SerializeField] private KeyCode throttleDownKey = KeyCode.LeftControl;
 
         [Header("Keyboard Bindings - Helicopter")]
-        [SerializeField] private KeyCode collectiveUpKey = KeyCode.R;
-        [SerializeField] private KeyCode collectiveDownKey = KeyCode.F;
+        [Tooltip("R is the pilot FORWARD-view key (AircraftCameraController reset). A serialized R/F pair is moved to PageUp/PageDown at runtime.")]
+        [SerializeField] private KeyCode collectiveUpKey = KeyCode.PageUp;
+        [SerializeField] private KeyCode collectiveDownKey = KeyCode.PageDown;
         [SerializeField] private KeyCode cyclicForwardKey = KeyCode.W;
         [SerializeField] private KeyCode cyclicBackwardKey = KeyCode.S;
         [SerializeField] private KeyCode cyclicLeftKey = KeyCode.A;
@@ -201,9 +202,27 @@ namespace AircraftControl.Core
         #endregion
         
         #region Unity Lifecycle
+
+        /// <summary>Key that returns the desktop view forward (AircraftCameraController reset); never a flight control.</summary>
+        public const KeyCode ViewResetKey = KeyCode.R;
+        public KeyCode CollectiveUpKey => collectiveUpKey;
+        public KeyCode CollectiveDownKey => collectiveDownKey;
+
+        /// <summary>
+        /// One key, one function: a collective binding on the FORWARD-view key (R, from older serialized scenes) moves to PageUp, and
+        /// its legacy F partner to PageDown, so pressing R to look forward never raises the collective. Returns true when changed.
+        /// </summary>
+        public static bool ResolveCollectiveKeys(ref KeyCode up, ref KeyCode down)
+        {
+            bool changed = false;
+            if (up == ViewResetKey) { up = down == KeyCode.PageUp ? KeyCode.PageDown : KeyCode.PageUp; changed = true; if (down == KeyCode.F) down = KeyCode.PageDown; }
+            if (down == ViewResetKey) { down = up == KeyCode.PageDown ? KeyCode.PageUp : KeyCode.PageDown; changed = true; }
+            return changed;
+        }
         
         private void Awake()
         {
+            ResolveCollectiveKeys(ref collectiveUpKey, ref collectiveDownKey);
             InitializeFlightDynamics();
             InitializeState();
             FindDependencies();
@@ -469,7 +488,7 @@ namespace AircraftControl.Core
             else if (Input.GetKey(pedalLeftKey)) pedalInput = -1f;
             _targetTailRotor = pedalInput;
 
-            // Collective: R = increase, F = decrease
+            // Collective: PageUp = increase, PageDown = decrease (R is the FORWARD-view key)
             if (Input.GetKey(collectiveUpKey))
             {
                 _targetCollective = Mathf.Min(1f, _targetCollective + Time.deltaTime * 0.8f);

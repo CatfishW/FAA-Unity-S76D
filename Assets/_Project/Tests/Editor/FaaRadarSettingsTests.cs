@@ -96,7 +96,7 @@ namespace FAA.Customization.Tests
             Assert.That(help.text, Does.Contain("0.5°"));
             Assert.That(help.text, Does.Contain("above the horizon"));
             hintType.GetMethod("OnPointerExit").Invoke(hint, new object[] { null });
-            Assert.That(help.text, Does.Contain("tap the radar again to close"));
+            Assert.That(help.text, Does.Contain("Changes apply immediately"));
         }
 
         [Test]
@@ -159,13 +159,68 @@ namespace FAA.Customization.Tests
         [TestCase(220f)]
         [TestCase(360f)]
         [TestCase(560f)]
-        public void TrafficSettings_DockBelowHudAndClearOfTheQuickMenu(float radarWidth)
+        public void TrafficSettings_DockBelowHudAndClearOfTheRadar(float radarWidth)
         {
+            // One tap opens only this drawer (no co-opened quick menu), so it docks directly beside the scope.
             var position = (Vector2)Overlay.GetMethod("CalculateTrafficSettingsDock").Invoke(null, new object[] { new Vector2(-28, 28), radarWidth });
-            float menuLeft = -28 - radarWidth - 20 - 284;
-            Assert.That(position.x, Is.LessThanOrEqualTo(menuLeft - 12));
-            Assert.That(position.y + 276, Is.LessThan(320), "Keep below the heading tape and primary instruments.");
-            Assert.That(position.x + 1920 - 476, Is.GreaterThan(300), "Leave the weather scope clear at the 16:9 reference layout.");
+            float height = (float)Overlay.GetField("SettingsPanelHeight").GetRawConstantValue();
+            float width = (float)Overlay.GetField("SettingsPanelWidth").GetRawConstantValue();
+            Assert.That(position.x, Is.LessThanOrEqualTo(-28 - radarWidth - 12), "The drawer (right-edge pivot) must clear the radar.");
+            Assert.That(position.x, Is.GreaterThanOrEqualTo(-28 - radarWidth - 40), "Controls stay next to the display they affect.");
+            Assert.That(position.y + height, Is.LessThan(320), "Keep below the heading tape and primary instruments.");
+            Assert.That(position.x + 1920 - width, Is.GreaterThan(300), "Leave the weather scope clear at the 16:9 reference layout.");
+        }
+
+        [TestCase(false, 0)]
+        [TestCase(false, 1)]
+        [TestCase(true, 0)]
+        [TestCase(true, 1)]
+        [TestCase(true, 2)]
+        public void SettingsText_IsAtLeastTheFaaMinimumAndHasAnExplicitClose(bool traffic, int page)
+        {
+            Build(traffic, page);
+            foreach (var text in _strip.GetComponentsInChildren<TMP_Text>(true).Where(t => Shown(t.transform)))
+                Assert.That(text.fontSize, Is.GreaterThanOrEqualTo(15f), text.name + " is below the 15-unit (16 arcmin) floor");
+            var close = _strip.GetComponentsInChildren<Button>(true).FirstOrDefault(b => Shown(b.transform) && b.name.EndsWith("SettingsClose"));
+            Assert.That(close, Is.Not.Null, "Closing must not depend on an instruction to tap the radar again.");
+            Assert.That(_strip.Find("Readable Settings/Close Hint") == null || !_strip.Find("Readable Settings/Close Hint").gameObject.activeSelf);
+        }
+
+        [Test]
+        public void WeatherDisplayPage_ShowsTheSharedColorKeyOffTheScope()
+        {
+            Build(false, 1);
+            var key = _strip.Find("Readable Settings/WXColorKey");
+            Assert.That(key, Is.Not.Null);
+            var palette = Type.GetType("WeatherRadar.WeatherRadarPalette, WeatherRadar", true);
+            for (int level = 1; level <= 4; level++)
+            {
+                var swatch = key.Find("Swatch " + level).GetComponent<Image>();
+                Color32 expected = (Color32)palette.GetMethod("ForLevel").Invoke(null, new object[] { level });
+                Assert.That((Color32)swatch.color, Is.EqualTo(expected));
+            }
+        }
+
+        [Test]
+        public void TrafficRadarPage_OffersTheTcasAltitudeBandAndCyclesIt()
+        {
+            var type = Type.GetType("TrafficRadar.Core.TrafficRadarController, TrafficRadar");
+            var controller = _host.AddComponent(type);
+            Set("_trafficController", controller);
+            Build(true, 0);
+            var band = _strip.GetComponentsInChildren<Button>(true).First(b => b.name == "TCASBandCycle");
+            Assert.That(band.GetComponentInChildren<TMP_Text>().text, Is.EqualTo("Normal ±2700"));
+            band.onClick.Invoke();
+            Assert.That(type.GetProperty("AltitudeBand").GetValue(controller).ToString(), Is.EqualTo("Above"));
+            Assert.That(band.GetComponentInChildren<TMP_Text>().text, Is.EqualTo("Above +9900"));
+            Assert.That(_strip.Find("Readable Settings/Help").GetComponent<TMP_Text>().text, Does.Contain("hundreds of feet"),
+                "The tag legend lives in the settings help, not as a box on the scope.");
+        }
+
+        private bool Shown(Transform t)
+        {
+            for (; t != null && t != _strip; t = t.parent) if (!t.gameObject.activeSelf) return false;
+            return true;
         }
 
         private void Build(bool traffic, int page)

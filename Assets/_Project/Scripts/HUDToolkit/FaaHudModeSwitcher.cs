@@ -23,6 +23,7 @@ namespace FAA.HUDToolkit
         [Header("Mode")]
         [SerializeField] private HudMode activeMode = HudMode.LegacyUGUI;
         [SerializeField] private bool applyOnStart = true;
+        [Tooltip("Developer hotkey: Ctrl + switchKey swaps the HUD renderer. With the FAA pilot chrome present it works only in developer mode (Ctrl+Shift+D), so a pilot cannot swap renderers by accident next to F9.")]
         [SerializeField] private bool enableHotkey = true;
         [SerializeField] private KeyCode switchKey = KeyCode.F8;
         [SerializeField] private int legacyStartupReassertFrames = 240;
@@ -62,6 +63,17 @@ namespace FAA.HUDToolkit
 
         public HudMode ActiveMode => activeMode;
         public event Action<HudMode> OnModeChanged;
+        /// <summary>Key-list label of the developer renderer swap.</summary>
+        public const string HotkeyLabel = "CTRL+F8";
+        /// <summary>True when the renderer-swap hotkey is configured (it still needs Ctrl, and developer mode when the pilot chrome exists).</summary>
+        public bool HotkeyEnabled => enableHotkey && switchKey == KeyCode.F8;
+
+        /// <summary>
+        /// The renderer swap is a developer action: it needs Ctrl held, and when the pilot chrome exists it also needs developer
+        /// mode. A bare F8 (one key from F9 SETTINGS) never swaps the flight HUD under the pilot.
+        /// </summary>
+        public static bool HotkeyAllowed(bool ctrlHeld, bool pilotChromePresent, bool developerMode) =>
+            ctrlHeld && (!pilotChromePresent || developerMode);
 
         private void Awake()
         {
@@ -84,7 +96,9 @@ namespace FAA.HUDToolkit
 
         private void Update()
         {
-            if (enableHotkey && Input.GetKeyDown(switchKey))
+            if (enableHotkey && Input.GetKeyDown(switchKey) &&
+                HotkeyAllowed(Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl),
+                    FaaPilotChrome.Current != null, FaaPilotChrome.DeveloperMode))
             {
                 ToggleMode();
             }

@@ -16,24 +16,40 @@ using BriefCanvasScaler = UnityEngine.UI.CanvasScaler;
 
 namespace FAA.Explanations
 {
-    /// <summary>Click-only, lower-center brief dock. No keyboard entry or modal flight-HUD takeover.</summary>
+    /// <summary>
+    /// Click-only pilot brief. No keyboard entry or modal flight-HUD takeover. Starts collapsed. With the pilot chrome
+    /// present it is the BRIEF button's flyout: a fixed slot above the left end of the chrome bar, outside the boresight
+    /// column and the flight columns (width from the IAS/TQ keep-outs), never displaced by world-space cockpit panels or by
+    /// side-panel inspection. Its actions read TFC / WX / CHART / STATUS BRIEF (never the bare view names TRAFFIC / WEATHER
+    /// of the bar's camera buttons), its state shows as a badge on the BRIEF button, and it closes with the shared
+    /// CLOSE [Esc] button. It disappears while an unusual attitude is annunciated and returns unchanged afterwards.
+    /// Without the chrome (edit-time hosts) it keeps the legacy obstacle-avoiding dock.
+    /// </summary>
     [DefaultExecutionOrder(12800), DisallowMultipleComponent, RequireComponent(typeof(ExplanationAssistantController))]
     public sealed class ExplanationAssistantPanel : MonoBehaviour
     {
         public const float DockWidth = 520, DockHeight = 82, ResultHeight = 196, DockBottom = 18, CardGap = 8;
+        /// <summary>Docked (chrome flyout) action dock: header row plus a 2 x 2 grid of 34-ref action buttons.</summary>
+        public const float DockedHeight = 122, ActionRowHeight = 34, ActionGap = 6;
         public const int CanvasOrder = 5400;
         private const int ViewVersion = 3;
-        private static readonly Color Ink = new Color(.025f, .061f, .09f, .985f);
-        private static readonly Color Card = new Color(.052f, .12f, .16f, 1);
-        private static readonly Color Edge = new Color(.19f, .36f, .42f, .85f);
-        private static readonly Color Text = new Color(.90f, .96f, .98f, 1);
-        private static readonly Color Muted = new Color(.57f, .73f, .79f, 1);
+        // One chrome palette and type scale (FaaHudStyle): White/ChromeQuiet text on ChromePlate, FaaHudStyle.Chrome (16 ref) minimum.
+        private static readonly Color Ink = FaaHudStyle.ChromePlate;
+        private static readonly Color Card = FaaHudStyle.ChromeButton;
+        private static readonly Color Edge = FaaHudStyle.ChromeOutline;
+        private static readonly Color Text = FaaHudStyle.White;
+        private static readonly Color Muted = FaaHudStyle.ChromeQuiet;
         private static readonly Color Accent = new Color(.35f, .89f, .85f, 1);
-        private static readonly Color Amber = new Color(.99f, .76f, .40f, 1);
+        private static readonly Color Amber = FaaHudStyle.Amber;
+        private const float LabelSize = FaaHudStyle.Chrome, SmallSize = FaaHudStyle.Chrome;
+        public const string ChromeId = "brief";
         private ExplanationAssistantController controller;
         private Canvas canvas;
         private RectTransform dock, result, launcher, viewport, content, progress;
-        private CanvasGroup resultGroup;
+        private CanvasGroup resultGroup, rootGroup;
+        private GridLayoutGroup actionGrid;
+        private bool decluttered;
+        private float dockWidth, nextDockWidth;
         private ScrollRect scroll;
         private TMP_Text answer, dockState, titleText, ageText, footerText, refreshText, launcherText, sourcesText, pageText;
         private RectTransform pager;
@@ -50,7 +66,7 @@ namespace FAA.Explanations
         private float candidateSince;
         private Image[] actionPlates;
         private Button refreshButton;
-        private bool open = true, resultVisible, dirty = true;
+        private bool open, resultVisible, dirty = true, docked;
         private float reveal, nextRefresh, nextAge;
         private int tab;
         private string activeAction, selectedEvidence, lastRenderKey;
@@ -67,6 +83,10 @@ namespace FAA.Explanations
         public RectTransform DockRect => dock;
         public RectTransform ResultRect => result;
         public RectTransform LauncherRect => launcher;
+        /// <summary>True when the brief is the flyout of the pilot chrome bar's BRIEF button.</summary>
+        public bool IsDocked => docked;
+        /// <summary>True while the brief is hidden because an unusual attitude is annunciated.</summary>
+        public bool Decluttered => decluttered;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void Install()
@@ -98,11 +118,16 @@ namespace FAA.Explanations
         {
             if (controller != null) controller.Changed -= MarkDirty;
             if (canvas != null) canvas.gameObject.SetActive(false);
+            // A disabled brief must not leave a live-looking BRIEF button behind; ApplyDockedLayout restores it on enable.
+            var chrome = docked ? FaaPilotChrome.Current : null;
+            if (chrome != null) { chrome.SetButtonState(ChromeId, false, false); chrome.NotifyFlyoutClosed(ChromeId); }
         }
         private void OnDestroy()
         {
             if (controller != null) controller.Changed -= MarkDirty;
             if (canvas != null) DestroyOwned(canvas.gameObject);
+            var chrome = FaaPilotChrome.Current;
+            if (docked && chrome != null) { chrome.RemoveButton(ChromeId); chrome.UnregisterFlyout(ChromeId); }
         }
         private static void DestroyOwned(GameObject owned)
         {
@@ -117,14 +142,17 @@ namespace FAA.Explanations
             Build();
             hasPlacement = waitingPlacement = false;
             builtVersion = ViewVersion;
-            open = true; resultVisible = false; reveal = 0;
+            open = false; resultVisible = false; reveal = 0; // collapsed until the pilot asks for it
             lastRenderKey = null;
             nextLayoutScan = 0;
             Refresh(); ApplyLayout();
         }
         public void SetOpen(bool value)
         {
+            if (value && !open) dockWidth = 0; // fresh slot width the moment it opens
             open = value;
+            var chrome = docked ? FaaPilotChrome.Current : null;
+            if (chrome != null) { if (value) chrome.NotifyFlyoutOpened(ChromeId); else chrome.NotifyFlyoutClosed(ChromeId); }
             if (!value && EventSystem.current != null && EventSystem.current.currentSelectedGameObject != null &&
                 EventSystem.current.currentSelectedGameObject.transform.IsChildOf(transform))
                 EventSystem.current.SetSelectedGameObject(null);
@@ -184,7 +212,7 @@ namespace FAA.Explanations
         private void Update()
         {
             if (dock == null) return;
-            if (open && Keyboard.current != null && Keyboard.current.escapeKey.wasPressedThisFrame)
+            if (open && !decluttered && Keyboard.current != null && Keyboard.current.escapeKey.wasPressedThisFrame)
             {
                 if (resultVisible) HideResult(); else SetOpen(false);
             }
@@ -207,13 +235,37 @@ namespace FAA.Explanations
             {
                 nextAge = Time.unscaledTime + 1;
                 int seconds = controller.Snapshot == null ? 0 : Math.Max(0, (int)(DateTime.UtcNow - controller.Snapshot.CapturedUtc).TotalSeconds);
-                ageText.text = controller.Snapshot == null ? "Read-only simulation assistant · choose an action below" :
+                ageText.text = controller.Snapshot == null ? "Read-only sim assistant · select a brief below" :
                     "AS OF " + controller.Snapshot.CapturedUtc.ToString("HH:mm:ss 'UTC'") + " · " + seconds + "s old" +
                     (seconds >= 30 ? " · REFRESH FOR CURRENT DATA" : " · not live");
                 ageText.color = seconds >= 30 ? Amber : Muted;
             }
         }
-        private void LateUpdate() { ApplyLayout(); UpdatePages(); }
+        private void LateUpdate() { SyncRenderMode(); ApplyDeclutter(FaaRotorcraftConformalLayer.UnusualAttitudeActive); ApplyLayout(); UpdatePages(); }
+
+        /// <summary>
+        /// Unusual attitude (AC 25-11B 5.10.3.2, rule 2.7): the brief is secondary information, so it disappears with the rest
+        /// of the declutter (alpha 0, no raycasts, keep-outs released) and comes back exactly as it was on recovery.
+        /// </summary>
+        public void ApplyDeclutter(bool declutter)
+        {
+            if (rootGroup == null || decluttered == declutter) return;
+            decluttered = declutter;
+            rootGroup.alpha = declutter ? 0 : 1;
+            rootGroup.blocksRaycasts = rootGroup.interactable = !declutter;
+        }
+
+        /// <summary>Overlay canvases are not drawn into XR eye buffers; native XR uses camera space at the HUD overlay depth.</summary>
+        private void SyncRenderMode()
+        {
+            if (canvas == null) return;
+            var cam = Camera.main;
+            bool xr = cam != null && (cam.stereoEnabled || UnityEngine.XR.XRSettings.isDeviceActive);
+            var mode = xr ? RenderMode.ScreenSpaceCamera : RenderMode.ScreenSpaceOverlay;
+            if (canvas.renderMode == mode && (!xr || canvas.worldCamera == cam)) return;
+            canvas.renderMode = mode; canvas.worldCamera = xr ? cam : null;
+            if (xr) canvas.planeDistance = Mathf.Max(cam.nearClipPlane + .05f, FaaPilotChrome.XrPlaneDistance);
+        }
 
         private void CollectObstacles()
         {
@@ -226,6 +278,9 @@ namespace FAA.Explanations
                         r.name == "Screen cue controls" || r.name == "Screen cue symbol key" || r.name == "Radar Status Header" ||
                         (r.name == "ActionPanel" && r.parent != null && r.parent.name == "TrafficRadarQuickMenu") ||
                         r.name == "FAA Heading Tape Overlay" || r.name == "Heading Tape Clip" ||
+                        r.name == "Workspace Recovery Dock" || r.name == FaaPilotChrome.BarName ||
+                        (r.name == "Data Source" && r.parent != null && r.parent.name == "FAA Data Source Status") ||
+                        r.name == "Terrain status plate" ||
                         IsFlightInstrument(r) ||
                         r.GetComponent<FaaRadarPresentation>() != null || r.GetComponent<FaaRadarConfigurationDrawer>() != null))
                     .ToArray();
@@ -246,6 +301,9 @@ namespace FAA.Explanations
             Canvas sourceCanvas = rect.GetComponentInParent<Canvas>();
             if (sourceCanvas != null && !sourceCanvas.enabled) return;
             if (sourceCanvas != null) sourceCanvas = sourceCanvas.rootCanvas;
+            // World-space cockpit side panels are not head-fixed obstacles: projecting them through a turning camera
+            // pushed the brief onto other controls after WEATHER/TRAFFIC inspection (SP-05).
+            if (sourceCanvas != null && FaaSpatialWorkspace.OwnsCanvas(sourceCanvas)) return;
             Camera camera = sourceCanvas != null && sourceCanvas.renderMode != RenderMode.ScreenSpaceOverlay ? sourceCanvas.worldCamera : null;
             var target = (RectTransform)canvas.transform;
             if (sourceCanvas != null && sourceCanvas.renderMode != RenderMode.WorldSpace)
@@ -309,6 +367,7 @@ namespace FAA.Explanations
         private void ApplyLayout()
         {
             if (canvas == null || dock == null) return;
+            if (docked) { ApplyDockedLayout(); return; }
             CollectObstacles();
             var size = ((RectTransform)canvas.transform).rect.size;
             float width = CompactSize(size).x;
@@ -353,56 +412,140 @@ namespace FAA.Explanations
             result.gameObject.SetActive(IsResultVisible);
         }
 
+        /// <summary>Fixed flyout slot above the chrome bar; no obstacle scan, no hunting between slots.</summary>
+        private void ApplyDockedLayout()
+        {
+            var size = ((RectTransform)canvas.transform).rect.size;
+            if (size.x <= 1 || size.y <= 1) size = new Vector2(1920, 1080);
+            float stack = DockedHeight + CardGap + ResultHeight;
+            // The slot width follows the IAS/TQ keep-outs; re-read it twice a second (and on open), not every frame.
+            if (dockWidth <= 0 || Time.unscaledTime >= nextDockWidth)
+            {
+                nextDockWidth = Time.unscaledTime + .5f;
+                var chromeForWidth = FaaPilotChrome.Current;
+                dockWidth = chromeForWidth != null ? chromeForWidth.FlyoutWidth(FaaPilotChrome.FlyoutMaxWidth, stack) : FaaPilotChrome.FlyoutMaxWidth;
+            }
+            float width = Mathf.Min(CompactSize(size).x, dockWidth);
+            bool fits = BriefPlacement.TryDock(size.x, size.y, width, stack,
+                FaaPilotChrome.FlyoutLeft, FaaPilotChrome.FlyoutBottom, out var slot);
+            if (layoutBlocked != !fits) { layoutBlocked = !fits; dirty = true; }
+            Vector2 origin = new Vector2(slot.X + width * .5f - size.x * .5f, slot.Y);
+            if (!Mathf.Approximately(dock.sizeDelta.x, width) || !Mathf.Approximately(dock.sizeDelta.y, DockedHeight))
+            {
+                dock.sizeDelta = new Vector2(width, DockedHeight);
+                if (actionGrid != null) actionGrid.cellSize = new Vector2(Mathf.Floor((width - 20 - ActionGap) * .5f), ActionRowHeight);
+            }
+            dock.anchoredPosition = origin;
+            result.sizeDelta = new Vector2(width, ResultHeight);
+            result.anchoredPosition = origin + new Vector2(0, DockedHeight + CardGap);
+            float ease = reveal * reveal * (3 - 2 * reveal);
+            resultGroup.alpha = ease;
+            resultGroup.interactable = resultGroup.blocksRaycasts = IsResultVisible;
+            if (launcher.gameObject.activeSelf) launcher.gameObject.SetActive(false);
+            if (dock.gameObject.activeSelf != (open && fits)) dock.gameObject.SetActive(open && fits);
+            if (result.gameObject.activeSelf != IsResultVisible) result.gameObject.SetActive(IsResultVisible);
+            var chrome = FaaPilotChrome.Current;
+            if (chrome != null) { chrome.SetButtonState(ChromeId, true, open && fits, ChromeCaption()); chrome.SetButtonBadge(ChromeId, ChromeBadge(), controller != null && controller.IsBusy, ChromeBadgeColor()); }
+        }
+        /// <summary>The bar button names the action only; the brief's state is the separate badge.</summary>
+        private string ChromeCaption() => "BRIEF";
+        /// <summary>Amber for the caution states (CHECK, STOPPED, FAILED, NO ROOM), quiet otherwise; never green or red.</summary>
+        private Color ChromeBadgeColor()
+        {
+            bool caution = layoutBlocked || controller != null && !controller.IsBusy &&
+                (controller.State == ExplanationRunState.Unverified || controller.State == ExplanationRunState.Cancelled || controller.State == ExplanationRunState.Failed);
+            return caution ? Amber : Muted;
+        }
+        /// <summary>Short state badge on the BRIEF button (null when idle): WORKING, READY, CHECK, STOPPED, FAILED or NO ROOM.</summary>
+        public string ChromeBadge()
+        {
+            if (layoutBlocked) return "NO ROOM";
+            if (controller == null) return null;
+            if (controller.IsBusy) return "WORKING";
+            switch (controller.State)
+            {
+                case ExplanationRunState.Complete: return "READY";
+                case ExplanationRunState.Unverified: return "CHECK";
+                case ExplanationRunState.Cancelled: return "STOPPED";
+                case ExplanationRunState.Failed: return "FAILED";
+                default: return null;
+            }
+        }
+
         private void Build()
         {
+            var chrome = FaaPilotChrome.Ensure();
+            bool willDock = chrome != null;
             var root = new GameObject("Pilot Brief Canvas", typeof(RectTransform), typeof(Canvas), typeof(BriefCanvasScaler), typeof(FaaCanvasPixelRaycaster));
             root.transform.SetParent(transform, false);
             canvas = root.GetComponent<Canvas>(); canvas.renderMode = RenderMode.ScreenSpaceOverlay; canvas.sortingOrder = CanvasOrder;
+            // Created before the dock and card so their keep-outs see it: alpha 0 (unusual attitude) also releases them.
+            rootGroup = root.AddComponent<CanvasGroup>(); decluttered = false;
             var scaler = root.GetComponent<BriefCanvasScaler>(); scaler.uiScaleMode = BriefCanvasScaler.ScaleMode.ScaleWithScreenSize;
             scaler.referenceResolution = new Vector2(1920, 1080); scaler.matchWidthOrHeight = .5f;
 
-            launcher = BottomCenter(canvas.transform, "Pilot brief launcher", 145, 34, DockBottom);
+            launcher = BottomCenter(canvas.transform, "Pilot brief launcher", 170, 34, DockBottom);
             Plate(launcher, Ink, true); Action(launcher, ToggleOpen);
             Glyph(launcher, "Brief symbol", ExplanationGlyph.Kind.Spark, 12, 7, 20, Accent);
-            launcherText = Label(launcher, "Label", "PILOT BRIEF", 12, Text); Place(launcherText.rectTransform, 40, 0, 101, 34);
+            launcherText = Label(launcher, "Label", "PILOT BRIEF", LabelSize, Text); Place(launcherText.rectTransform, 40, 0, 126, 34);
 
             dock = BottomCenter(canvas.transform, "Pilot brief action dock", DockWidth, DockHeight, DockBottom);
             Plate(dock, Ink, true);
             FaaRadarVisualStyle.EnsureDropShadow(dock.gameObject, new Color(0, 0, 0, .3f), new Vector2(0, -4));
             Glyph(dock, "Brief symbol", ExplanationGlyph.Kind.Spark, 13, 7, 17, Accent);
-            var heading = Label(dock, "Heading", "PILOT BRIEF", 10, Text); Place(heading.rectTransform, 36, 4, 94, 23); heading.fontStyle = FontStyles.Bold;
-            dockState = Label(dock, "State", "", 10, Muted); StretchTop(dockState.rectTransform, 138, 106, 4, 23);
-            SmallButton(dock, "Brief options", "Options", 45, 5, 56, () => SetTab(3));
-            SmallButton(dock, "Hide brief dock", "−", 8, 5, 26, ToggleOpen);
+            var heading = Label(dock, "Heading", "PILOT BRIEF", LabelSize, Text); Place(heading.rectTransform, 36, 5, 120, 28); heading.fontStyle = FontStyles.Bold;
+            dockState = Label(dock, "State", "", SmallSize, Muted); StretchTop(dockState.rectTransform, 160, 160, 5, 28);
+            // One dismissal control on every flyout: CLOSE [Esc] at the top right.
+            var close = FaaPilotChrome.CreateCloseButton(dock, ToggleOpen, 5, 8);
+            float closeWidth = close != null ? ((RectTransform)close.transform).sizeDelta.x : 56;
+            SmallButton(dock, "Brief options", "OPTIONS", 8 + closeWidth + 6, 5, 88, () => SetTab(3));
+            // Docked, the state is the BRIEF button's badge; the header keeps only the title and its two buttons.
+            if (willDock) dockState.gameObject.SetActive(false);
+            else StretchTop(dockState.rectTransform, 160, 8 + closeWidth + 6 + 88 + 6, 5, 28);
 
-            var quick = Rect(dock, "Pilot actions"); StretchTop(quick, 10, 10, 32, 40);
-            var horizontal = quick.gameObject.AddComponent<HorizontalLayoutGroup>(); horizontal.spacing = 6;
-            horizontal.childControlWidth = horizontal.childControlHeight = horizontal.childForceExpandWidth = horizontal.childForceExpandHeight = true;
+            var quick = Rect(dock, "Pilot actions");
+            if (willDock)
+            {
+                StretchTop(quick, 10, 10, 40, 2 * ActionRowHeight + ActionGap);
+                actionGrid = quick.gameObject.AddComponent<GridLayoutGroup>();
+                actionGrid.constraint = GridLayoutGroup.Constraint.FixedColumnCount; actionGrid.constraintCount = 2;
+                actionGrid.spacing = new Vector2(ActionGap, ActionGap);
+                actionGrid.cellSize = new Vector2(Mathf.Floor((FaaPilotChrome.FlyoutMaxWidth - 20 - ActionGap) * .5f), ActionRowHeight);
+            }
+            else
+            {
+                StretchTop(quick, 10, 10, 38, 40);
+                var horizontal = quick.gameObject.AddComponent<HorizontalLayoutGroup>(); horizontal.spacing = 6;
+                horizontal.childControlWidth = horizontal.childControlHeight = horizontal.childForceExpandWidth = horizontal.childForceExpandHeight = true;
+            }
             FaaRadarIcon[] icons = { FaaRadarIcon.AircraftAirliner, FaaRadarIcon.WeatherRainModerate, FaaRadarIcon.Map, FaaRadarIcon.Lines };
             actionPlates = new Image[ExplanationPilotActions.Names.Count];
             for (int i = 0; i < ExplanationPilotActions.Names.Count; i++)
             {
                 string action = ExplanationPilotActions.Names[i];
+                string caption = willDock ? ExplanationPilotActions.Labels[i] : ExplanationPilotActions.ShortLabels[i];
                 var item = Rect(quick, action + " brief"); actionPlates[i] = Plate(item, Card, false); Action(item, () => AskQuick(action));
-                var icon = Rect(item, "SVG icon"); Place(icon, 10, 9, 22, 22);
+                var icon = Rect(item, "SVG icon"); Place(icon, 10, willDock ? 6 : 9, 22, 22);
                 var graphic = icon.gameObject.AddComponent<FaaSvgIconGraphic>(); graphic.SetIcon(icons[i]); graphic.color = Accent; graphic.raycastTarget = false;
-                var label = Label(item, "Label", action, 13, Text); StretchTop(label.rectTransform, 38, 5, 0, 40);
+                var label = Label(item, "Label", caption, LabelSize, Text); StretchTop(label.rectTransform, 38, 5, 0, willDock ? ActionRowHeight : 40);
+                label.fontStyle = FontStyles.Bold;
             }
+            FaaHudKeepOutRegion.Ensure(dock.gameObject, "chrome:brief-dock", FaaKeepOutKind.Chrome, 4f);
 
             result = BottomCenter(canvas.transform, "Pilot brief result", DockWidth, ResultHeight, DockBottom + DockHeight + CardGap);
             Plate(result, Ink, true);
             FaaRadarVisualStyle.EnsureDropShadow(result.gameObject, new Color(0, 0, 0, .34f), new Vector2(0, -4));
             resultGroup = result.gameObject.AddComponent<CanvasGroup>();
-            var headingButton = Rect(result, "Back to brief"); StretchTop(headingButton, 14, 205, 9, 22);
+            var headingButton = Rect(result, "Back to brief"); StretchTop(headingButton, 14, 220, 7, 28);
             var headingHit = headingButton.gameObject.AddComponent<Image>(); headingHit.color = Color.clear; Action(headingButton, () => SetTab(0));
-            titleText = Label(headingButton, "Title", "", 13, Text); Fill(titleText.rectTransform, 0); titleText.fontStyle = FontStyles.Bold;
-            sourcesText = SmallButton(result, "Brief sources", "Sources", 86, 7, 60, () => SetTab(1));
-            SmallButton(result, "Brief tools", "Tools", 38, 7, 43, () => SetTab(2));
-            SmallButton(result, "Collapse brief result", "−", 8, 7, 26, HideResult);
-            ageText = Label(result, "Snapshot time", "", 10, Muted); StretchTop(ageText.rectTransform, 14, 14, 32, 16);
+            titleText = Label(headingButton, "Title", "", LabelSize, Text); Fill(titleText.rectTransform, 0); titleText.fontStyle = FontStyles.Bold;
+            sourcesText = SmallButton(result, "Brief sources", "SOURCES", 116, 7, 104, () => SetTab(1));
+            SmallButton(result, "Brief tools", "TOOLS", 46, 7, 64, () => SetTab(2));
+            SmallButton(result, "Collapse brief result", "–", 8, 7, 32, HideResult);
+            ageText = Label(result, "Snapshot time", "", SmallSize, Muted); StretchTop(ageText.rectTransform, 14, 14, 37, 20);
 
             viewport = Rect(result, "Brief scroll viewport"); Fill(viewport, 0);
-            viewport.offsetMin = new Vector2(14, 36); viewport.offsetMax = new Vector2(-14, -53);
+            viewport.offsetMin = new Vector2(14, 40); viewport.offsetMax = new Vector2(-14, -61);
             viewport.gameObject.AddComponent<RectMask2D>();
             var hit = viewport.gameObject.AddComponent<Image>(); hit.color = new Color(0, 0, 0, .001f);
             scroll = viewport.gameObject.AddComponent<ScrollRect>(); scroll.horizontal = false; scroll.movementType = ScrollRect.MovementType.Clamped;
@@ -413,21 +556,34 @@ namespace FAA.Explanations
             vertical.childControlWidth = vertical.childControlHeight = vertical.childForceExpandWidth = true; vertical.childForceExpandHeight = false;
             content.gameObject.AddComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
             scroll.content = content;
-            answer = Label(viewport, "Streamed brief", "", 14.5f, Text); Fill(answer.rectTransform, 0);
+            answer = Label(viewport, "Streamed brief", "", LabelSize, Text); Fill(answer.rectTransform, 0);
             answer.alignment = TextAlignmentOptions.TopLeft; answer.textWrappingMode = TextWrappingModes.Normal;
             answer.overflowMode = TextOverflowModes.Page; answer.richText = true; answer.lineSpacing = 3;
             var links = answer.gameObject.AddComponent<ExplanationCitationLink>(); links.Text = answer;
             links.Clicked = id => { selectedEvidence = id; SetTab(1); };
-            pager = Rect(result, "Brief pages"); StretchBottom(pager, 14, 108, 7, 26);
+            pager = Rect(result, "Brief pages"); StretchBottom(pager, 14, 116, 7, 28);
             previousPage = PageButton(pager, "Previous page", "‹", 0, () => ChangeBriefPage(-1));
-            nextPage = PageButton(pager, "Next page", "›", 100, () => ChangeBriefPage(1));
-            pageText = Label(pager, "Page count", "", 10, Accent); Place(pageText.rectTransform, 32, 0, 66, 26); pageText.alignment = TextAlignmentOptions.Center;
-            footerText = Label(result, "Brief limitation", "", 10, Muted); StretchBottom(footerText.rectTransform, 152, 108, 9, 21);
+            nextPage = PageButton(pager, "Next page", "›", 104, () => ChangeBriefPage(1));
+            pageText = Label(pager, "Page count", "", SmallSize, Accent); Place(pageText.rectTransform, 34, 0, 68, 28); pageText.alignment = TextAlignmentOptions.Center;
+            footerText = Label(result, "Brief limitation", "", SmallSize, Muted); StretchBottom(footerText.rectTransform, 156, 116, 8, 24);
             var refresh = Rect(result, "Refresh or stop brief"); refresh.anchorMin = refresh.anchorMax = new Vector2(1, 0);
-            refresh.pivot = new Vector2(1, 0); refresh.anchoredPosition = new Vector2(-10, 7); refresh.sizeDelta = new Vector2(82, 26);
+            refresh.pivot = new Vector2(1, 0); refresh.anchoredPosition = new Vector2(-10, 7); refresh.sizeDelta = new Vector2(96, 28);
             Plate(refresh, Card, false); refreshButton = Action(refresh, RefreshOrStop);
-            refreshText = Label(refresh, "Label", "Refresh", 11, Accent); Fill(refreshText.rectTransform, 0); refreshText.alignment = TextAlignmentOptions.Center;
+            refreshText = Label(refresh, "Label", "REFRESH", SmallSize, Accent); Fill(refreshText.rectTransform, 0); refreshText.alignment = TextAlignmentOptions.Center;
             progress = Rect(result, "Streaming progress"); Plate(progress, Accent, false);
+            FaaHudKeepOutRegion.Ensure(result.gameObject, "chrome:brief-card", FaaKeepOutKind.Chrome, 4f);
+            DockInChrome(chrome);
+        }
+
+        /// <summary>Makes the brief the BRIEF button's flyout (Play Mode, or edit-mode tests that create a chrome).</summary>
+        private void DockInChrome(FaaPilotChrome chrome)
+        {
+            docked = chrome != null;
+            if (!docked) return;
+            chrome.AddButton(ChromeId, FaaChromeCluster.Left, 20, "BRIEF", null, ToggleOpen);
+            chrome.RegisterFlyout(ChromeId, () => SetOpen(false));
+            chrome.SetHelpEntry("BRIEF", "Pilot brief: TFC / WX / CHART / STATUS (AI snapshot, sim only)", 65);
+            launcher.gameObject.SetActive(false);
         }
 
         private string ShortState()
@@ -442,7 +598,7 @@ namespace FAA.Explanations
                 case ExplanationRunState.Unverified: return "Check sources";
                 case ExplanationRunState.Cancelled: return "Stopped";
                 case ExplanationRunState.Failed: return "Brief unavailable";
-                default: return "Tap an action · AI snapshot";
+                default: return "SELECT A BRIEF";
             }
         }
         private void Refresh()
@@ -451,15 +607,22 @@ namespace FAA.Explanations
             bool caution = controller.State == ExplanationRunState.Failed || controller.State == ExplanationRunState.Cancelled || controller.State == ExplanationRunState.Unverified;
             dockState.text = ShortState(); dockState.color = caution ? Amber : Muted;
             launcherText.text = layoutBlocked ? "BRIEF · NO ROOM" : controller.IsBusy ? "BRIEF WORKING" : "PILOT BRIEF";
-            titleText.text = tab == 1 ? "‹ Brief / Sources" : tab == 2 ? "‹ Brief / Tools" :
-                tab == 3 ? "‹ Brief / Options" : activeAction == "Chart" ? "Chart · AI interpretation" : (activeAction ?? "Pilot") + " brief";
-            sourcesText.text = "Sources " + (controller.Snapshot?.DeliveredIds.Count ?? 0);
+            if (docked)
+            {
+                var chrome = FaaPilotChrome.Current;
+                if (chrome != null) { chrome.SetButtonState(ChromeId, true, open && !layoutBlocked, ChromeCaption()); chrome.SetButtonBadge(ChromeId, ChromeBadge(), controller.IsBusy, ChromeBadgeColor()); }
+            }
+            // Breadcrumb titles (click returns to the brief); the chevrons stay reserved for the view buttons' turn direction.
+            string actionTitle = ExplanationPilotActions.LabelFor(activeAction) ?? "PILOT BRIEF";
+            titleText.text = tab == 1 ? "BRIEF / SOURCES" : tab == 2 ? "BRIEF / TOOLS" :
+                tab == 3 ? "BRIEF / OPTIONS" : activeAction == "Chart" ? "CHART BRIEF · AI INTERPRETATION" : actionTitle;
+            sourcesText.text = "SOURCES " + (controller.Snapshot?.DeliveredIds.Count ?? 0);
             sourcesText.color = tab == 1 ? Accent : Muted;
             footerText.text = controller.IsBusy ? ShortState() + " · provisional" :
-                controller.State == ExplanationRunState.Unverified ? "Source links unresolved · verify response" :
+                controller.State == ExplanationRunState.Unverified ? "VERIFY SOURCES" :
                 "SIM ONLY · NOT GUIDANCE";
             footerText.color = caution ? Amber : Muted;
-            refreshText.text = controller.IsBusy ? "Stop" : controller.State == ExplanationRunState.Failed || controller.State == ExplanationRunState.Cancelled ? "Retry" : "Refresh";
+            refreshText.text = controller.IsBusy ? "STOP" : controller.State == ExplanationRunState.Failed || controller.State == ExplanationRunState.Cancelled ? "RETRY" : "REFRESH";
             refreshButton.interactable = controller.IsBusy || activeAction != null;
             for (int i = 0; i < actionPlates.Length; i++)
                 actionPlates[i].color = IsResultVisible && activeAction == ExplanationPilotActions.Names[i] ? new Color(.09f, .29f, .31f, 1) : Card;
@@ -472,7 +635,7 @@ namespace FAA.Explanations
                 if (string.IsNullOrEmpty(body))
                     body = controller.IsBusy ? "Reading the captured evidence. Your brief will appear here." :
                         controller.State == ExplanationRunState.Failed || controller.State == ExplanationRunState.Cancelled ? controller.Status :
-                        "Choose Traffic, Weather, Chart or Status below.\nOne tap captures a fresh snapshot.";
+                        "Select TFC, WX, CHART or STATUS BRIEF below.\nEach request captures a fresh snapshot.";
                 if (controller.State == ExplanationRunState.Unverified) body = "SOURCE CHECK NEEDED\n" + body;
                 if (controller.State == ExplanationRunState.Cancelled && !string.IsNullOrEmpty(controller.Answer)) body = "STOPPED · INCOMPLETE\n" + body;
                 if (controller.State == ExplanationRunState.Failed && !string.IsNullOrEmpty(controller.Answer)) body = "INCOMPLETE · " + controller.Status + "\n" + body;
@@ -494,10 +657,10 @@ namespace FAA.Explanations
             }
             else if (tab == 1)
             {
-                TextBlock("Source caution", "Captured values, not live instruments. Tap a source to inspect its values.", 11, Muted);
+                TextBlock("Source caution", "Captured values, not live instruments. Click a source to inspect its values.", SmallSize, Muted);
                 var snapshot = controller.Snapshot;
                 if (snapshot == null || snapshot.DeliveredIds.Count == 0)
-                    TextBlock("No sources", "No sources returned yet. Choose an action below.", 13, Text);
+                    TextBlock("No sources", "No sources returned yet. Choose an action below.", LabelSize, Text);
                 else foreach (var evidence in snapshot.Records.Values.Where(e => snapshot.DeliveredIds.Contains(e.Id)))
                 {
                     string id = evidence.Id;
@@ -505,36 +668,36 @@ namespace FAA.Explanations
                     var layout = item.gameObject.AddComponent<VerticalLayoutGroup>(); layout.padding = new RectOffset(10, 10, 8, 8); layout.spacing = 4;
                     layout.childControlWidth = layout.childControlHeight = layout.childForceExpandWidth = true; layout.childForceExpandHeight = false;
                     Action(item, () => { selectedEvidence = selectedEvidence == id ? null : id; lastRenderKey = null; dirty = true; });
-                    var title = FlowLabel(item, "Title", "[" + id + "]  " + evidence.Title, 12, Accent); title.fontStyle = FontStyles.Bold;
-                    FlowLabel(item, "State", evidence.State + " · source age " + (evidence.SourceAgeSeconds.HasValue ? evidence.SourceAgeSeconds.Value.ToString("0.0") + "s" : "unknown"), 11, Muted);
+                    var title = FlowLabel(item, "Title", "[" + id + "]  " + evidence.Title, LabelSize, Accent); title.fontStyle = FontStyles.Bold;
+                    FlowLabel(item, "State", evidence.State + " · source age " + (evidence.SourceAgeSeconds.HasValue ? evidence.SourceAgeSeconds.Value.ToString("0.0") + "s" : "unknown"), SmallSize, Muted);
                     if (selectedEvidence == id)
                     {
-                        FlowLabel(item, "Source", evidence.Source + " · " + evidence.CapturedUtc.ToString("HH:mm:ss 'UTC'"), 11, Muted);
-                        FlowLabel(item, "Raw evidence", evidence.Data.ToString(Formatting.Indented), 12, Text);
+                        FlowLabel(item, "Source", evidence.Source + " · " + evidence.CapturedUtc.ToString("HH:mm:ss 'UTC'"), SmallSize, Muted);
+                        FlowLabel(item, "Raw evidence", evidence.Data.ToString(Formatting.Indented), SmallSize, Text);
                     }
                 }
-                TextBlock("Citation audit", controller.CitationAudit, 11, Muted);
+                TextBlock("Citation audit", controller.CitationAudit, SmallSize, Muted);
             }
             else if (tab == 2)
             {
-                TextBlock("Tools limitation", "Read-only evidence tools · no aircraft control", 11, Accent);
-                if (controller.Activity.Count == 0) TextBlock("No activity", "No tools have run. Opening this panel sends no data.", 13, Text);
-                foreach (string activity in controller.Activity) TextBlock("Tool event", activity, 12, Text);
-                TextBlock("Tool bounds", "Up to 4 model rounds / 8 tool calls. No shell, arbitrary URLs or flight-control tools.\nModel: " + controller.Model, 11, Muted);
+                TextBlock("Tools limitation", "Read-only evidence tools · no aircraft control", SmallSize, Accent);
+                if (controller.Activity.Count == 0) TextBlock("No activity", "No tools have run. Opening this panel sends no data.", LabelSize, Text);
+                foreach (string activity in controller.Activity) TextBlock("Tool event", activity, SmallSize, Text);
+                TextBlock("Tool bounds", "Up to 4 model rounds / 8 tool calls. No shell, arbitrary URLs or flight-control tools.\nModel: " + controller.Model, SmallSize, Muted);
             }
             else
             {
                 var toggles = Rect(content, "Brief preferences");
-                toggles.gameObject.AddComponent<LayoutElement>().preferredHeight = 35;
+                toggles.gameObject.AddComponent<LayoutElement>().preferredHeight = 36;
                 var horizontal = toggles.gameObject.AddComponent<HorizontalLayoutGroup>(); horizontal.spacing = 8;
                 horizontal.childControlWidth = horizontal.childControlHeight = horizontal.childForceExpandWidth = horizontal.childForceExpandHeight = true;
                 var images = Rect(toggles, "Image sharing"); Plate(images, Card, false);
                 var imagesButton = Action(images, ToggleImageSharing); imagesButton.interactable = !controller.IsBusy;
-                var imageLabel = Label(images, "Label", "Chart / radar images " + (controller.IncludeImages ? "ON" : "OFF"), 11, controller.IncludeImages ? Accent : Muted);
+                var imageLabel = Label(images, "Label", "Chart / radar images " + (controller.IncludeImages ? "ON" : "OFF"), SmallSize, controller.IncludeImages ? Accent : Muted);
                 Fill(imageLabel.rectTransform, 8);
                 var motion = Rect(toggles, "Motion preference"); Plate(motion, Card, false); Action(motion, ToggleMotion);
-                var motionLabel = Label(motion, "Label", ReducedMotion ? "Motion OFF" : "Motion ON", 11, Muted); Fill(motionLabel.rectTransform, 8);
-                TextBlock("Sharing disclosure", "Each action sends a fresh snapshot and enabled chart/radar crops to subtoken.shop. No whole-screen image or aircraft-control access.", 11, Muted);
+                var motionLabel = Label(motion, "Label", ReducedMotion ? "Motion OFF" : "Motion ON", SmallSize, Muted); Fill(motionLabel.rectTransform, 8);
+                TextBlock("Sharing disclosure", "Each action sends a fresh snapshot and enabled chart/radar crops to subtoken.shop. No whole-screen image or aircraft-control access.", SmallSize, Muted);
             }
             Canvas.ForceUpdateCanvases(); scroll.verticalNormalizedPosition = 1;
             if (tab == 1 && !string.IsNullOrEmpty(selectedEvidence) && content.Find("Evidence " + selectedEvidence) is RectTransform selected)
@@ -610,7 +773,7 @@ namespace FAA.Explanations
         }
         private static Button PageButton(Transform parent, string name, string text, float left, UnityEngine.Events.UnityAction action)
         {
-            var rt = Rect(parent, name); Place(rt, left, 0, 30, 26); Plate(rt, Card, false);
+            var rt = Rect(parent, name); Place(rt, left, 0, 32, 28); Plate(rt, Card, false);
             var button = Action(rt, action);
             var label = Label(rt, "Label", text, 19, Text); Fill(label.rectTransform, 0); label.alignment = TextAlignmentOptions.Center;
             return button;
@@ -618,8 +781,8 @@ namespace FAA.Explanations
         private static TMP_Text SmallButton(Transform parent, string name, string text, float right, float top, float width, UnityEngine.Events.UnityAction action)
         {
             var rt = Rect(parent, name); rt.anchorMin = rt.anchorMax = Vector2.one; rt.pivot = Vector2.one;
-            rt.anchoredPosition = new Vector2(-right, -top); rt.sizeDelta = new Vector2(width, 24); Plate(rt, Card, false); Action(rt, action);
-            var label = Label(rt, "Label", text, 10, Muted); Fill(label.rectTransform, 0); label.alignment = TextAlignmentOptions.Center; return label;
+            rt.anchoredPosition = new Vector2(-right, -top); rt.sizeDelta = new Vector2(width, 28); Plate(rt, Card, false); Action(rt, action);
+            var label = Label(rt, "Label", text, SmallSize, Muted); Fill(label.rectTransform, 0); label.alignment = TextAlignmentOptions.Center; return label;
         }
         private static void Place(RectTransform rt, float left, float top, float width, float height)
         { rt.anchorMin = rt.anchorMax = new Vector2(0, 1); rt.pivot = new Vector2(0, 1); rt.anchoredPosition = new Vector2(left, -top); rt.sizeDelta = new Vector2(width, height); }

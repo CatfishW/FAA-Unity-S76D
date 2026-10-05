@@ -18,15 +18,58 @@ namespace FAA.Customization
         private readonly Dictionary<string,HUDControl.Core.HUDElementBase> classicSourceElements=new();
         private SymbologyColorManager colorManager;
         private string symbologyKey;
+        private Transform digitalRoot;private int gatedChildCount=-1;
+        // Classic dims itself per element (FaaClassicAnalogHud: awareness readouts at max(ForwardIntensityFor, AwarenessHudIntensity),
+        // the rest at ForwardIntensityFor), so the workspace adds no Classic CanvasGroups (no double dimming). It only drives the
+        // native hooks: PreviewInstrumentId (the instrument being resized from Settings) and DeclutterDeviation (unusual attitude).
+
+        /// <summary>
+        /// Digital HUD children that already multiply their own alpha by FaaHudInspection.ForwardHudIntensity (IAS/ALT with an
+        /// awareness floor, engine/VSI columns, bank scale, deviation scales, FMA). Their style gate never dims them again.
+        /// </summary>
+        private static readonly HashSet<string> SelfDimmingGates=new(System.StringComparer.Ordinal)
+            {"Airspeed Indicator","Altimeter","Torque Panel","NR/ENG Ind","VSI","Bank Scale","Glidescope","Localizer Position Ind.",FaaFlightModeAnnunciator.ObjectName};
+        /// <summary>
+        /// Digital HUD children that are essential awareness readouts but do NOT dim themselves (the legacy compass readout):
+        /// their gate keeps max(forward intensity, FaaHudInspection.AwarenessHudIntensity) while a panel is inspected.
+        /// </summary>
+        private static readonly HashSet<string> AwarenessGates=new(System.StringComparer.Ordinal){"Heading Panel"};
+        public static bool GateIsAwareness(string childName)=>childName!=null&&AwarenessGates.Contains(childName);
+        /// <summary>Secondary navigation cues removed together in an unusual attitude (AC 25-11B 5.10.3.2; rule 2.7).</summary>
+        private static readonly HashSet<string> UnusualAttitudeDeclutterGates=new(System.StringComparer.Ordinal){"Glidescope","Localizer Position Ind."};
+        public static bool GateDimsItself(string childName)=>childName!=null&&SelfDimmingGates.Contains(childName);
+        public static bool GateDeclutteredInUnusualAttitude(string childName)=>childName!=null&&UnusualAttitudeDeclutterGates.Contains(childName);
+
+        /// <summary>Forward-HUD factor for a Digital style gate that is not an awareness readout (pure, for tests).</summary>
+        public static float DigitalGateFactor(bool dimsItself,bool previewed,bool unusualDeclutter,bool unusualAttitude,float forwardIntensity)=>
+            GateFactor(dimsItself,false,previewed,unusualDeclutter,unusualAttitude,forwardIntensity,forwardIntensity);
+        /// <summary>
+        /// Forward-HUD factor for a Digital style gate (pure, for tests). Layers that dim themselves are never dimmed again (1);
+        /// the previewed instrument stays at 1; awareness readouts keep max(forward, awareness); everything else uses forward.
+        /// </summary>
+        public static float GateFactor(bool dimsItself,bool awareness,bool previewed,bool unusualDeclutter,bool unusualAttitude,float forwardIntensity,float awarenessIntensity)
+        {
+            if(unusualAttitude&&unusualDeclutter)return 0f;
+            if(dimsItself||previewed)return 1f;
+            float forward=Mathf.Clamp01(forwardIntensity);
+            return awareness?Mathf.Max(forward,Mathf.Clamp01(awarenessIntensity)):forward;
+        }
+        /// <summary>Classic instrument held at full intensity by FaaClassicAnalogHud (pure, for tests): the previewed one, only in Classic.</summary>
+        public static string ClassicPreviewId(bool classicActive,string previewId)=>classicActive?previewId:null;
+
         private sealed class StyleGate
         {
             public CanvasGroup group;public bool created;public float alpha;public bool interactable,blocks;
             public HUDControl.Core.HUDElementBase source;
-            public void Set(bool visible)
+            public bool dimsItself,awareness,unusualDeclutter;
+            public void Set(bool visible,float factor=1f)
             {
                 if(group==null)return;
                 visible&=source==null||source.IsEnabled;
-                group.alpha=visible?alpha:0;group.interactable=visible&&interactable;group.blocksRaycasts=visible&&blocks;
+                float k=Mathf.Clamp01(factor),a=visible?alpha*k:0;bool live=visible&&k>.5f;
+                if(Mathf.Abs(group.alpha-a)>.0005f)group.alpha=a;
+                if(group.interactable!=(live&&interactable))group.interactable=live&&interactable;
+                if(group.blocksRaycasts!=(live&&blocks))group.blocksRaycasts=live&&blocks;
             }
             public void Restore(){Set(true);if(created&&group!=null)Destroy(group);}
         }
@@ -38,11 +81,9 @@ namespace FAA.Customization
                 classicSourceRoots[m.Id]=m.Target;
                 classicSourceElements[m.Id]=m.Target.GetComponent<HUDControl.Core.HUDElementBase>();
             }
-            if(originalRoot!=null)foreach(Transform child in originalRoot)AddStyleGate(child);
-            if(headingCanvas!=null)
-            {
-                var root=headingCanvas.transform.Find("FAA Heading Tape Overlay");if(root!=null)AddStyleGate(root);
-            }
+            digitalRoot=originalRoot;SyncStyleGates();
+            // The shared heading tape is NOT gated: it is the one heading reference in both styles (zone Z5). Classic lays out
+            // around it and shows its own 'HDG' fallback only while the tape is hidden.
             var go=new GameObject("FAA Classic Analog Symbology",typeof(RectTransform));
             ClassicHud=go.AddComponent<FaaClassicAnalogHud>();ClassicHud.Build(flight,originalRoot);
             foreach(var pair in ClassicHud.InstrumentRoots)
@@ -67,7 +108,28 @@ namespace FAA.Customization
             // Unity can return a destroyed/native-null wrapper; CLR ?? does not honor its null check.
             var existing=root.GetComponent<CanvasGroup>();var g=existing!=null?existing:root.gameObject.AddComponent<CanvasGroup>();
             digitalGates.Add(new StyleGate{group=g,created=existing==null,alpha=g.alpha,interactable=g.interactable,blocks=g.blocksRaycasts,
-                source=root.GetComponent<HUDControl.Core.HUDElementBase>()});
+                source=root.GetComponent<HUDControl.Core.HUDElementBase>(),dimsItself=GateDimsItself(root.name),awareness=GateIsAwareness(root.name),
+                unusualDeclutter=GateDeclutteredInUnusualAttitude(root.name)});
+        }
+        /// <summary>Gates children created after binding (for example the runtime FMA) so Classic still hides every Digital item. Runs only when the child count changes.</summary>
+        private void SyncStyleGates()
+        {
+            if(digitalRoot==null||digitalRoot.childCount==gatedChildCount)return;
+            gatedChildCount=digitalRoot.childCount;
+            foreach(Transform child in digitalRoot)
+            {
+                bool gated=false;
+                foreach(var gate in digitalGates)if(gate.group!=null&&gate.group.transform==child){gated=true;break;}
+                if(!gated)AddStyleGate(child);
+            }
+        }
+        /// <summary>The selected instrument while the Settings INSTRUMENTS page is open and the forward HUD is dimmed.</summary>
+        private void ResolveInspectionPreview()
+        {
+            Transform target=null;string id=null;
+            if(MenuOpen&&FaaHudInspection.Active&&hudPage!=null&&hudPage.gameObject.activeSelf)
+                foreach(var m in modules)if(m.Id==SelectedId){target=m.Target;id=m.Id;break;}
+            InspectionPreviewTarget=target;InspectionPreviewId=id;
         }
         public bool SetSymbologyVersion(FaaSymbologyVersion version)
         {
@@ -92,16 +154,29 @@ namespace FAA.Customization
         {
             if(ClassicHud==null)return;
             bool classic=CurrentSymbology==FaaSymbologyVersion.ClassicAnalog;
-            foreach(var gate in digitalGates)gate.Set(!classic);
+            SyncStyleGates();ResolveInspectionPreview();
+            // Inspection declutter: both styles dim through FaaHudInspection (side panel in view, or the view turned off-axis).
+            // Gates of layers that dim themselves are left alone (no double dimming, IAS/ALT keep their awareness floor);
+            // the instrument being resized from Settings stays at full intensity.
+            float forward=FaaHudInspection.ForwardHudIntensity,awareness=FaaHudInspection.AwarenessHudIntensity;
+            bool unusual=FaaRotorcraftConformalLayer.UnusualAttitudeActive;
+            Transform preview=InspectionPreviewTarget;
+            foreach(var gate in digitalGates)
+                gate.Set(!classic,GateFactor(gate.dimsItself,gate.awareness,preview!=null&&gate.group!=null&&gate.group.transform==preview,gate.unusualDeclutter,unusual,forward,awareness));
             ClassicHud.LocalAttitude=ClassicInstrumentAttitude;
-            // Explicit desktop side inspection gives the controls visual priority without
-            // changing canvas mode, layout or telemetry. Native XR retains normal depth/order.
-            ClassicHud.PanelInspectionOpacity=(!NativeXr&&desktopView!=null&&desktopView.IsPanelInspectionActive) ? .12f : 1f;
+            // The shared FaaHudInspection fade (with the awareness floor) is applied by Classic per element; the legacy uniform
+            // multiplier stays at 1. Native hooks: the previewed dial stays at full intensity; deviation scales follow the shared
+            // unusual-attitude declutter.
+            ClassicHud.PanelInspectionOpacity=1f;
+            string classicPreview=ClassicPreviewId(classic,InspectionPreviewId);
+            if(!string.Equals(ClassicHud.PreviewInstrumentId,classicPreview))ClassicHud.PreviewInstrumentId=classicPreview;
+            if(ClassicHud.DeclutterDeviation!=unusual)ClassicHud.DeclutterDeviation=unusual;
             ClassicHud.ReducedMotion=ReducedSymbologyMotion;
-            ClassicHud.ReferenceGreen=UsePilotSymbologyColor&&colorManager!=null?colorManager.CurrentColor:new Color(117f/255f,187f/255f,64f/255f,1);
+            ClassicHud.ReferenceGreen=UsePilotSymbologyColor&&colorManager!=null?colorManager.CurrentColor:FaaClassicAnalogHud.DefaultReferenceGreen;
             ClassicHud.SetVisible(classic);ClassicHud.ApplyLayout();
             foreach(var pair in ClassicHud.InstrumentRoots)
-                if(classicSourceRoots.TryGetValue(pair.Key,out var source)&&source!=null)
+                // Classic 'heading' is the mode annunciator only; hiding the Digital heading tape must not hide it.
+                if(pair.Key!="heading"&&classicSourceRoots.TryGetValue(pair.Key,out var source)&&source!=null)
                 {
                     bool visible=source.gameObject.activeInHierarchy;
                     if(classicSourceElements.TryGetValue(pair.Key,out var element)&&element!=null)visible&=element.IsEnabled;
@@ -111,7 +186,15 @@ namespace FAA.Customization
         private void RefreshInstrumentPicker()
         {
             selectionIds.Clear();
-            foreach(var m in modules)if(m.TryScreenBounds(View,out _))selectionIds.Add(m.Id);
+            bool paired=CurrentSymbology==FaaSymbologyVersion.Digital;
+            foreach(var m in modules)
+            {
+                if(!m.TryScreenBounds(View,out _))continue;
+                // Digital IAS/ALT and TQ/NR always share one size: one picker entry per pair.
+                if(paired&&(m.Id=="altitude"&&modules.Exists(o=>o.Id=="airspeed")||m.Id=="nr"&&modules.Exists(o=>o.Id=="torque")))continue;
+                selectionIds.Add(m.Id);
+            }
+            captionId=null;
         }
         private IEnumerable<FaaNonConformalScaleTarget> DigitalProfileModules => digitalModules.Count>0?digitalModules:modules;
         public string ExportSymbologyPreferences()
@@ -126,8 +209,9 @@ namespace FAA.Customization
         {if(!string.IsNullOrEmpty(symbologyKey)&&ClassicHud!=null)PlayerPrefs.SetString(symbologyKey,ExportSymbologyPreferences());}
         private void ReleaseSymbologyVersions()
         {
-            foreach(var gate in digitalGates)gate.Restore();digitalGates.Clear();
+            foreach(var gate in digitalGates)gate.Restore();digitalGates.Clear();digitalRoot=null;gatedChildCount=-1;
             if(ClassicHud!=null){ClassicHud.SetVisible(false);Destroy(ClassicHud.gameObject);}ClassicHud=null;
+            InspectionPreviewTarget=null;InspectionPreviewId=null;
             modules.Clear();modules.AddRange(digitalModules);classicModules.Clear();digitalModules.Clear();
             CurrentSymbology=FaaSymbologyVersion.Digital;symbologyKey=null;
             classicSourceRoots.Clear();classicSourceElements.Clear();

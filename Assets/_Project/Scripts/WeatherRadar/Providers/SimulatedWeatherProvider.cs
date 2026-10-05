@@ -93,34 +93,8 @@ namespace WeatherRadar
 
         private Color32 GetWeatherColor32(float intensity)
         {
-            if (intensity <= 0f)
-                return new Color32(0, 0, 0, 0);
-
-            // Standard weather radar color scale
-            if (intensity < 0.25f)
-            {
-                // Green (light rain)
-                float t = intensity / 0.25f;
-                return new Color32(0, (byte)(77 + 128 * t), 0, (byte)(t * 255));
-            }
-            else if (intensity < 0.5f)
-            {
-                // Green to Yellow
-                float t = (intensity - 0.25f) / 0.25f;
-                return new Color32((byte)(t * 255), 204, 0, 255);
-            }
-            else if (intensity < 0.75f)
-            {
-                // Yellow to Orange
-                float t = (intensity - 0.5f) / 0.25f;
-                return new Color32(255, (byte)(204 - 77 * t), 0, 255);
-            }
-            else
-            {
-                // Orange to Red
-                float t = (intensity - 0.75f) / 0.25f;
-                return new Color32(255, (byte)(127 - 127 * t), 0, 255);
-            }
+            // One discrete ARINC 708A palette for every weather source; no lime/orange ramps.
+            return WeatherRadarPalette.ForLevel(WeatherRadarPalette.LevelFromIntensity(intensity));
         }
 
         protected override void Update()

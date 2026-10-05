@@ -223,6 +223,7 @@ namespace FAA.XPlaneIntegration.Runtime
         private Glideslope[] _glideslopeHuds = Array.Empty<Glideslope>();
         private LocalizerElement[] _localizerElements = Array.Empty<LocalizerElement>();
         private GlidescopeElement[] _glidescopeElements = Array.Empty<GlidescopeElement>();
+        private BankScaleElement[] _bankScaleElements = Array.Empty<BankScaleElement>();
         private AirspeedIndicatorElement[] _airspeedIndicatorElements = Array.Empty<AirspeedIndicatorElement>();
         private AltimeterElement[] _altimeterElements = Array.Empty<AltimeterElement>();
         private TorquePanelElement[] _torquePanelElements = Array.Empty<TorquePanelElement>();
@@ -553,6 +554,7 @@ namespace FAA.XPlaneIntegration.Runtime
             _glideslopeHuds = FindSceneObjects<Glideslope>();
             _localizerElements = FindSceneObjects<LocalizerElement>();
             _glidescopeElements = FindSceneObjects<GlidescopeElement>();
+            _bankScaleElements = FindSceneObjects<BankScaleElement>();
             _airspeedIndicatorElements = Array.FindAll(
                 FindSceneObjects<AirspeedIndicatorElement>(),
                 element => element != null && element.enabled && element.gameObject.activeInHierarchy);
@@ -1447,7 +1449,12 @@ namespace FAA.XPlaneIntegration.Runtime
                 ApplyToAircraftController(_latestFlightData);
             }
 
-            ApplyToHudControlStack(_latestFlightData);
+            // After a stale-feed clear, never push the last snapshot back into the HUD every frame:
+            // the flagged/removed state holds until a new snapshot arrives (ApplySnapshot resets the flag).
+            if (!_enginePointersClearedForStaleFeed)
+            {
+                ApplyToHudControlStack(_latestFlightData);
+            }
 
             if (applyToLegacyHud)
             {
@@ -1651,23 +1658,23 @@ namespace FAA.XPlaneIntegration.Runtime
             data.engine1NRValid = TryReadEnginePercent(
                 systems,
                 "sim/cockpit2/engine/indicators/N2_percent[0]",
-                110f,
+                FAA.Customization.FaaRotorcraftLimits.N2ImplausibleAbove,
                 out data.engine1NR);
             data.engine2NRValid = data.engineCount >= 2 && TryReadEnginePercent(
                 systems,
                 "sim/cockpit2/engine/indicators/N2_percent[1]",
-                110f,
+                FAA.Customization.FaaRotorcraftLimits.N2ImplausibleAbove,
                 out data.engine2NR);
 
             data.engine1NGValid = TryReadEnginePercent(
                 systems,
                 "sim/cockpit2/engine/indicators/N1_percent[0]",
-                120f,
+                FAA.Customization.FaaRotorcraftLimits.N2ImplausibleAbove,
                 out data.engine1NG);
             data.engine2NGValid = data.engineCount >= 2 && TryReadEnginePercent(
                 systems,
                 "sim/cockpit2/engine/indicators/N1_percent[1]",
-                120f,
+                FAA.Customization.FaaRotorcraftLimits.N2ImplausibleAbove,
                 out data.engine2NG);
 
             data.rotorNRValid = TryCalculateRotorNrPercent(systems, 0, out data.rotorNR);
@@ -1691,7 +1698,14 @@ namespace FAA.XPlaneIntegration.Runtime
                 return false;
             }
 
-            percent = Mathf.Clamp(Mathf.Abs(torqueNm) / ratedTorqueNm * 100f, 0f, 120f);
+            // Never clamp to the display range: an exceedance must show its true value. Only nonsense is invalid.
+            float raw = Mathf.Abs(torqueNm) / ratedTorqueNm * 100f;
+            if (!IsFinite(raw) || raw > FAA.Customization.FaaRotorcraftLimits.TorqueImplausibleAbove)
+            {
+                return false;
+            }
+
+            percent = raw;
             return true;
         }
 
@@ -1716,7 +1730,13 @@ namespace FAA.XPlaneIntegration.Runtime
                 return false;
             }
 
-            percent = Mathf.Clamp(Mathf.Abs(propellerRpm) / redlineRpm * 100f, 0f, 110f);
+            float raw = Mathf.Abs(propellerRpm) / redlineRpm * 100f;
+            if (!IsFinite(raw) || raw > FAA.Customization.FaaRotorcraftLimits.NrImplausibleAbove)
+            {
+                return false;
+            }
+
+            percent = raw;
             return true;
         }
 
@@ -1727,12 +1747,13 @@ namespace FAA.XPlaneIntegration.Runtime
             out float percent)
         {
             percent = 0f;
-            if (!TryGetFinite(systems, key, out float value))
+            if (!TryGetFinite(systems, key, out float value) || value < 0f || value > maximum)
             {
+                // Outside the plausible range is a data fault, not a pegged plausible reading.
                 return false;
             }
 
-            percent = Mathf.Clamp(value, 0f, maximum);
+            percent = value;
             return true;
         }
 
@@ -1799,6 +1820,11 @@ namespace FAA.XPlaneIntegration.Runtime
                 float verticalGuidance = data.ilsValid ? GetGlideslopeDeviation(_snapshot.Systems, float.NaN) : float.NaN;
                 ForEach(_localizerElements, element => element.SetDeviation(lateralGuidance));
                 ForEach(_glidescopeElements, element => element.SetDeviation(verticalGuidance));
+                // Measured slip and attitude validity drive the bank scale; a missing g_side removes the brick, and
+                // attitude older than AttitudeStaleSeconds removes the roll pointer (never a frozen, plausible bank).
+                bool attitudeValid = data.attitudeValid && IsFlightSnapshotFresh(AttitudeStaleSeconds);
+                bool slipMeasured = TryGetFinite(_snapshot.Aircraft, "sim/flightmodel/forces/g_side", out _);
+                ApplyBankScaleData(attitudeValid, data.slipSkid, slipMeasured && attitudeValid);
                 bool airspeedValid = TryGetFinite(
                     _snapshot.Aircraft,
                     "sim/flightmodel/position/indicated_airspeed",
@@ -1856,8 +1882,34 @@ namespace FAA.XPlaneIntegration.Runtime
             _enginePointersClearedForStaleFeed = true;
         }
 
+        /// <summary>Same freshness window the Digital FMA and Classic symbology use (FaaAnalogFlightSample, 1 s).</summary>
+        private const float AttitudeStaleSeconds = 1f;
+
+        private bool IsFlightSnapshotFresh(float maximumAgeSeconds)
+        {
+            return _lastFlightSnapshotRealtime >= 0f &&
+                   Time.realtimeSinceStartup - _lastFlightSnapshotRealtime <= Mathf.Max(0.05f, maximumAgeSeconds);
+        }
+
+        private void ApplyBankScaleData(bool attitudeValid, float slip, bool slipValid)
+        {
+            for (int i = 0; i < _bankScaleElements.Length; i++)
+            {
+                BankScaleElement element = _bankScaleElements[i];
+                if (element == null)
+                {
+                    continue;
+                }
+
+                element.SetAttitudeValid(attitudeValid);
+                element.SetSlipData(slip, slipValid);
+            }
+        }
+
         private void ClearEngineHudPointers()
         {
+            // A stale feed must not leave the roll pointer or slip brick frozen at their last plausible position.
+            ApplyBankScaleData(false, float.NaN, false);
             ForEach(_localizerElements, element => element.SetDeviation(float.NaN));
             ForEach(_glidescopeElements, element => element.SetDeviation(float.NaN));
             ForEach(_airspeedIndicatorElements, element => element.ClearExternalData());
@@ -2379,10 +2431,9 @@ namespace FAA.XPlaneIntegration.Runtime
                         out rangeNorm,
                         out angleDegrees);
 
-                    // No rectangular black plate: the sector itself carries quiet contrast.
-                    pixels[row + x] = insideSector
-                        ? new Color32(8, 22, 31, (byte)Mathf.RoundToInt(Mathf.Lerp(220f, 185f, rangeNorm)))
-                        : new Color32(0, 0, 0, 0);
+                    // No rectangular plate: only the scan sector is drawn, opaque near-black so 'no return' reads black
+                    // (ARINC 708A / DO-220) and terrain never shows through the scope.
+                    pixels[row + x] = insideSector ? WeatherNoReturn : new Color32(0, 0, 0, 0);
                 }
             }
         }
@@ -2569,25 +2620,26 @@ namespace FAA.XPlaneIntegration.Runtime
             DrawThickLine(pixels, size, cx - radius, cy, cx, cy + radius, color, 1);
         }
 
+        /// <summary>Weather radar return levels shared by both radar code paths (ARINC 708A / RTCA DO-220 convention).</summary>
+        public static readonly Color32 WeatherLevel1Light = new Color32(0, 199, 51, 255);      // (0.00, 0.78, 0.20)
+        public static readonly Color32 WeatherLevel2Moderate = new Color32(255, 217, 0, 255);  // (1.00, 0.85, 0.00)
+        public static readonly Color32 WeatherLevel3Heavy = new Color32(255, 38, 26, 255);     // (1.00, 0.15, 0.10)
+        public static readonly Color32 WeatherLevel4Extreme = new Color32(255, 51, 255, 255);  // (1.00, 0.20, 1.00), extreme precipitation only
+        public static readonly Color32 WeatherNoReturn = new Color32(4, 10, 14, 240);
+
+        /// <summary>
+        /// Solid, discrete return levels: no alpha ramp, no intermediate hues. Heavy (red) needs strong local signal AND heavy
+        /// precipitation; the scalar SIM WX picture never produces the extreme (magenta) level.
+        /// </summary>
         private static Color32 ModernWeatherReturnColor(float strength, float precipitation)
         {
             strength = Mathf.Clamp01(strength);
-            Color32 color;
-            if (strength > 0.92f || precipitation > 0.92f && strength > 0.84f)
+            if (strength > 0.92f && precipitation >= 0.6f)
             {
-                color = new Color32(246, 220, 62, 205);
-            }
-            else if (strength > 0.58f)
-            {
-                color = new Color32(116, 246, 58, 174);
-            }
-            else
-            {
-                color = new Color32(18, 216, 70, 146);
+                return WeatherLevel3Heavy;
             }
 
-            color.a = (byte)Mathf.RoundToInt(Mathf.Lerp(70f, color.a, strength));
-            return color;
+            return strength > 0.58f ? WeatherLevel2Moderate : WeatherLevel1Light;
         }
 
         private static Color32 BlendRadarReturn(Color32 baseColor, Color32 overlay)
@@ -2819,15 +2871,8 @@ namespace FAA.XPlaneIntegration.Runtime
 
         private static Color32 WeatherReturnColor(float strength)
         {
-            if (strength > 0.78f)
-            {
-                return new Color32(255, 174, 36, 220);
-            }
-            if (strength > 0.48f)
-            {
-                return new Color32(210, 232, 58, 205);
-            }
-            return new Color32(38, 220, 64, (byte)Mathf.RoundToInt(Mathf.Lerp(90f, 185f, strength)));
+            // Same discrete levels as the modern picture; no orange or lime intermediate hues.
+            return ModernWeatherReturnColor(strength, strength);
         }
 
         private static Color32 BlendAdditive(Color32 baseColor, Color32 overlay)
@@ -2978,10 +3023,14 @@ namespace FAA.XPlaneIntegration.Runtime
             ForEach(_flightPathVectors, hud => hud.UpdateFPV(
                 validLegacyFpv ? relativeFlightPathPitch : 0f,
                 validLegacyFpv ? relativeTrack : 0f, validLegacyFpv ? data.groundSpeed : 0f));
-            ForEach(_slipSkidHuds, hud => hud.UpdateSlip(data.slipSkid));
+            // Missing guidance or slip is NaN (legacy widgets hide), never an on-course or coordinated zero.
+            float legacySlip = TryGetFinite(_snapshot.Aircraft, "sim/flightmodel/forces/g_side", out _) && data.attitudeValid ? data.slipSkid : float.NaN;
+            float legacyLateral = data.ilsValid ? GetNavigationDeviation(_snapshot.Systems, float.NaN) : float.NaN;
+            float legacyVertical = data.ilsValid ? GetGlideslopeDeviation(_snapshot.Systems, float.NaN) : float.NaN;
+            ForEach(_slipSkidHuds, hud => hud.UpdateSlip(legacySlip));
             ForEach(_altitudeAglDisplays, hud => hud.UpdateText(altitudeMeters, aglMeters));
-            ForEach(_courseDeviationHuds, hud => hud.UpdateDeviation(0, data.courseDeviation, data.courseDeviation, data.courseDeviation));
-            ForEach(_glideslopeHuds, hud => hud.UpdateGlideslope(data.glideslopeDeviation));
+            ForEach(_courseDeviationHuds, hud => hud.UpdateDeviation(0, legacyLateral, legacyLateral, legacyLateral));
+            ForEach(_glideslopeHuds, hud => hud.UpdateGlideslope(legacyVertical));
         }
 
         private IEnumerator RenderAssetLoop()
@@ -3546,6 +3595,46 @@ namespace FAA.XPlaneIntegration.Runtime
         private static bool IsFinite(float value)
         {
             return !float.IsNaN(value) && !float.IsInfinity(value);
+        }
+
+        /// <summary>Baro-corrected indicated altitude of the pilot's altimeter (feet). Read only; never used for position.</summary>
+        public const string BaroIndicatedAltitudeDataRef = "sim/cockpit2/gauges/indicators/altitude_ft_pilot";
+        /// <summary>Larger baro-minus-geometric offsets are treated as a unit or source fault, not as altitude.</summary>
+        public const float MaximumBaroOffsetFeet = 5000f;
+
+        /// <summary>
+        /// COL-12 helper for an 'ALT' readout: the interpolated geometric altitude plus the baro offset measured in the same snapshot
+        /// (indicated altitude minus elevation), so the readout stays smooth between packets and is baro-corrected. False when either
+        /// dataref is missing or the offset is implausible: callers then keep the geometric altitude (and caption it as such).
+        /// data.altitudeMSL itself stays geometric because it also places the aircraft, the radar own-ship and the terrain query.
+        /// </summary>
+        public static bool TryGetIndicatedAltitudeFeet(IDictionary<string, float> aircraft, IDictionary<string, float> systems,
+            float geometricAltitudeFeet, out float indicatedAltitudeFeet)
+        {
+            indicatedAltitudeFeet = float.NaN;
+            if (!IsFinite(geometricAltitudeFeet) ||
+                !TryGetFinite(systems, BaroIndicatedAltitudeDataRef, out float indicated) ||
+                !TryGetFinite(aircraft, "sim/flightmodel/position/elevation", out float elevationMeters))
+            {
+                return false;
+            }
+
+            float offset = indicated - elevationMeters * MetersToFeet;
+            if (!IsFinite(offset) || Mathf.Abs(offset) > MaximumBaroOffsetFeet)
+            {
+                return false;
+            }
+
+            indicatedAltitudeFeet = geometricAltitudeFeet + offset;
+            return true;
+        }
+
+        /// <summary>Instance form of <see cref="TryGetIndicatedAltitudeFeet(IDictionary{string,float},IDictionary{string,float},float,out float)"/> for the latest data.</summary>
+        public bool TryGetIndicatedAltitudeFeet(out float indicatedAltitudeFeet)
+        {
+            AviationFlightData data = _latestFlightData ?? _rawFlightData;
+            return TryGetIndicatedAltitudeFeet(_snapshot?.Aircraft, _snapshot?.Systems, data != null ? data.altitudeMSL : float.NaN,
+                out indicatedAltitudeFeet);
         }
 
         private static bool TryGetFinite(IDictionary<string, float> values, string key, out float value)

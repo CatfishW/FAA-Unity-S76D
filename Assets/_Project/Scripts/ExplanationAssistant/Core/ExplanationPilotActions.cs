@@ -7,7 +7,21 @@ namespace FAA.Explanations
     /// <summary>Deliberate one-tap requests. Opening the UI never sends a request.</summary>
     public static class ExplanationPilotActions
     {
+        /// <summary>Action ids (prompt keys). Stable: they are not what the pilot reads.</summary>
         public static readonly IReadOnlyList<string> Names = Array.AsReadOnly(new[] { "Traffic", "Weather", "Chart", "Status" });
+        /// <summary>
+        /// Button captions in the chrome BRIEF flyout. "TFC BRIEF" / "WX BRIEF" say these request an AI summary, so they
+        /// cannot be mistaken for the bar's TRAFFIC / WEATHER view buttons that turn the camera (ALL CAPS like all chrome).
+        /// </summary>
+        public static readonly IReadOnlyList<string> Labels = Array.AsReadOnly(new[] { "TFC BRIEF", "WX BRIEF", "CHART BRIEF", "STATUS BRIEF" });
+        /// <summary>Captions for the narrow legacy single-row dock (edit-time hosts without the chrome).</summary>
+        public static readonly IReadOnlyList<string> ShortLabels = Array.AsReadOnly(new[] { "TRAFFIC", "WEATHER", "CHART", "STATUS" });
+        /// <summary>Pilot-facing caption for an action id, or null when unknown.</summary>
+        public static string LabelFor(string action)
+        {
+            for (int i = 0; i < Names.Count; i++) if (Names[i] == action) return Labels[i];
+            return null;
+        }
         private const string Brief = " Give exactly three short bullets, at most 60 words total. " +
             "Start the bullets with 'Picture:', 'Context:', and 'Limit:' respectively. " +
             "Lead with the most relevant observation, put the main uncertainty last, and include source citations. " +

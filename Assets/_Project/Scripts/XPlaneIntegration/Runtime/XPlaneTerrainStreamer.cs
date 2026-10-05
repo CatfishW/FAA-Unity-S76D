@@ -55,6 +55,11 @@ namespace FAA.XPlaneIntegration.Runtime
         private GameObject _root;
         private GameObject _statusCanvas;
         private Text _statusText;
+        private string _statusState = "";
+        private double _statusStateSince;
+        private int _chipReady = -1, _chipDesired = -1;
+        private string _chipLoadingText = "";
+        private string _legacyStatusKey;
         private Camera _camera;
         private float _originalFarClip;
         private Vector2Int _center;
@@ -88,6 +93,7 @@ namespace FAA.XPlaneIntegration.Runtime
             _endpointValid = XPlaneTerrainConnection.Load(serviceUrl, out _endpoint, out string connectionError);
             if (!string.IsNullOrEmpty(_discoveredEndpoint)) _endpointValid = XPlaneTerrainConnection.TryNormalize(_discoveredEndpoint, out _endpoint);
             if (!_endpointValid) _lastError = connectionError;
+            _nextUiUpdate = 0; // report status on the next frame after a source change
             _stream = StartCoroutine(Stream());
         }
 
@@ -123,19 +129,89 @@ namespace FAA.XPlaneIntegration.Runtime
                 Rebuild(rebuild);
             if (Time.realtimeSinceStartupAsDouble < _nextUiUpdate) return;
             _nextUiUpdate = Time.realtimeSinceStartupAsDouble + .5;
-            if (!showSourceStatus) { if (_statusCanvas != null) _statusCanvas.SetActive(false); return; }
+            RefreshSourceStatus();
+        }
+
+        /// <summary>Transient terrain states (tile-boundary loads, the first fetch) are not annunciated before this.</summary>
+        public const double TerrainStatusGraceSeconds = 3.0;
+
+        /// <summary>
+        /// Chip severity for a terrain state. READY is silent. POSITION STALE is silent because the data chip already
+        /// annunciates the root cause (no cascading cautions, AC 25.1322-1). Other states are cautions (the synthetic
+        /// scene is incomplete, flight data is unaffected) once they persist past <see cref="TerrainStatusGraceSeconds"/>;
+        /// a configuration error is immediate.
+        /// </summary>
+        public static FAA.Customization.FaaChromeSeverity ClassifyTerrain(string state, double stateSeconds)
+        {
+            if (state == "READY" || state == "POSITION STALE") return FAA.Customization.FaaChromeSeverity.Nominal;
+            if (state == "CONFIGURATION ERROR") return FAA.Customization.FaaChromeSeverity.Caution;
+            return stateSeconds < TerrainStatusGraceSeconds ? FAA.Customization.FaaChromeSeverity.Nominal : FAA.Customization.FaaChromeSeverity.Caution;
+        }
+
+        /// <summary>Short chip wording; empty when the terrain state is silent.</summary>
+        public static string TerrainChipText(string state, int ready, int desired)
+        {
+            switch (state)
+            {
+                case "LOADING": return "TERRAIN LOADING " + ready + "/" + desired;
+                case "NO COVERAGE": return "NO TERRAIN COVERAGE";
+                case "CONNECTION REQUIRED": return "TERRAIN OFFLINE";
+                case "PARTIAL / RETRY": return "TERRAIN PARTIAL";
+                case "CONFIGURATION ERROR": return "TERRAIN CONFIG ERROR";
+                default: return string.Empty;
+            }
+        }
+
+        private int CountReadyTiles()
+        {
+            int ready = 0;
+            foreach (var key in _desired.Keys) if (_tiles.ContainsKey(key)) ready++;
+            return ready;
+        }
+
+        private void RefreshSourceStatus()
+        {
+            var chrome = FAA.Customization.FaaPilotChrome.Ensure();
+            if (!showSourceStatus)
+            {
+                chrome?.ClearStatus("terrain");
+                if (_statusCanvas != null) _statusCanvas.SetActive(false);
+                return;
+            }
+            bool live = telemetry != null && telemetry.IsFeedHealthy;
+            int ready = CountReadyTiles(), desired = _desired.Count;
+            string state = !_endpointValid ? "CONFIGURATION ERROR" : !live ? "POSITION STALE" :
+                !HasOwnshipCoverage && _failures > 0 ? "CONNECTION REQUIRED" : !HasOwnshipCoverage ? "NO COVERAGE" :
+                _lastError.Length > 0 ? "PARTIAL / RETRY" : ready < desired ? "LOADING" : "READY";
+            double now = Time.realtimeSinceStartupAsDouble;
+            if (!ReferenceEquals(state, _statusState)) { _statusState = state; _statusStateSince = now; }
+            string detail = !_endpointValid ? "CHECK TerrainConnection.json / --terrain-url" :
+                !HasOwnshipCoverage && _failures > 0 ? "START TERRAIN TUNNEL · DATA CONNECTION IS SEPARATE" : "X-PLANE ELEVATION · NEAR / DISTANT LOD";
+            if (chrome != null)
+            {
+                // Screen-chrome unit: terrain shares the single merged status chip; nothing is drawn in the top-left corner.
+                string text;
+                if (state == "LOADING")
+                {
+                    if (ready != _chipReady || desired != _chipDesired) { _chipReady = ready; _chipDesired = desired; _chipLoadingText = TerrainChipText(state, ready, desired); }
+                    text = _chipLoadingText;
+                }
+                else text = TerrainChipText(state, ready, desired);
+                chrome.ReportStatus("terrain", ClassifyTerrain(state, now - _statusStateSince), text, detail, 1);
+                if (_statusCanvas != null) { Destroy(_statusCanvas); _statusCanvas = null; _statusText = null; _legacyStatusKey = null; }
+                return;
+            }
             EnsureStatusUi();
             if (_statusCanvas == null) return;
             _statusCanvas.SetActive(true);
-            bool live = telemetry != null && telemetry.IsFeedHealthy;
-            string state = !_endpointValid ? "CONFIGURATION ERROR" : !live ? "POSITION STALE" :
-                !HasOwnshipCoverage && _failures > 0 ? "CONNECTION REQUIRED" : !HasOwnshipCoverage ? "NO COVERAGE" :
-                _lastError.Length > 0 ? "PARTIAL / RETRY" : ReadyTileCount < _desired.Count ? "LOADING" : "READY";
-            _statusText.text = $"TERRAIN · {state} · {ReadyTileCount}/{_desired.Count}\n" +
-                (!_endpointValid ? "CHECK TerrainConnection.json / --terrain-url" :
-                 !HasOwnshipCoverage && _failures > 0 ? "START TERRAIN TUNNEL · DATA CONNECTION IS SEPARATE" : "X-PLANE ELEVATION · NEAR / DISTANT LOD");
-            _statusText.color = live && HasOwnshipCoverage && _lastError.Length == 0
-                ? new Color(.63f, .83f, .78f) : new Color(1f, .73f, .32f);
+            string key = state + ready + "/" + desired;
+            if (_legacyStatusKey != key)
+            {
+                _legacyStatusKey = key;
+                _statusText.text = $"TERRAIN · {state} · {ready}/{desired}\n" + detail;
+            }
+            _statusText.color = ClassifyTerrain(state, now - _statusStateSince) == FAA.Customization.FaaChromeSeverity.Nominal
+                ? FAA.Customization.FaaHudStyle.ChromeQuiet : FAA.Customization.FaaHudStyle.Amber;
         }
 
         private IEnumerator Stream()
@@ -318,24 +394,36 @@ namespace FAA.XPlaneIntegration.Runtime
 
         private void EnsureStatusUi()
         {
+            // Legacy diagnostics for hosts without the pilot chrome: bottom-left above the data chip, on a plate, legible.
             if (_statusCanvas != null) return;
             _statusCanvas = new GameObject("X-Plane Terrain Source Status", typeof(Canvas), typeof(UnityEngine.UI.CanvasScaler));
             var canvas = _statusCanvas.GetComponent<Canvas>();
             canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-            canvas.sortingOrder = 2000;
+            canvas.sortingOrder = 7205;
             var scaler = _statusCanvas.GetComponent<UnityEngine.UI.CanvasScaler>();
             scaler.uiScaleMode = UnityEngine.UI.CanvasScaler.ScaleMode.ScaleWithScreenSize;
             scaler.referenceResolution = new Vector2(1920, 1080);
             scaler.matchWidthOrHeight = .5f;
+            var plate = new GameObject("Terrain status plate", typeof(RectTransform), typeof(Image));
+            plate.transform.SetParent(_statusCanvas.transform, false);
+            var plateRect = (RectTransform)plate.transform;
+            plateRect.anchorMin = plateRect.anchorMax = plateRect.pivot = Vector2.zero;
+            plateRect.anchoredPosition = new Vector2(18, 58);
+            plateRect.sizeDelta = new Vector2(470, 48);
+            var plateImage = plate.GetComponent<Image>();
+            plateImage.color = FAA.Customization.FaaHudStyle.ChromePlate;
+            plateImage.raycastTarget = false;
             var label = new GameObject("Source (non-interactive)", typeof(RectTransform), typeof(Text));
-            label.transform.SetParent(_statusCanvas.transform, false);
+            label.transform.SetParent(plate.transform, false);
             var rect = (RectTransform)label.transform;
-            rect.anchorMin = rect.anchorMax = rect.pivot = new Vector2(0, 1);
-            rect.anchoredPosition = new Vector2(22, -90);
-            rect.sizeDelta = new Vector2(370, 36);
+            rect.anchorMin = Vector2.zero;
+            rect.anchorMax = Vector2.one;
+            rect.offsetMin = new Vector2(10, 2);
+            rect.offsetMax = new Vector2(-8, -2);
             _statusText = label.GetComponent<Text>();
             _statusText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-            _statusText.fontSize = 11;
+            _statusText.fontSize = (int)FAA.Customization.FaaHudStyle.Chrome;
+            _statusText.alignment = TextAnchor.MiddleLeft;
             _statusText.raycastTarget = false;
             _statusText.supportRichText = false;
         }
@@ -387,6 +475,9 @@ namespace FAA.XPlaneIntegration.Runtime
             if (_material != null) Destroy(_material);
             if (_root != null) Destroy(_root);
             if (_statusCanvas != null) Destroy(_statusCanvas);
+            FAA.Customization.FaaPilotChrome.Current?.ClearStatus("terrain"); // a disabled streamer must not leave a stale chip entry
+            _statusState = "";
+            _legacyStatusKey = null;
             _material = null;
             _root = null;
             _statusCanvas = null;

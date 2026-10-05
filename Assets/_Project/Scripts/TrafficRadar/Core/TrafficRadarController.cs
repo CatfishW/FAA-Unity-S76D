@@ -31,8 +31,8 @@ namespace TrafficRadar.Core
         [Tooltip("Radar range in nautical miles")]
         [SerializeField] private float rangeNM = 40f;
         
-        [Tooltip("Available range options")]
-        [SerializeField] private float[] rangeOptionsNM = { 10f, 20f, 40f, 80f, 150f };
+        [Tooltip("Available range options. One list for every control (TCAS-style 2-80 NM).")]
+        [SerializeField] private float[] rangeOptionsNM = { 2f, 5f, 10f, 20f, 40f, 80f };
         
         [Tooltip("Maximum targets to display")]
         [SerializeField] private int maxTargets = 50;
@@ -49,7 +49,20 @@ namespace TrafficRadar.Core
         [SerializeField] private bool autoRangeEnabled = true;
         
         [Tooltip("Minimum range for auto-range in NM")]
-        [SerializeField] private float autoRangeMinNM = 10f;
+        [SerializeField] private float autoRangeMinNM = 5f;
+
+        [Tooltip("Auto-range never zooms out beyond this; far traffic must not collapse near traffic onto own-ship.")]
+        [SerializeField] private float autoRangeMaxNM = 40f;
+
+        [Tooltip("Auto-range frames this many nearest displayed aircraft (plus every proximate/advisory target).")]
+        [SerializeField] private int autoRangeNearestCount = 4;
+
+        [Tooltip("A smaller auto range is applied only after it has been sufficient for this long (expansion is immediate).")]
+        [SerializeField] private float autoRangeShrinkDelaySeconds = 5f;
+
+        [Header("Altitude Band")]
+        [Tooltip("Relative-altitude display band. Advisories are always shown.")]
+        [SerializeField] private TrafficAltitudeBand altitudeBand = TrafficAltitudeBand.Normal;
         
         [Tooltip("Also update data manager's fetch radius when position changes (may override manual radius)")]
         [SerializeField] private bool syncFetchRadiusWithRange = false;
@@ -76,6 +89,11 @@ namespace TrafficRadar.Core
         private int _lastTargetCount;
         private ThreatLevel _lastHighestThreat = ThreatLevel.OtherTraffic;
         private IReadOnlyList<RadarTarget> _currentTargets;
+        private bool _hasLiveOwnPosition;
+        private bool _rangeOptionsNormalized;
+        private readonly TrafficAutoRange _autoRange = new TrafficAutoRange();
+        private readonly List<float> _autoDistances = new List<float>();
+        private readonly List<ThreatLevel> _autoThreats = new List<ThreatLevel>();
         
         #endregion
         
@@ -86,18 +104,34 @@ namespace TrafficRadar.Core
             get => rangeNM;
             set
             {
-                rangeNM = Mathf.Max(1f, value);
+                EnsureRangeOptions();
+                rangeNM = Mathf.Clamp(value, 1f, rangeOptionsNM[rangeOptionsNM.Length - 1]);
                 if (_processor != null)
                     _processor.RangeNM = rangeNM;
                 // Update the display's range
                 if (radarDisplay != null)
                     radarDisplay.RangeNM = rangeNM;
                 
-                Log($"Range set to {rangeNM} NM");
+                if (verboseLogging) Log($"Range set to {rangeNM} NM");
             }
         }
         
         public IReadOnlyList<RadarTarget> CurrentTargets => _currentTargets;
+        /// <summary>The single range-step list shared by settings, quick menu and keyboard.</summary>
+        public IReadOnlyList<float> RangeOptionsNM { get { EnsureRangeOptions(); return rangeOptionsNM; } }
+        /// <summary>True once a live own-ship fix (SetOwnPosition) has arrived; auto-range waits for it.</summary>
+        public bool HasLiveOwnPosition => _hasLiveOwnPosition;
+        public TrafficAltitudeBand AltitudeBand
+        {
+            get => altitudeBand;
+            set
+            {
+                if (altitudeBand == value) return;
+                altitudeBand = value;
+                if (_processor != null) _processor.AltitudeBand = altitudeBand;
+                ProcessCurrentData();
+            }
+        }
         public int TargetCount => _currentTargets?.Count ?? 0;
         public ThreatLevel HighestThreat => _lastHighestThreat;
         public OwnShipPosition OwnPosition => _currentOwnPosition;
@@ -146,6 +180,7 @@ namespace TrafficRadar.Core
         
         private void Awake()
         {
+            EnsureRangeOptions();
             AutoFindComponents();
             InitializeProcessor();
         }
@@ -194,9 +229,8 @@ namespace TrafficRadar.Core
         /// </summary>
         public void CycleRange()
         {
-            int currentIndex = FindCurrentRangeIndex();
-            currentIndex = (currentIndex + 1) % rangeOptionsNM.Length;
-            RangeNM = rangeOptionsNM[currentIndex];
+            float next = NextRangeOption(rangeNM, 1);
+            RangeNM = next > rangeNM + .01f ? next : RangeOptionsNM[0];
         }
         
         /// <summary>
@@ -204,11 +238,7 @@ namespace TrafficRadar.Core
         /// </summary>
         public void IncreaseRange()
         {
-            int currentIndex = FindCurrentRangeIndex();
-            if (currentIndex < rangeOptionsNM.Length - 1)
-            {
-                RangeNM = rangeOptionsNM[currentIndex + 1];
-            }
+            RangeNM = NextRangeOption(rangeNM, 1);
         }
         
         /// <summary>
@@ -216,12 +246,24 @@ namespace TrafficRadar.Core
         /// </summary>
         public void DecreaseRange()
         {
-            int currentIndex = FindCurrentRangeIndex();
-            if (currentIndex > 0)
-            {
-                RangeNM = rangeOptionsNM[currentIndex - 1];
-            }
+            RangeNM = NextRangeOption(rangeNM, -1);
         }
+
+        /// <summary>Next option strictly above (direction &gt; 0) or below the given range; stays put at the ends.
+        /// Works from intermediate ranges left by a smooth zoom.</summary>
+        public float NextRangeOption(float fromRangeNM, int direction)
+        {
+            var options = RangeOptionsNM;
+            if (direction > 0)
+            {
+                for (int i = 0; i < options.Count; i++) if (options[i] > fromRangeNM + .01f) return options[i];
+                return options[options.Count - 1];
+            }
+            for (int i = options.Count - 1; i >= 0; i--) if (options[i] < fromRangeNM - .01f) return options[i];
+            return options[0];
+        }
+
+        public void CycleAltitudeBand() => AltitudeBand = TrafficAltitudeBands.Next(altitudeBand);
         
         /// <summary>
         /// Force immediate data refresh
@@ -239,6 +281,8 @@ namespace TrafficRadar.Core
         /// </summary>
         public void SetOwnPosition(double lat, double lon, float altMeters, float heading)
         {
+            bool firstLiveFix = !_hasLiveOwnPosition;
+            _hasLiveOwnPosition = true;
             _currentOwnPosition = new OwnShipPosition
             {
                 Latitude = lat,
@@ -263,7 +307,9 @@ namespace TrafficRadar.Core
                 }
             }
             
-            ProcessCurrentData();
+            // The first live fix replaces the data-manager reference point; re-frame at once.
+            if (firstLiveFix) _autoRange.Reset();
+            ProcessTraffic(firstLiveFix);
         }
         
         /// <summary>
@@ -271,33 +317,43 @@ namespace TrafficRadar.Core
         /// </summary>
         public void AutoAdjustRange()
         {
-            if (_currentTargets == null || _currentTargets.Count == 0)
+            _autoRange.Reset();
+            float selected = ComputeAutoRange();
+            if (!Mathf.Approximately(selected, rangeNM)) RangeNM = selected;
+        }
+
+        /// <summary>
+        /// Auto range frames the traffic the pilot can actually see (in the altitude band): every
+        /// proximate/advisory target and the N nearest others, with a 15% margin, inside
+        /// [min, max]. Far traffic never forces a zoom-out that collapses near traffic onto own-ship.
+        /// </summary>
+        private static readonly List<float> SortScratch = new List<float>();
+
+        public static float SelectAutoRange(IReadOnlyList<float> distancesNm, IReadOnlyList<ThreatLevel> threats,
+            IReadOnlyList<float> options, float minimumNm, float maximumNm, int nearestCount)
+        {
+            float lo = Mathf.Min(minimumNm, maximumNm), hi = Mathf.Max(minimumNm, maximumNm);
+            int count = distancesNm != null ? distancesNm.Count : 0;
+            float required = 0f;
+            if (count == 0) required = 10f;
+            else
             {
-                RangeNM = autoRangeMinNM;
-                return;
+                // Nth-nearest distance (main-thread scratch buffer; no per-tick allocation).
+                SortScratch.Clear();
+                for (int i = 0; i < count; i++) SortScratch.Add(distancesNm[i]);
+                SortScratch.Sort();
+                float nth = SortScratch[Mathf.Clamp(nearestCount, 1, count) - 1];
+                required = nth;
+                for (int i = 0; i < count; i++)
+                    if (threats != null && i < threats.Count && threats[i] >= ThreatLevel.Proximate)
+                        required = Mathf.Max(required, distancesNm[i]);
+                required *= 1.15f;
             }
-            
-            // Find the farthest target
-            float maxDistance = 0f;
-            foreach (var target in _currentTargets)
-            {
-                if (target.DistanceNM > maxDistance)
-                    maxDistance = target.DistanceNM;
-            }
-            
-            // Find the best range option
-            float newRange = autoRangeMinNM;
-            foreach (float option in rangeOptionsNM)
-            {
-                if (option >= maxDistance * 1.2f) // 20% margin
-                {
-                    newRange = option;
-                    break;
-                }
-                newRange = option; // Use largest if none fit
-            }
-            
-            RangeNM = Mathf.Max(newRange, autoRangeMinNM);
+            float chosen = hi;
+            if (options != null)
+                for (int i = 0; i < options.Count; i++)
+                    if (options[i] >= required - .001f) { chosen = options[i]; break; }
+            return Mathf.Clamp(chosen, lo, hi);
         }
 
         public void SetAutoRangeEnabled(bool enabled)
@@ -347,10 +403,12 @@ namespace TrafficRadar.Core
         
         private void InitializeProcessor()
         {
+            EnsureRangeOptions();
             _processor = new RadarDataProcessor(threatThresholds)
             {
                 RangeNM = rangeNM,
-                MaxTargets = maxTargets
+                MaxTargets = maxTargets,
+                AltitudeBand = altitudeBand
             };
         }
         
@@ -372,7 +430,7 @@ namespace TrafficRadar.Core
         
         private void OnDataManagerUpdated(List<TrafficRadarDataManager.AircraftData> aircraftList)
         {
-            Log($"Received {aircraftList.Count} aircraft from data manager");
+            if (verboseLogging) Log($"Received {aircraftList.Count} aircraft from data manager");
             
             // Convert to AircraftState list
             _cachedAircraftStates.Clear();
@@ -397,13 +455,6 @@ namespace TrafficRadar.Core
             // Update own position and process immediately
             UpdateOwnPosition();
             ProcessCurrentData();
-            
-            // Auto-adjust range if enabled and we have aircraft but none in range
-            if (autoRangeEnabled && _cachedAircraftStates.Count > 0 && (_currentTargets == null || _currentTargets.Count == 0))
-            {
-                Log("No targets in range - auto-adjusting range...");
-                AutoAdjustRangeToIncludeAircraft();
-            }
         }
         
         private void UpdateOwnPosition()
@@ -423,7 +474,9 @@ namespace TrafficRadar.Core
             }
         }
         
-        private void ProcessCurrentData()
+        private void ProcessCurrentData() => ProcessTraffic(false);
+
+        private void ProcessTraffic(bool immediateAutoRange)
         {
             if (_processor == null)
             {
@@ -452,13 +505,23 @@ namespace TrafficRadar.Core
                 }
             }
             
+            // Auto range runs only at runtime and only from a live own-ship fix; the data-manager
+            // reference point can be hundreds of NM away and must never drive the zoom.
+            if (autoRangeEnabled && _hasLiveOwnPosition && isActiveAndEnabled)
+            {
+                float proposed = ComputeAutoRange();
+                float next = immediateAutoRange ? proposed
+                    : _autoRange.Step(rangeNM, proposed, Time.unscaledTime, autoRangeShrinkDelaySeconds);
+                if (!Mathf.Approximately(next, rangeNM)) RangeNM = next;
+            }
+
             // Process aircraft into radar targets
             _processedOwnPosition = _currentOwnPosition;
             _hasProcessedOwnPosition = true;
             _currentTargets = _processor.ProcessAircraft(_cachedAircraftStates, _processedOwnPosition);
             
-            // Log processing results
-            if (_cachedAircraftStates.Count > 0)
+            // Log processing results (diagnostics only: never build strings or scan distances otherwise)
+            if (verboseLogging && _cachedAircraftStates.Count > 0)
             {
                 Log($"Processed {_cachedAircraftStates.Count} aircraft -> {_currentTargets.Count} targets in range ({rangeNM} NM)");
                 
@@ -490,36 +553,48 @@ namespace TrafficRadar.Core
         
         private void AutoAdjustRangeToIncludeAircraft()
         {
-            if (_cachedAircraftStates.Count == 0)
-                return;
-            
-            // Find nearest aircraft
-            float nearestDist = float.MaxValue;
-            foreach (var ac in _cachedAircraftStates)
-            {
-                float dist = CalculateDistanceNM(_currentOwnPosition.Latitude, _currentOwnPosition.Longitude,
-                                                 ac.Latitude, ac.Longitude);
-                if (dist < nearestDist)
-                    nearestDist = dist;
-            }
-            
-            // Find appropriate range
-            float targetRange = nearestDist * 1.5f; // 50% margin
-            foreach (float option in rangeOptionsNM)
-            {
-                if (option >= targetRange)
-                {
-                    RangeNM = option;
-                    Log($"Auto-adjusted range to {option} NM to include aircraft at {nearestDist:F1} NM");
-                    ProcessCurrentData(); // Re-process with new range
-                    return;
-                }
-            }
-            
-            // Use maximum range
-            RangeNM = rangeOptionsNM[rangeOptionsNM.Length - 1];
-            Log($"Auto-adjusted to maximum range {RangeNM} NM");
+            // Retained for the debug context menu: same capped, band-aware selection as live auto range.
+            AutoAdjustRange();
             ProcessCurrentData();
+        }
+
+        private float ComputeAutoRange()
+        {
+            EnsureRangeOptions();
+            _autoDistances.Clear(); _autoThreats.Clear();
+            float ownAltFt = _currentOwnPosition.AltitudeFeet;
+            for (int i = 0; i < _cachedAircraftStates.Count; i++)
+            {
+                var ac = _cachedAircraftStates[i];
+                if (ac.Latitude == 0 && ac.Longitude == 0) continue;
+                float distance = CalculateDistanceNM(_currentOwnPosition.Latitude, _currentOwnPosition.Longitude, ac.Latitude, ac.Longitude);
+                if (float.IsNaN(distance) || float.IsInfinity(distance)) continue;
+                float relative = ac.AltitudeFeet - ownAltFt;
+                ThreatLevel threat = threatThresholds.DetermineThreatLevel(distance, Mathf.Abs(relative));
+                // Only traffic the pilot will actually see may drive the zoom.
+                if (threat < ThreatLevel.TrafficAdvisory && !TrafficAltitudeBands.WithinBand(relative, altitudeBand)) continue;
+                _autoDistances.Add(distance); _autoThreats.Add(threat);
+            }
+            float floor = Mathf.Clamp(autoRangeMinNM, rangeOptionsNM[0], rangeOptionsNM[rangeOptionsNM.Length - 1]);
+            float ceiling = Mathf.Clamp(autoRangeMaxNM, floor, rangeOptionsNM[rangeOptionsNM.Length - 1]);
+            return SelectAutoRange(_autoDistances, _autoThreats, rangeOptionsNM, floor, ceiling, autoRangeNearestCount);
+        }
+
+        /// <summary>Normalise serialized scene values to the single 2-80 NM list (drops legacy 150 NM).</summary>
+        private void EnsureRangeOptions()
+        {
+            if (_rangeOptionsNormalized && rangeOptionsNM != null && rangeOptionsNM.Length > 0) return;
+            _rangeOptionsNormalized = true;
+            var list = new List<float> { 2f, 5f };
+            if (rangeOptionsNM != null)
+                foreach (float option in rangeOptionsNM)
+                    if (option >= 1f && option <= 80f && !list.Exists(o => Mathf.Approximately(o, option))) list.Add(option);
+            if (list.Count < 3) list.AddRange(new[] { 10f, 20f, 40f, 80f });
+            list.Sort();
+            for (int i = list.Count - 1; i > 0; i--) if (Mathf.Approximately(list[i], list[i - 1])) list.RemoveAt(i);
+            rangeOptionsNM = list.ToArray();
+            autoRangeMinNM = Mathf.Clamp(autoRangeMinNM, rangeOptionsNM[0], 5f);
+            rangeNM = Mathf.Clamp(rangeNM, 1f, rangeOptionsNM[rangeOptionsNM.Length - 1]);
         }
         
         private float CalculateDistanceNM(double lat1, double lon1, double lat2, double lon2)
@@ -544,28 +619,7 @@ namespace TrafficRadar.Core
             if (radarDisplay == null || _currentTargets == null)
                 return;
             
-            // Convert RadarTarget to RadarTrafficTarget for compatibility with existing display
-            var displayTargets = new List<RadarTrafficTarget>();
-            foreach (var target in _currentTargets)
-            {
-                displayTargets.Add(new RadarTrafficTarget
-                {
-                    icao24 = target.Icao24,
-                    callsign = target.Callsign,
-                    latitude = (float)target.Latitude,
-                    longitude = (float)target.Longitude,
-                    altitudeFt = target.AltitudeFeet,
-                    heading = target.Heading,
-                    groundSpeedKts = target.GroundSpeedKnots,
-                    verticalRateFpm = target.VerticalRateFpm,
-                    distanceNM = target.DistanceNM,
-                    bearingDeg = target.BearingDegrees,
-                    relativeAltitudeFt = target.RelativeAltitudeFeet,
-                    threatLevel = target.ThreatLevel,
-                    radarPosition = target.RadarPosition
-                });
-            }
-            
+            // The display converts targets itself (OnControllerTargetsUpdated); no per-tick copy here.
             // Invoke the targets updated event for the display to pick up
             // The display listens to the provider, so we need to update via provider or directly
             // For now, we'll fire our own event that can be subscribed to
@@ -600,16 +654,6 @@ namespace TrafficRadar.Core
             }
         }
         
-        private int FindCurrentRangeIndex()
-        {
-            for (int i = 0; i < rangeOptionsNM.Length; i++)
-            {
-                if (Mathf.Approximately(rangeOptionsNM[i], rangeNM))
-                    return i;
-            }
-            return 0;
-        }
-        
         private void Log(string message)
         {
             if (verboseLogging)
@@ -630,6 +674,7 @@ namespace TrafficRadar.Core
             {
                 System.Array.Sort(rangeOptionsNM);
             }
+            _rangeOptionsNormalized = false;
         }
         
         [ContextMenu("Debug: Log Status")]
@@ -656,5 +701,23 @@ namespace TrafficRadar.Core
 #endif
         
         #endregion
+    }
+
+    /// <summary>Auto-range hysteresis: expand at once, shrink only after the smaller range has
+    /// been sufficient continuously for the delay. Prevents range pumping as traffic moves.</summary>
+    public sealed class TrafficAutoRange
+    {
+        private float _lowerSince = -1f;
+
+        public void Reset() => _lowerSince = -1f;
+
+        public float Step(float currentNm, float proposedNm, float now, float shrinkDelaySeconds)
+        {
+            if (proposedNm >= currentNm - .001f) { _lowerSince = -1f; return proposedNm; }
+            if (_lowerSince < 0f) { _lowerSince = now; return currentNm; }
+            if (now - _lowerSince < Mathf.Max(0f, shrinkDelaySeconds)) return currentNm;
+            _lowerSince = -1f; // a further shrink must hold for the full delay again
+            return proposedNm;
+        }
     }
 }

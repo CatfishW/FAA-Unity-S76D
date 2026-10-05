@@ -19,6 +19,10 @@ namespace WeatherRadar
         // downloading the native X-Plane raster.
         private const string LegacyRadarTextureUrl = "http://127.0.0.1:12678/v1/render/weather.png";
         private const string ProceduralTextureName = "FAAProceduralWeatherRadar";
+        /// <summary>Suffix on textures published from the synthetic training-cell fallback.</summary>
+        public const string TrainingTextureSuffix = " (Training)";
+        /// <summary>A real (bridge/dataref) picture published within this window suppresses the training fallback.</summary>
+        public const float RealFeedHoldSeconds = 6f;
 
         [Header("Dataref Weather Presentation")]
         [SerializeField] private string radarTextureUrl = string.Empty;
@@ -41,6 +45,19 @@ namespace WeatherRadar
 
         private SimulatedWeatherProvider simulatorFallbackProvider;
         private bool ownsSimulatorFallbackProvider;
+        private float lastRealPublishRealtime = -1f;
+
+        /// <summary>True when the current picture came from the synthetic training cells, not X-Plane weather.</summary>
+        public bool LastPublishWasSimulatorFallback { get; private set; }
+
+        /// <summary>Set by the host while the X-Plane bridge feed is healthy: never swap in training cells then.</summary>
+        public bool PreferBridgePicture { get; set; }
+
+        /// <summary>A real picture arrived recently; training cells must not overwrite it.</summary>
+        public bool RealFeedRecent => lastRealPublishRealtime >= 0f &&
+            Time.realtimeSinceStartup - lastRealPublishRealtime <= RealFeedHoldSeconds;
+
+        private bool FallbackAllowed => simulatorFallbackEnabled && !PreferBridgePicture && !RealFeedRecent;
 
         public override string ProviderName => "X-Plane 12 Dataref Weather Radar";
 
@@ -136,7 +153,9 @@ namespace WeatherRadar
 
         protected override void GenerateRadarData()
         {
-            if (simulatorFallbackEnabled)
+            // Two sources must never alternate under one label: training cells only fill in
+            // while no real picture is flowing.
+            if (FallbackAllowed)
             {
                 EnsureSimulatorFallbackProvider();
                 SyncSimulatorFallbackSettings();
@@ -195,13 +214,22 @@ namespace WeatherRadar
 
         public void PublishTexture(Texture2D texture, string statusOverride)
         {
+            PublishInternal(texture, statusOverride, false);
+        }
+
+        private void PublishInternal(Texture2D texture, string statusOverride, bool trainingFallback)
+        {
             if (texture == null)
             {
                 isGenerating = false;
                 return;
             }
 
-            ReplaceRadarTexture(CopyTexture(texture));
+            LastPublishWasSimulatorFallback = trainingFallback;
+            if (!trainingFallback) lastRealPublishRealtime = Time.realtimeSinceStartup;
+            Texture2D copy = CopyTexture(texture);
+            if (trainingFallback) copy.name = ProceduralTextureName + TrainingTextureSuffix;
+            ReplaceRadarTexture(copy);
             lastStatus = string.IsNullOrWhiteSpace(statusOverride)
                 ? $"Received {texture.width}x{texture.height}"
                 : statusOverride.Trim();
@@ -243,9 +271,13 @@ namespace WeatherRadar
 
         private void OnSimulatorFallbackDataUpdated(Texture2D texture)
         {
-            if (simulatorFallbackEnabled && texture != null)
+            if (FallbackAllowed && texture != null)
             {
-                PublishTexture(texture, "XR-3 SIMULATED WEATHER");
+                PublishInternal(texture, "XR-3 SIMULATED WEATHER", true);
+            }
+            else
+            {
+                isGenerating = false;
             }
         }
 
@@ -322,6 +354,8 @@ namespace WeatherRadar
                 }
 
                 downloadedTexture.name = "LegacyNativeWeatherRadar";
+                LastPublishWasSimulatorFallback = false;
+                lastRealPublishRealtime = Time.realtimeSinceStartup;
                 ReplaceRadarTexture(downloadedTexture);
                 lastStatus = $"Updated {lastWidth}x{lastHeight}";
                 SetStatus(ProviderStatus.Active);
@@ -371,7 +405,7 @@ namespace WeatherRadar
 
             if (radarTexture != null && !ReferenceEquals(radarTexture, replacement))
             {
-                Destroy(radarTexture);
+                if (Application.isPlaying) Destroy(radarTexture); else DestroyImmediate(radarTexture);
             }
 
             radarTexture = replacement;

@@ -47,6 +47,7 @@ namespace HUDControl.Elements
         private float displayedVertical;
         private float displayedHorizontal;
         private Vector2 fpvBasePos;
+        private Vector3 fpvBaseScale = Vector3.one;
         
         public override string ElementId => "FPV";
         
@@ -64,19 +65,28 @@ namespace HUDControl.Elements
             displayedHorizontal = 0f;
             
             if (fpvMarker != null)
+            {
                 fpvBasePos = fpvMarker.anchoredPosition;
+                if (fpvMarker.localScale != Vector3.zero) fpvBaseScale = fpvMarker.localScale;
+            }
         }
         
         protected override void OnUpdateElement(AircraftState state)
         {
             if (fpvMarker == null) return;
+
+            // Never show a plausible-looking FPV without a computable flight path (no frozen zero at low speed).
+            // Only the scale is changed: the conformal layer may have retired this graphic via Graphic.enabled.
+            bool available = TryCalculateFPA(state, out float fpa);
+            Vector3 visibleScale = available ? fpvBaseScale : Vector3.zero;
+            if (fpvMarker.localScale != visibleScale) fpvMarker.localScale = visibleScale;
+            if (!available) return;
             
             Vector2 newPos = fpvBasePos;
             
             // Vertical FPV (flight path angle)
             if (enableVertical)
             {
-                float fpa = CalculateFPA(state);
                 displayedVertical = Core.HUDAnimator.SmoothValue(displayedVertical, fpa, smoothing);
                 
                 float vOffset = -displayedVertical * pixelsPerDegree;
@@ -84,31 +94,21 @@ namespace HUDControl.Elements
                 newPos.y += vOffset;
             }
             
-            // Horizontal FPV (drift/sideslip)
-            if (enableHorizontal)
-            {
-                float drift = CalculateDrift(state);
-                displayedHorizontal = Core.HUDAnimator.SmoothValue(displayedHorizontal, drift, smoothing);
-                
-                float hOffset = displayedHorizontal * pixelsPerDegree;
-                hOffset = Mathf.Clamp(hOffset, -maxHorizontalOffsetPixels, maxHorizontalOffsetPixels);
-                newPos.x += hOffset;
-            }
+            // Horizontal FPV (drift): AircraftState carries no measured ground track, so no lateral offset is invented
+            // (rudder input is not drift). The conformal layer draws the earth-referenced FPV from the real track.
+            if (enableHorizontal) displayedHorizontal = 0f;
             
             fpvMarker.anchoredPosition = newPos;
         }
         
-        private float CalculateFPA(AircraftState state)
+        private static bool TryCalculateFPA(AircraftState state, out float fpa)
         {
-            if (state.GroundSpeedKnots < 10f) return 0f;
+            fpa = 0f;
+            if (state == null || float.IsNaN(state.GroundSpeedKnots) || float.IsInfinity(state.GroundSpeedKnots) ||
+                float.IsNaN(state.VerticalSpeedFpm) || float.IsInfinity(state.VerticalSpeedFpm) || state.GroundSpeedKnots < 10f) return false;
             float vsKnots = state.VerticalSpeedFpm / 101.269f;
-            return Mathf.Clamp(Mathf.Atan2(vsKnots, state.GroundSpeedKnots) * Mathf.Rad2Deg, -20f, 20f);
-        }
-        
-        private float CalculateDrift(AircraftState state)
-        {
-            // Simplified drift calculation from sideslip
-            return Mathf.Clamp(state.RudderInput * 5f, -10f, 10f);
+            fpa = Mathf.Clamp(Mathf.Atan2(vsKnots, state.GroundSpeedKnots) * Mathf.Rad2Deg, -20f, 20f);
+            return true;
         }
         
         public float GetDisplayedVertical() => displayedVertical;

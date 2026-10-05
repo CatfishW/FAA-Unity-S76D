@@ -16,7 +16,7 @@ var rows=new System.Collections.Generic.List<object>();
 int lastFrame=-1,tick=0;
 Canvas.WillRenderCanvases callback=null;
 Action cleanup=()=>{
-    Canvas.willRenderCanvases-=callback;w.ReturnToForwardView();
+    Canvas.willRenderCanvases-=callback;w.ReturnToForwardView();controller?.ResetViewImmediate(); // exact FOV and forward view at once
     foreach(var p in w.UtilityPanels){var s=poses[p.Id];p.Layout.yaw=s.yaw;p.Layout.elevation=s.elevation;p.Layout.distance=s.distance;p.Layout.scale=s.scale;}
     if(w.MenuOpen!=menu)w.ToggleMenu();if(w.LaptopCamera.PanelOpen!=handPanel)w.LaptopCamera.TogglePanel();
     w.SetEditMode(editing);w.RefreshTransforms();dirtyField.SetValue(w,dirty);w.PersistChanges=persistence;
@@ -41,7 +41,8 @@ callback=()=>{
         if(within>=20)
         {
             rows.Add(new{
-                phase,frame=Time.frameCount,
+                phase,frame=Time.frameCount,fov=w.View.fieldOfView,baseFov=controller!=null?controller.BaseFieldOfView:w.View.fieldOfView,
+                inspected=w.InspectedPanelId,
                 canvases=flight.Select(c=>new{c.name,mode=c.renderMode.ToString(),c.planeDistance,c.scaleFactor,rect=((RectTransform)c.transform).rect.ToString()}).ToArray(),
                 modules=modules.Select(m=>new{m.Id,position=new[]{m.Target.localPosition.x,m.Target.localPosition.y,m.Target.localPosition.z},scale=m.Layout.scale,
                     box=m.TryScreenBounds(w.View,out var b)?new[]{b.x,b.y,b.width,b.height}:null}).ToArray(),

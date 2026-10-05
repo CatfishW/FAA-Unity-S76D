@@ -8,41 +8,65 @@ namespace FAA.Customization
     {
         private RectTransform symbologyPage;
         private Button digitalVersionButton,classicVersionButton;
-        private TMP_Text selectedVersionText,attitudeChoiceText,motionChoiceText,paletteChoiceText;
+        // Two-segment selectors: each option is its own button and the active one is filled, so the control never shows a
+        // state as its label (AC 25-11B / HF-STD-001B unambiguous control state). Left segments keep the original names.
+        private Button attitudeInsetButton,attitudeSceneButton,motionSmoothButton,motionDirectButton,paletteReferenceButton,palettePilotButton;
+        private TMP_Text classicOptionsHeading,classicOnlyNote;
+        private int symbologyStateKey=-1;
+        /// <summary>Heading of the Classic option rows: names them as Classic-only while Digital is the active style.</summary>
+        public static string ClassicOptionsHeading(bool classicActive)=>classicActive?"CLASSIC OPTIONS":"CLASSIC ONLY";
+        /// <summary>Classic option rows act only while Classic Analog is the active style (they change nothing in Digital).</summary>
+        public static bool ClassicOptionsEnabled(FaaSymbologyVersion version)=>version==FaaSymbologyVersion.ClassicAnalog;
         private void BuildSymbologyPage()
         {
             symbologyPage=Rect("Symbology Versions Page",menuRoot,320,352,640,354);
-            Text("Symbology Section",symbologyPage,"CHOOSE YOUR FLIGHT DISPLAY",320,24,592,32,21);
-            digitalVersionButton=Button("Digital Symbology",symbologyPage,"DIGITAL",167,81,284,66,()=>SetSymbologyVersion(FaaSymbologyVersion.Digital));
-            classicVersionButton=Button("Classic Analog Symbology",symbologyPage,"CLASSIC ANALOG",473,81,284,66,()=>SetSymbologyVersion(FaaSymbologyVersion.ClassicAnalog));
-            Text("Digital Description",symbologyPage,"Current numeric readouts\nand linear engine scales",167,139,280,46,14).color=Muted;
-            Text("Classic Description",symbologyPage,"Reference-style round dials\nwith animated needles",473,139,280,46,14).color=Muted;
-            selectedVersionText=Text("Current Symbology",symbologyPage,"",320,190,592,30,18);
-            var center=Button("Classic Attitude Choice",symbologyPage,"",320,231,592,36,()=>SetClassicInstrumentAttitude(!ClassicInstrumentAttitude));
-            attitudeChoiceText=center.GetComponentInChildren<TMP_Text>();
-            var motion=Button("Symbology Motion",symbologyPage,"",167,277,284,36,()=>SetReducedSymbologyMotion(!ReducedSymbologyMotion));
-            motionChoiceText=motion.GetComponentInChildren<TMP_Text>();
-            var palette=Button("Symbology Palette",symbologyPage,"",473,277,284,36,()=>SetPilotSymbologyColor(!UsePilotSymbologyColor));
-            paletteChoiceText=palette.GetComponentInChildren<TMP_Text>();
-            Text("Style Persistence Note",symbologyPage,"Each version remembers its instrument sizes.\nRadar positions and calibrated scene cues remain separate.",320,329,592,44,14).color=Muted;
-            symbologyPage.gameObject.SetActive(false);RefreshSymbologyControls();
+            Text("Symbology Section",symbologyPage,"FLIGHT DISPLAY STYLE",320,22,592,30,20);
+            digitalVersionButton=Button("Digital Symbology",symbologyPage,"DIGITAL",167,72,284,56,()=>SetSymbologyVersion(FaaSymbologyVersion.Digital));
+            classicVersionButton=Button("Classic Analog Symbology",symbologyPage,"CLASSIC ANALOG",473,72,284,56,()=>SetSymbologyVersion(FaaSymbologyVersion.ClassicAnalog));
+            Text("Digital Description",symbologyPage,"Numeric readouts, linear engine scales",167,118,284,26,16).color=Muted;
+            Text("Classic Description",symbologyPage,"Round dials with needles",473,118,284,26,16).color=Muted;
+            classicOptionsHeading=Text("Classic Options Heading",symbologyPage,"CLASSIC OPTIONS",320,152,592,24,16);classicOptionsHeading.color=Muted;
+            SegmentRow("CENTER",184,"Classic Attitude Choice","ATTITUDE INSET",()=>SetClassicInstrumentAttitude(true),
+                "Classic Attitude Scene Cues","SCENE CUES",()=>SetClassicInstrumentAttitude(false),out attitudeInsetButton,out attitudeSceneButton);
+            SegmentRow("NEEDLES",232,"Symbology Motion","SMOOTH",()=>SetReducedSymbologyMotion(false),
+                "Symbology Motion Direct","DIRECT",()=>SetReducedSymbologyMotion(true),out motionSmoothButton,out motionDirectButton);
+            SegmentRow("COLOR",280,"Symbology Palette","REFERENCE",()=>SetPilotSymbologyColor(false),
+                "Symbology Palette Pilot","PILOT",()=>SetPilotSymbologyColor(true),out paletteReferenceButton,out palettePilotButton);
+            // Shown only while Digital is active: why the rows above are disabled. (The size note lives on INSTRUMENTS.)
+            classicOnlyNote=Text("Classic Only Note",symbologyPage,"Choose CLASSIC ANALOG to change these options.",320,328,592,24,16);classicOnlyNote.color=Muted;
+            symbologyPage.gameObject.SetActive(false);symbologyStateKey=-1;RefreshSymbologyControls();
         }
-        public void OpenSymbologySettings()
+        private void SegmentRow(string label,float y,string leftName,string leftCaption,UnityEngine.Events.UnityAction left,
+            string rightName,string rightCaption,UnityEngine.Events.UnityAction right,out Button leftButton,out Button rightButton)
         {
-            if(dataSourcePage!=null)dataSourcePage.gameObject.SetActive(false);
-            OpenMenu();hudPage.gameObject.SetActive(false);panelsPage.gameObject.SetActive(false);
-            if(symbologyPage!=null)symbologyPage.gameObject.SetActive(true);RefreshSymbologyControls();
+            Text(label+" Label",symbologyPage,label,96,y,160,MinTargetHeight,16,true).color=Muted;
+            leftButton=Button(leftName,symbologyPage,leftCaption,291,y,210,MinTargetHeight,left);
+            rightButton=Button(rightName,symbologyPage,rightCaption,509,y,210,MinTargetHeight,right);
         }
+        /// <summary>A Classic option segment: filled when selected and Classic is active; disabled, unfilled and muted in Digital.</summary>
+        private static void SetClassicSegment(Button button,bool enabled,bool selected)
+        {
+            if(button==null)return;
+            if(button.interactable!=enabled)button.interactable=enabled;
+            SetSelected(button,enabled&&selected);
+            var caption=CaptionOf(button);if(caption!=null)SetColor(caption,enabled?Color.white:Muted);
+        }
+        public void OpenSymbologySettings(){OpenMenu();SetPage(PageDisplay);}
         private void RefreshSymbologyControls()
         {
             if(symbologyPage==null)return;
             bool classic=CurrentSymbology==FaaSymbologyVersion.ClassicAnalog;
-            digitalVersionButton.GetComponent<Image>().color=!classic?new Color(.07f,.31f,.28f):Card;
-            classicVersionButton.GetComponent<Image>().color=classic?new Color(.07f,.31f,.28f):Card;
-            selectedVersionText.text="ACTIVE: "+(classic?"CLASSIC ANALOG":"DIGITAL");selectedVersionText.color=Accent;
-            attitudeChoiceText.text=ClassicInstrumentAttitude?"CLASSIC CENTER: ATTITUDE INSTRUMENT":"CLASSIC CENTER: CONFORMAL SCENE CUES";
-            motionChoiceText.text=ReducedSymbologyMotion?"MOTION: DIRECT / REDUCED":"MOTION: SMOOTH NEEDLES";
-            paletteChoiceText.text=UsePilotSymbologyColor?"COLOR: PILOT PALETTE":"COLOR: REFERENCE GREEN";
+            int key=(classic?1:0)|(ClassicInstrumentAttitude?2:0)|(ReducedSymbologyMotion?4:0)|(UsePilotSymbologyColor?8:0);
+            if(key==symbologyStateKey)return; // State is shown by fill only; nothing to do at rest.
+            symbologyStateKey=key;
+            SetSelected(digitalVersionButton,!classic);SetSelected(classicVersionButton,classic);
+            // Digital active: the Classic rows change nothing, so they are disabled, unfilled and headed CLASSIC ONLY.
+            bool enabled=ClassicOptionsEnabled(CurrentSymbology);
+            SetClassicSegment(attitudeInsetButton,enabled,ClassicInstrumentAttitude);SetClassicSegment(attitudeSceneButton,enabled,!ClassicInstrumentAttitude);
+            SetClassicSegment(motionSmoothButton,enabled,!ReducedSymbologyMotion);SetClassicSegment(motionDirectButton,enabled,ReducedSymbologyMotion);
+            SetClassicSegment(paletteReferenceButton,enabled,!UsePilotSymbologyColor);SetClassicSegment(palettePilotButton,enabled,UsePilotSymbologyColor);
+            SetText(classicOptionsHeading,ClassicOptionsHeading(enabled)); // informational, not a caution: stays muted
+            SetActive(classicOnlyNote,!enabled);
         }
     }
 }

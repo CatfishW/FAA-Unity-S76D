@@ -7,6 +7,7 @@ using UnityEngine.InputSystem.XR;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 using UnityEngine.XR;
+using UnityEngine.XR.Interaction.Toolkit.Inputs.Readers;
 using UnityEngine.XR.Interaction.Toolkit.Inputs.Simulation;
 using WeatherRadar;
 
@@ -38,9 +39,15 @@ namespace FAA.Headset
         private const string SimulatorPlayModeMenuName = "PlayModeMenu";
         private const string SimulatorInputSelectionWindowName = "InputSelectionWindow";
         private const string SimulatorInputSelectionClosedWindowName = "InputSelectionClosedWindow";
-        // The simulator canvas is 1920x1080. The FAA heading tape occupies the
-        // top 129 reference pixels, so 150 leaves a small, intentional gap.
-        private const float SimulatorInputSelectionBelowHeadingTapeTopMargin = 150f;
+        // The simulator canvas is 1920x1080. The input-selection window sits in the empty top-left corner: the FAA heading
+        // tape is bottom-centre (790-850 ref from the top, FaaHeadingTapeOverlay.LaneTopFromScreenTop) and the FMA is
+        // top-centre, so a small top margin keeps it clear of both. It is hidden on the pilot view unless developer mode is on.
+        public const float SimulatorInputSelectionTopMargin = 24f;
+        /// <summary>Developer toggle for the XR Interaction Simulator UI (avoids the pilot keys Tab and R). With the pilot
+        /// chrome present this is the chrome's developer-mode key (FaaPilotChrome.DeveloperKeys), which owns the toggle.</summary>
+        public const string SimulatorUiToggleKeys = "CTRL+SHIFT+D";
+        /// <summary>XRI 'Cycle Devices' moves off Tab, which is the pilot's COMMANDS key.</summary>
+        public const string SimulatorCycleDevicesKey = "<Keyboard>/backslash";
 
         [Header("Activation")]
         [SerializeField] private ActivationMode activationMode = ActivationMode.Auto;
@@ -61,12 +68,16 @@ namespace FAA.Headset
         [Tooltip("Keep the desktop pointer available for FAA's screen-space controls while the Unity XR simulator is running in the Editor. Disable this only when testing controller point-and-click input with a camera-space XR UI.")]
         [SerializeField] private bool preferEditorPointerInput = true;
         [Header("Simulator UI Layout")]
-        [Tooltip("Move the XR Interaction Simulator input-selection menu below the FAA horizontal heading tape so it does not cover the radar pair.")]
+        [Tooltip("Pin the XR Interaction Simulator input-selection window to the empty top-left corner of the view (clear of the top-centre FMA and the bottom-centre heading tape).")]
         [SerializeField] private bool repositionSimulatorInputSelection = true;
-        [Tooltip("Horizontal and minimum vertical margin in simulator canvas reference pixels. Vertical placement is clamped below the heading tape when enabled.")]
+        [Tooltip("Horizontal and minimum vertical margin in simulator canvas reference pixels from the top-left corner.")]
         [SerializeField] private Vector2 simulatorInputSelectionMargin = new Vector2(18f, 18f);
-        [Tooltip("Keep the simulator input-selection menu below the FAA horizontal heading tape in both compact and expanded states.")]
+        [Tooltip("Enforce at least SimulatorInputSelectionTopMargin (24 ref) from the top edge in both compact and expanded states. (Legacy name: the heading tape is no longer at the top.)")]
         [SerializeField] private bool placeSimulatorInputSelectionBelowHeadingTape = true;
+        [Tooltip("Hide the XR Interaction Simulator developer UI (input-selection tab, HMD goggles button) on the pilot view. The simulator keeps running; developer mode (Ctrl+Shift+D) shows it again.")]
+        [SerializeField] private bool hideSimulatorUiOnPilotView = true;
+        [Tooltip("Move XRI simulator keyboard bindings that collide with pilot keys (Tab; and R/V while the desktop aircraft view owns the camera).")]
+        [SerializeField] private bool resolveSimulatorKeyConflicts = true;
         [SerializeField] private string[] overlayCanvasNames =
         {
             "FAASymbologyCanvas",
@@ -103,6 +114,13 @@ namespace FAA.Headset
         private bool _simulatorInputSelectionLayoutConfigured;
         private int _nativeDetectionFrames;
         private bool _reportedUnavailable;
+        private CanvasGroup _simulatorUiGroup;
+        private bool _ownsSimulatorUiGroup;
+        private bool _developerSimulatorUiVisible;
+        private float _nextSimulatorUiSearch;
+        private float _simulatorUiRetryInterval = .25f;
+        private Transform _simulatorUiTransform;
+        private readonly List<InputAction> _simulatorKeyOverrides = new List<InputAction>();
 
         public bool IsCompatibilityActive => _active;
         public bool IsNativeVarjoMode => _active && _activeMode == ActivationMode.VarjoXR3;
@@ -178,6 +196,201 @@ namespace FAA.Headset
             {
                 ConfigureSimulatorInputSelectionLayout();
             }
+
+            if (_active && _activeMode == ActivationMode.UnitySimulator)
+            {
+                if (FAA.Customization.FaaPilotChrome.Current != null)
+                {
+                    // One developer switch: the chrome owns Ctrl+Shift+D (developer mode); the simulator UI follows it.
+                    _developerSimulatorUiVisible = FAA.Customization.FaaPilotChrome.DeveloperMode;
+                }
+                else
+                {
+                    Keyboard keyboard = Keyboard.current;
+                    if (keyboard != null && keyboard.dKey.wasPressedThisFrame &&
+                        (keyboard.leftCtrlKey.isPressed || keyboard.rightCtrlKey.isPressed) &&
+                        (keyboard.leftShiftKey.isPressed || keyboard.rightShiftKey.isPressed))
+                    {
+                        _developerSimulatorUiVisible = !_developerSimulatorUiVisible;
+                    }
+                }
+
+                UpdateSimulatorUiVisibility();
+            }
+        }
+
+        /// <summary>
+        /// The simulator UI is a developer tool: hidden on the pilot view unless the developer toggle is on. Only a
+        /// CanvasGroup is changed (alpha, raycasts), never SetActive, so XRI keeps simulating input and its own menus
+        /// keep working when shown again.
+        /// </summary>
+        public static bool SimulatorUiShouldShow(bool hideOnPilotView, bool developerToggle)
+            => !hideOnPilotView || developerToggle;
+
+        public bool SimulatorUiVisible => _simulatorUiGroup == null || _simulatorUiGroup.alpha > 0f;
+
+        private void UpdateSimulatorUiVisibility()
+        {
+            if (_simulatorUiGroup == null)
+            {
+                Transform simulatorUi = FindSimulatorUiCached();
+                if (simulatorUi == null)
+                {
+                    return;
+                }
+
+                _simulatorUiGroup = simulatorUi.GetComponent<CanvasGroup>();
+                _ownsSimulatorUiGroup = _simulatorUiGroup == null;
+                if (_ownsSimulatorUiGroup)
+                {
+                    _simulatorUiGroup = simulatorUi.gameObject.AddComponent<CanvasGroup>();
+                }
+            }
+
+            bool show = SimulatorUiShouldShow(hideSimulatorUiOnPilotView, _developerSimulatorUiVisible);
+            float alpha = show ? 1f : 0f;
+            if (!Mathf.Approximately(_simulatorUiGroup.alpha, alpha))
+            {
+                _simulatorUiGroup.alpha = alpha;
+                _simulatorUiGroup.blocksRaycasts = show;
+                _simulatorUiGroup.interactable = show;
+            }
+        }
+
+        private void RestoreSimulatorUiVisibility()
+        {
+            if (_simulatorUiGroup != null)
+            {
+                if (_ownsSimulatorUiGroup)
+                {
+                    if (Application.isPlaying) Destroy(_simulatorUiGroup); else DestroyImmediate(_simulatorUiGroup);
+                }
+                else
+                {
+                    _simulatorUiGroup.alpha = 1f;
+                    _simulatorUiGroup.blocksRaycasts = true;
+                    _simulatorUiGroup.interactable = true;
+                }
+            }
+
+            _simulatorUiGroup = null;
+            _ownsSimulatorUiGroup = false;
+            ResetSimulatorUiSearch();
+        }
+
+        private void ResetSimulatorUiSearch()
+        {
+            _simulatorUiTransform = null;
+            _nextSimulatorUiSearch = 0f;
+            _simulatorUiRetryInterval = .25f;
+        }
+
+        /// <summary>
+        /// XRI instantiates its UI a frame or more after the simulator root, and the fallback lookup scans every
+        /// transform. Cache the result and back off (0.25 s doubling to 8 s) so a missing UI never costs a scan per frame.
+        /// </summary>
+        private Transform FindSimulatorUiCached()
+        {
+            if (_simulatorUiTransform != null) return _simulatorUiTransform;
+            if (Time.unscaledTime < _nextSimulatorUiSearch) return null;
+            Transform found = FindSimulatorUiTransform();
+            if (found == null)
+            {
+                _nextSimulatorUiSearch = Time.unscaledTime + _simulatorUiRetryInterval;
+                _simulatorUiRetryInterval = Mathf.Min(8f, _simulatorUiRetryInterval * 2f);
+                return null;
+            }
+
+            _simulatorUiTransform = found;
+            _simulatorUiRetryInterval = .25f;
+            return found;
+        }
+
+        /// <summary>
+        /// Pilot-safe replacement for an XRI simulator keyboard binding, or null to keep it. Tab is the pilot COMMANDS
+        /// key, so 'Cycle Devices' always moves to backslash. While the desktop aircraft view owns the camera the
+        /// simulated HMD is not displayed, so XRI 'Reset' (R = FORWARD) and 'X Constraint' (V = camera mode) are
+        /// unbound instead of firing a second, invisible action. Returns "" to unbind.
+        /// </summary>
+        public static string PilotSafeSimulatorBinding(string xriAction, string keyboardPath, bool desktopAircraftView)
+        {
+            if (xriAction == "Cycle Devices" && keyboardPath == "<Keyboard>/tab") return SimulatorCycleDevicesKey;
+            if (!desktopAircraftView) return null;
+            if (xriAction == "Reset" && keyboardPath == "<Keyboard>/r") return string.Empty;
+            if (xriAction == "X Constraint" && keyboardPath == "<Keyboard>/v") return string.Empty;
+            return null;
+        }
+
+        private static InputAction ActionOf(XRInputButtonReader reader)
+        {
+            if (reader == null) return null;
+            switch (reader.inputSourceMode)
+            {
+                case XRInputButtonReader.InputSourceMode.InputActionReference:
+                    return reader.inputActionReferencePerformed != null ? reader.inputActionReferencePerformed.action : null;
+                case XRInputButtonReader.InputSourceMode.InputAction:
+                    return reader.inputActionPerformed;
+                default:
+                    return null;
+            }
+        }
+
+        private void ApplySimulatorKeyOverrides(XRInteractionSimulator simulator, bool desktopAircraftView)
+        {
+            RemoveSimulatorKeyOverrides();
+            if (!resolveSimulatorKeyConflicts || simulator == null || !Application.isPlaying)
+            {
+                return;
+            }
+
+            OverrideSimulatorKey(ActionOf(simulator.cycleDevicesInput), "Cycle Devices", "<Keyboard>/tab", desktopAircraftView);
+            OverrideSimulatorKey(ActionOf(simulator.resetInput), "Reset", "<Keyboard>/r", desktopAircraftView);
+            OverrideSimulatorKey(ActionOf(simulator.xConstraintInput), "X Constraint", "<Keyboard>/v", desktopAircraftView);
+        }
+
+        private void OverrideSimulatorKey(InputAction action, string xriAction, string keyboardPath, bool desktopAircraftView)
+        {
+            string replacement = PilotSafeSimulatorBinding(xriAction, keyboardPath, desktopAircraftView);
+            if (action == null || replacement == null)
+            {
+                return;
+            }
+
+            // Runtime-only override (never saved to the asset); removed again in RemoveSimulatorKeyOverrides.
+            action.ApplyBindingOverride(new InputBinding { path = keyboardPath, overridePath = replacement });
+            _simulatorKeyOverrides.Add(action);
+        }
+
+        private void RemoveSimulatorKeyOverrides()
+        {
+            foreach (InputAction action in _simulatorKeyOverrides)
+            {
+                if (action == null) continue;
+                action.RemoveBindingOverride(new InputBinding { path = "<Keyboard>/tab" });
+                action.RemoveBindingOverride(new InputBinding { path = "<Keyboard>/r" });
+                action.RemoveBindingOverride(new InputBinding { path = "<Keyboard>/v" });
+            }
+
+            _simulatorKeyOverrides.Clear();
+        }
+
+        private void RegisterSimulatorHelp(bool simulatorActive)
+        {
+            // Never create the chrome while tearing down; only register when the simulator is live.
+            var chrome = simulatorActive ? FAA.Customization.FaaPilotChrome.Ensure() : FAA.Customization.FaaPilotChrome.Current;
+            if (chrome == null) return;
+            // Developer lines only: the chrome lists them while developer mode is on. The chrome owns the CTRL+SHIFT+D line
+            // (developer mode), so it is only re-worded here, never removed.
+            if (simulatorActive)
+            {
+                chrome.SetHelpEntry(SimulatorUiToggleKeys, "Developer mode on / off (shows XR simulator controls)", 900, true);
+                chrome.SetHelpEntry("\\", "XR simulator: cycle devices", 920, true);
+            }
+            else
+            {
+                chrome.SetHelpEntry(SimulatorUiToggleKeys, "Developer mode on / off", 900, true);
+                chrome.RemoveHelpEntry("\\");
+            }
         }
 
         private void OnDestroy()
@@ -195,6 +408,7 @@ namespace FAA.Headset
             if (_active)
             {
                 _simulatorInputSelectionLayoutConfigured = false;
+                if (_simulatorUiGroup == null) ResetSimulatorUiSearch();
                 if (suspendLegacySa147WhileActive)
                 {
                     SuspendLegacySa147();
@@ -800,6 +1014,10 @@ namespace FAA.Headset
                 useScreenSpaceOverlayForSimulator &&
                 preferEditorPointerInput;
             simulator.usePointAndClick = useEditorPointer ? false : _simulatorOriginalPointAndClick;
+            bool desktopAircraftView = xrCamera != null && UseDesktopAircraftView(_activeMode, preferEditorPointerInput,
+                xrCamera.GetComponent<AircraftControl.Camera.AircraftCameraController>() != null);
+            ApplySimulatorKeyOverrides(simulator, desktopAircraftView);
+            RegisterSimulatorHelp(_activeMode == ActivationMode.UnitySimulator);
         }
 
         /// <summary>
@@ -829,7 +1047,7 @@ namespace FAA.Headset
                 return;
             }
 
-            Transform simulatorUi = FindSimulatorUiTransform();
+            Transform simulatorUi = FindSimulatorUiCached();
             if (simulatorUi == null)
             {
                 return;
@@ -966,7 +1184,7 @@ namespace FAA.Headset
                 Mathf.Max(0f, simulatorInputSelectionMargin.y));
             if (placeSimulatorInputSelectionBelowHeadingTape)
             {
-                margin.y = Mathf.Max(margin.y, SimulatorInputSelectionBelowHeadingTapeTopMargin);
+                margin.y = Mathf.Max(margin.y, SimulatorInputSelectionTopMargin);
             }
 
             float width = Mathf.Max(0f, rect.rect.width);
@@ -1014,6 +1232,9 @@ namespace FAA.Headset
 
         private void RestoreSimulatorPointerInput()
         {
+            RemoveSimulatorKeyOverrides();
+            RestoreSimulatorUiVisibility();
+            RegisterSimulatorHelp(false);
             if (!_simulatorPointAndClickStateCaptured)
             {
                 return;

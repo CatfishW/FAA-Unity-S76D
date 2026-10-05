@@ -1,6 +1,7 @@
 using TMPro;
 using System.Collections.Generic;
 using TrafficRadar;
+using WeatherRadar;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
@@ -33,6 +34,20 @@ namespace FAA.Customization
 
         public bool TargetVisible => _targetVisible;
         public float Progress => _progress;
+        private float _baseScale = 1f;
+
+        /// <summary>Readability scale (FaaRadarVisualStyle.ReadabilityScale) the drawer animates around.</summary>
+        public float BaseScale
+        {
+            get => _baseScale;
+            set
+            {
+                float next = Mathf.Clamp(value, 1f, FaaRadarVisualStyle.MaximumReadabilityScale);
+                if (Mathf.Abs(next - _baseScale) < .001f) return;
+                _baseScale = next;
+                Apply(_progress);
+            }
+        }
 
         // Keep the original one-argument API for existing scene scripts and
         // reflection-based editor tests. Advanced rows are opt-in through the
@@ -172,6 +187,7 @@ namespace FAA.Customization
                 _canvasGroup.alpha = 1f;
                 _canvasGroup.interactable = true;
                 _canvasGroup.blocksRaycasts = true;
+                _rectTransform.localScale = new Vector3(_baseScale, _baseScale, 1f);
                 bool contentInteractive = _targetVisible && progress >= 0.98f;
                 bool contentRaycasts = _targetVisible && progress >= 0.12f;
                 for (int i = 0; i < _contentGroups.Count; i++)
@@ -198,7 +214,7 @@ namespace FAA.Customization
             _canvasGroup.alpha = eased;
             _canvasGroup.interactable = _targetVisible && progress >= 0.98f;
             _canvasGroup.blocksRaycasts = _targetVisible && progress >= 0.12f;
-            float scale = _reducedMotion ? 1f : Mathf.Lerp(HiddenScale, 1f, eased);
+            float scale = _baseScale * (_reducedMotion ? 1f : Mathf.Lerp(HiddenScale, 1f, eased));
             _rectTransform.localScale = new Vector3(scale, scale, 1f);
         }
 
@@ -245,7 +261,10 @@ namespace FAA.Customization
         private bool _suppressClick;
         private TrafficRadarDisplay _trafficDisplay;
         private TrafficRadarContextMenu _trafficContextMenu;
+        private XPlaneOriginalWeatherRadarDisplay _weatherDisplay;
         private float _visualProgress;
+        private float _nextFrameFit;
+        private readonly Vector3[] _corners = new Vector3[4];
 
         public FaaRadarKind RadarKind => radarKind;
         public bool IsOpen => _open;
@@ -329,6 +348,12 @@ namespace FAA.Customization
                 _focusGroup.alpha = FaaRadarConfigurationDrawer.EaseOutQuart(_visualProgress);
             }
 
+            if (radarKind == FaaRadarKind.Weather && Time.unscaledTime >= _nextFrameFit)
+            {
+                _nextFrameFit = Time.unscaledTime + .25f;
+                FitWeatherFocusFrame();
+            }
+
             if (_focusFrame != null)
             {
                 float pressScale = _pressed && !reducedMotion ? 0.985f : 1f;
@@ -378,13 +403,21 @@ namespace FAA.Customization
                     return;
                 }
 
+                if (_trafficDisplay == null || !_trafficDisplay.IsFullscreen)
+                {
+                    // One tap opens ONE control surface with one terminology: the readable
+                    // settings drawer (RDR-13). The quick menu is a full-map tool only.
+                    _trafficContextMenu?.Close();
+                    owner?.ToggleRadarConfiguration(FaaRadarKind.Traffic);
+                    eventData.Use();
+                    return;
+                }
+
                 if (_trafficContextMenu != null)
                 {
-                    // A single tap opens the same adaptive quick-action menu
-                    // in compact and pilot-focus views. Every action carries
-                    // an animated leader to the affected area of the scope.
+                    // Full map: the toolbar stays docked (Restore HUD, source, range); a tap
+                    // offers only map-anchored actions (target setup, range rings).
                     _trafficContextMenu.ToggleAtScreenPoint(eventData.position, eventData.pressEventCamera);
-                    owner?.SetRadarConfigurationVisible(FaaRadarKind.Traffic, _trafficContextMenu.IsRequestedOpen);
                     eventData.Use();
                     return;
                 }
@@ -516,6 +549,78 @@ namespace FAA.Customization
             eventData.Use();
         }
 
+        /// <summary>Padding between a framed picture and the focus frame edge (reference units).</summary>
+        public const float FocusFramePadding = 8f;
+        /// <summary>The bracket strokes sit this far inside the frame edge (see <see cref="EnsureVisualTree"/>).</summary>
+        public const float BracketInset = 8f, BracketLength = 22f;
+        /// <summary>Minimum clearance between the frame edge and the header/footer plates (reference units).</summary>
+        public const float PlateClearance = 2f;
+
+        /// <summary>
+        /// Focus-frame rect (surface-local) for the weather picture: the picture plus <see cref="FocusFramePadding"/>, with its
+        /// top kept below the header plate and its bottom kept above the footer plate, so a bracket never cuts through text
+        /// (M12). <paramref name="headerBottom"/>/<paramref name="footerTop"/> are NaN when that plate is absent.
+        /// </summary>
+        public static Rect FitFocusFrame(Rect picture, float headerBottom, float footerTop)
+        {
+            float xMin = picture.xMin - FocusFramePadding, xMax = picture.xMax + FocusFramePadding;
+            float yMin = picture.yMin - FocusFramePadding, yMax = picture.yMax + FocusFramePadding;
+            if (!float.IsNaN(footerTop)) yMin = Mathf.Max(yMin, footerTop + PlateClearance);
+            if (!float.IsNaN(headerBottom)) yMax = Mathf.Min(yMax, headerBottom - PlateClearance);
+            // Never collapse: keep room for both bracket legs even on a degenerate layout.
+            float minHeight = 2f * (BracketInset + BracketLength);
+            if (yMax - yMin < minHeight) { float mid = (yMin + yMax) * .5f; yMin = mid - minHeight * .5f; yMax = mid + minHeight * .5f; }
+            return Rect.MinMaxRect(xMin, yMin, xMax, yMax);
+        }
+
+        /// <summary>
+        /// The weather picture is aspect-fitted (724:512) inside a square root. Frame the actual sector instead of the empty square
+        /// so the brackets never float below the picture (RDR-16), and clamp the frame between the header and footer plates so the
+        /// corner brackets never land on the range or tilt text (M12). Falls back to the root square only while no picture exists.
+        /// </summary>
+        private void FitWeatherFocusFrame()
+        {
+            if (_focusFrame == null || _rectTransform == null) return;
+            if (_weatherDisplay == null && transform.parent != null)
+                _weatherDisplay = transform.parent.GetComponentInChildren<XPlaneOriginalWeatherRadarDisplay>(true);
+            RectTransform picture = _weatherDisplay != null ? _weatherDisplay.PictureRect : null;
+            if (picture == null || !picture.gameObject.activeInHierarchy || picture.rect.width < 16f)
+            {
+                Stretch(_focusFrame);
+                return;
+            }
+            Rect pictureRect = LocalBounds(picture);
+            Transform root = transform.parent;
+            float headerBottom = float.NaN, footerTop = float.NaN;
+            if (root != null)
+            {
+                if (root.Find("Radar Status Header") is RectTransform header && header.gameObject.activeInHierarchy) headerBottom = LocalBounds(header).yMin;
+                if (root.Find("Radar Status Footer") is RectTransform footer && footer.gameObject.activeInHierarchy) footerTop = LocalBounds(footer).yMax;
+            }
+            Rect frame = FitFocusFrame(pictureRect, headerBottom, footerTop);
+            Vector2 size = frame.size;
+            Vector2 centre = frame.center - _rectTransform.rect.center;
+            var middle = new Vector2(.5f, .5f);
+            if (_focusFrame.anchorMin != middle) _focusFrame.anchorMin = middle;
+            if (_focusFrame.anchorMax != middle) _focusFrame.anchorMax = middle;
+            if (_focusFrame.pivot != middle) _focusFrame.pivot = middle;
+            if ((_focusFrame.sizeDelta - size).sqrMagnitude > .25f) _focusFrame.sizeDelta = size;
+            if ((_focusFrame.anchoredPosition - centre).sqrMagnitude > .25f) _focusFrame.anchoredPosition = centre;
+        }
+
+        /// <summary>Axis-aligned bounds of <paramref name="rect"/> in this surface's local space (allocation-free).</summary>
+        private Rect LocalBounds(RectTransform rect)
+        {
+            rect.GetWorldCorners(_corners);
+            Vector2 min = new Vector2(float.MaxValue, float.MaxValue), max = new Vector2(float.MinValue, float.MinValue);
+            for (int i = 0; i < 4; i++)
+            {
+                Vector2 local = _rectTransform.InverseTransformPoint(_corners[i]);
+                min = Vector2.Min(min, local); max = Vector2.Max(max, local);
+            }
+            return Rect.MinMaxRect(min.x, min.y, max.x, max.y);
+        }
+
         private void ResolveTrafficDisplay()
         {
             if (_trafficDisplay != null)
@@ -587,7 +692,10 @@ namespace FAA.Customization
                 : new GameObject("RadarFocusFrame", typeof(RectTransform), typeof(CanvasGroup));
             frameObject.transform.SetParent(transform, false);
             _focusFrame = frameObject.GetComponent<RectTransform>();
-            Stretch(_focusFrame);
+            // The weather frame hugs the sector picture; re-stretching it here (this runs on every structure refresh) used to
+            // leave the brackets on the square root, right across the footer text, until the next fit.
+            if (radarKind == FaaRadarKind.Weather) FitWeatherFocusFrame();
+            else Stretch(_focusFrame);
             _focusGroup = frameObject.GetComponent<CanvasGroup>() ?? frameObject.AddComponent<CanvasGroup>();
             _focusGroup.alpha = 0f;
             _focusGroup.blocksRaycasts = false;

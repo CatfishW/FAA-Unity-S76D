@@ -32,8 +32,8 @@ namespace TrafficRadar
         public static readonly Color TrafficAdvisoryColor = new Color(1f, 0.75f, 0f, 1f);  // Amber
         public static readonly Color ResolutionAdvisoryColor = new Color(1f, 0f, 0f, 1f);  // Red
 
-        // Own aircraft color
-        public static readonly Color OwnAircraftColor = new Color(1f, 0f, 0f, 1f);         // Red
+        // Own aircraft: white (AC 20-172B / DO-317), distinct from cyan traffic. Red/amber are advisory-only.
+        public static readonly Color OwnAircraftColor = new Color(0.85f, 1f, 1f, 1f);
 
         /// <summary>
         /// Gets the color for a given threat level.
@@ -85,13 +85,66 @@ namespace TrafficRadar
         FilledSquare      // Resolution Advisory
     }
 
+    /// <summary>TCAS II display altitude bands (DO-185B): NORMAL ±2,700 ft, ABOVE/BELOW extend one side to 9,900 ft.</summary>
+    public enum TrafficAltitudeBand { Normal, Above, Below, All }
+
+    public static class TrafficAltitudeBands
+    {
+        public const float NormalLimitFt = 2700f, ExtendedLimitFt = 9900f;
+
+        /// <summary>Unknown (non-finite) relative altitude is never filtered out: a non-altitude-reporting
+        /// intruder may be co-altitude, so it stays on the display without a data tag.</summary>
+        public static bool WithinBand(float relativeAltitudeFt, TrafficAltitudeBand band)
+        {
+            if (float.IsNaN(relativeAltitudeFt) || float.IsInfinity(relativeAltitudeFt)) return true;
+            switch (band)
+            {
+                case TrafficAltitudeBand.Normal: return relativeAltitudeFt >= -NormalLimitFt && relativeAltitudeFt <= NormalLimitFt;
+                case TrafficAltitudeBand.Above: return relativeAltitudeFt >= -NormalLimitFt && relativeAltitudeFt <= ExtendedLimitFt;
+                case TrafficAltitudeBand.Below: return relativeAltitudeFt >= -ExtendedLimitFt && relativeAltitudeFt <= NormalLimitFt;
+                default: return true;
+            }
+        }
+
+        public static TrafficAltitudeBand Next(TrafficAltitudeBand band) => (TrafficAltitudeBand)(((int)band + 1) % 4);
+
+        public static string ShortLabel(TrafficAltitudeBand band) => band switch
+        {
+            TrafficAltitudeBand.Normal => "NORM", TrafficAltitudeBand.Above => "ABV",
+            TrafficAltitudeBand.Below => "BLW", _ => "ALL ALT"
+        };
+
+        /// <summary>
+        /// Scope footer annunciation of the active band. It is always shown (not only when filtering is unusual), so a band-filtered
+        /// scope is never mistaken for an empty sky. ASCII only, so the static font atlas always has every glyph.
+        /// </summary>
+        public static string FooterLabel(TrafficAltitudeBand band) => band switch
+        {
+            TrafficAltitudeBand.Normal => "NORM ±2700 FT", TrafficAltitudeBand.Above => "ABOVE +9900 FT",
+            TrafficAltitudeBand.Below => "BELOW -9900 FT", _ => "ALL ALT"
+        };
+
+        public static string ReadableLabel(TrafficAltitudeBand band) => band switch
+        {
+            TrafficAltitudeBand.Normal => "Normal ±2700", TrafficAltitudeBand.Above => "Above +9900",
+            TrafficAltitudeBand.Below => "Below −9900", _ => "All altitudes"
+        };
+    }
+
     /// <summary>
     /// Configurable thresholds for threat level determination.
-    /// Based on TCAS-style criteria.
+    /// Without a genuine TCAS advisory source the display may only classify proximate and other
+    /// traffic (AC 20-172B). Amber TA / red RA symbols are never computed from distance alone.
     /// </summary>
     [System.Serializable]
     public class ThreatThresholds
     {
+        [Header("Advisories (TCAS source only)")]
+        [Tooltip("DEMONSTRATOR ONLY. Computes amber TA symbols from range/altitude. Leave off: no TCAS logic backs them.")]
+        public bool allowComputedAdvisories = false;
+        [Tooltip("DEMONSTRATOR ONLY. Computes red RA symbols. Requires allowComputedAdvisories; there is no RA manoeuvre guidance.")]
+        public bool allowComputedResolutionAdvisory = false;
+
         [Header("Resolution Advisory (Red)")]
         [Tooltip("Maximum distance in nautical miles for RA")]
         public float raDistanceNM = 1.0f;
@@ -111,29 +164,23 @@ namespace TrafficRadar
         public float proximateAltitudeFt = 1200f;
 
         /// <summary>
-        /// Determines the threat level based on distance and altitude difference.
+        /// Determines the threat level based on distance and absolute altitude difference.
+        /// Unknown altitude is treated as co-altitude for the proximate test, never for an advisory.
         /// </summary>
-        /// <param name="distanceNM">Distance in nautical miles</param>
-        /// <param name="altitudeDiffFt">Altitude difference in feet</param>
-        /// <returns>The appropriate threat level</returns>
         public ThreatLevel DetermineThreatLevel(float distanceNM, float altitudeDiffFt)
         {
-            if (distanceNM <= raDistanceNM && altitudeDiffFt <= raAltitudeFt)
+            if (float.IsNaN(distanceNM) || float.IsInfinity(distanceNM)) return ThreatLevel.OtherTraffic;
+            bool altitudeKnown = !float.IsNaN(altitudeDiffFt) && !float.IsInfinity(altitudeDiffFt);
+            float separation = altitudeKnown ? Mathf.Abs(altitudeDiffFt) : 0f;
+            if (allowComputedAdvisories && altitudeKnown)
             {
-                return ThreatLevel.ResolutionAdvisory;
+                if (allowComputedResolutionAdvisory && distanceNM <= raDistanceNM && separation <= raAltitudeFt)
+                    return ThreatLevel.ResolutionAdvisory;
+                if (distanceNM <= taDistanceNM && separation <= taAltitudeFt)
+                    return ThreatLevel.TrafficAdvisory;
             }
-            else if (distanceNM <= taDistanceNM && altitudeDiffFt <= taAltitudeFt)
-            {
-                return ThreatLevel.TrafficAdvisory;
-            }
-            else if (distanceNM <= proximateDistanceNM && altitudeDiffFt <= proximateAltitudeFt)
-            {
-                return ThreatLevel.Proximate;
-            }
-            else
-            {
-                return ThreatLevel.OtherTraffic;
-            }
+            return distanceNM <= proximateDistanceNM && separation <= proximateAltitudeFt
+                ? ThreatLevel.Proximate : ThreatLevel.OtherTraffic;
         }
     }
 

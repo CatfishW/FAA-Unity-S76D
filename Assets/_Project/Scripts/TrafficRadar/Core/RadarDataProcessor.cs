@@ -23,6 +23,8 @@ namespace TrafficRadar.Core
         
         // Reusable list to avoid allocations
         private readonly List<RadarTarget> _processedTargets = new List<RadarTarget>();
+        private static readonly Comparison<RadarTarget> ThreatThenRange = (a, b) =>
+            a.ThreatLevel != b.ThreatLevel ? b.ThreatLevel.CompareTo(a.ThreatLevel) : a.DistanceNM.CompareTo(b.DistanceNM);
         
         public RadarDataProcessor(ThreatThresholds thresholds = null)
         {
@@ -48,6 +50,13 @@ namespace TrafficRadar.Core
         }
         
         /// <summary>
+        /// Relative-altitude display band. Defaults to All so auxiliary processors (HUD cues) are
+        /// unfiltered; the radar controller sets the pilot-selected TCAS band on its main processor.
+        /// Advisories are never removed by the band.
+        /// </summary>
+        public TrafficAltitudeBand AltitudeBand { get; set; } = TrafficAltitudeBand.All;
+
+        /// <summary>
         /// Process aircraft states into radar targets relative to own-ship position.
         /// </summary>
         /// <param name="aircraftStates">Raw aircraft state data</param>
@@ -69,8 +78,9 @@ namespace TrafficRadar.Core
             float ownAltFt = ownPosition.AltitudeFeet;
             float ownHeading = ownPosition.HeadingDegrees;
             
-            foreach (var aircraft in aircraftStates)
+            for (int index = 0; index < aircraftStates.Count; index++)
             {
+                var aircraft = aircraftStates[index];
                 // Skip aircraft without valid position
                 if (aircraft.Latitude == 0 && aircraft.Longitude == 0)
                     continue;
@@ -113,18 +123,31 @@ namespace TrafficRadar.Core
                     TimeSinceUpdate = CalculateSampleAgeSeconds(aircraft.LastUpdate, DateTime.UtcNow)
                 };
                 
+                // Out-of-band traffic is clutter unless it is a genuine advisory (DO-185B).
+                if (target.ThreatLevel < ThreatLevel.TrafficAdvisory &&
+                    !TrafficAltitudeBands.WithinBand(target.RelativeAltitudeFeet, AltitudeBand))
+                    continue;
+
                 _processedTargets.Add(target);
-                
-                if (_processedTargets.Count >= _maxTargets)
-                    break;
             }
             
-            // Sort by threat level (highest first)
-            _processedTargets.Sort((a, b) => b.ThreatLevel.CompareTo(a.ThreatLevel));
+            // Prioritise before truncating: the symbol limit may only drop the least
+            // important non-threat traffic. Advisory and proximate traffic are always kept.
+            _processedTargets.Sort(ThreatThenRange);
+            int keep = Mathf.Max(_maxTargets, CountAtOrAbove(_processedTargets, ThreatLevel.Proximate));
+            if (_processedTargets.Count > keep)
+                _processedTargets.RemoveRange(keep, _processedTargets.Count - keep);
             
             return _processedTargets;
         }
         
+        private static int CountAtOrAbove(List<RadarTarget> targets, ThreatLevel level)
+        {
+            int count = 0;
+            for (int i = 0; i < targets.Count; i++) if (targets[i].ThreatLevel >= level) count++;
+            return count;
+        }
+
         /// <summary>Compare in UTC; sources may supply UTC or local timestamps.</summary>
         public static float CalculateSampleAgeSeconds(DateTime timestamp, DateTime nowUtc) =>
             Mathf.Max(0, (float)(nowUtc.ToUniversalTime() - timestamp.ToUniversalTime()).TotalSeconds);

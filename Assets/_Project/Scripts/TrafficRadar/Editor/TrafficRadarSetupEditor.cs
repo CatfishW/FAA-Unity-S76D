@@ -354,7 +354,7 @@ public class TrafficRadarSetupEditor : EditorWindow
             displaySO.FindProperty("radarController").objectReferenceValue = controller;
             displaySO.FindProperty("showRadarBackground").boolValue = true;
             displaySO.FindProperty("showChartBackground").boolValue = true;
-            displaySO.FindProperty("chartOpacity").floatValue = 0.28f;
+            displaySO.FindProperty("chartOpacity").floatValue = 0.22f;
             SerializedProperty chartFadeProperty = displaySO.FindProperty("enableChartFadeAnimation");
             if (chartFadeProperty != null) chartFadeProperty.boolValue = true;
             SerializedProperty chartFadeDurationProperty = displaySO.FindProperty("chartFadeDuration");

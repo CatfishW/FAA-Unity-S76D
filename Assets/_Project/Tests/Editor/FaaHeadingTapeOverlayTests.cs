@@ -113,7 +113,8 @@ namespace FAA.Customization.Tests
                 SetPrivateField(overlayType, overlay, "aircraftController", null);
                 SetPrivateField(overlayType, overlay, "headingHud", null);
                 SetPrivateField(overlayType, overlay, "headingTarget", null);
-                SetPrivateField(overlayType, overlay, "_displayedHeading", 0f);
+                // Heading 020: N sits 20 deg left of the boxed readout (labels inside the box are hidden by design).
+                SetPrivateField(overlayType, overlay, "_displayedHeading", 20f);
 
                 RectTransform clipRect = root.transform.Find("Heading Tape Clip") as RectTransform;
                 Assert.That(clipRect, Is.Not.Null);
@@ -154,7 +155,7 @@ namespace FAA.Customization.Tests
                 Transform readout = root.transform.Find("Current Heading Readout");
                 Assert.That(readout.gameObject.activeSelf, Is.True);
                 Graphic heading = readout.GetComponent<Graphic>();
-                Assert.That(heading.GetType().GetProperty("text").GetValue(heading).ToString(), Does.Contain("000"));
+                Assert.That(heading.GetType().GetProperty("text").GetValue(heading).ToString(), Does.Contain("020"));
             }
             finally
             {
@@ -369,6 +370,116 @@ namespace FAA.Customization.Tests
                 Assert.That(source.activeSelf, Is.False);
                 Assert.That(powerBadge.activeSelf, Is.True);
                 Assert.That(texture.activeSelf, Is.True);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(root);
+            }
+        }
+
+        /// <summary>A tape with its runtime-only children pre-created (edit mode never adds children to a scene object).</summary>
+        private static Component NewRuntimeTape(GameObject root, float heading, out Type type)
+        {
+            type = Type.GetType("FAA.Customization.FaaHeadingTapeOverlay, Assembly-CSharp", true);
+            foreach (string child in new[] { "Current Heading Box", "Heading Reference", "Selected Heading Bug", "Selected Heading Off Scale" })
+                new GameObject(child, typeof(RectTransform)).transform.SetParent(root.transform, false);
+            Component overlay = root.AddComponent(type);
+            SetPrivateField(type, overlay, "autoFindSources", false);
+            SetPrivateField(type, overlay, "flightDataProvider", null);
+            SetPrivateField(type, overlay, "aircraftController", null);
+            SetPrivateField(type, overlay, "headingHud", null);
+            SetPrivateField(type, overlay, "headingTarget", null);
+            SetPrivateField(type, overlay, "_displayedHeading", heading);
+            InvokePrivate(type, overlay, "Update");
+            return overlay;
+        }
+
+        private static float Public(Type type, string name) => Convert.ToSingle(type.GetField(name).GetValue(null));
+
+        [Test]
+        public void SelectedHeading_OffScaleIsADistinctArrowheadAndABoxedFieldClearOfTheNumerals()
+        {
+            GameObject root = new GameObject("Off-scale selected heading", typeof(RectTransform));
+            try
+            {
+                Component overlay = NewRuntimeTape(root, 0f, out Type type);
+                MethodInfo present = type.GetMethod("PresentSelectedHeading");
+                float halfWidth = 260f;
+                present.Invoke(overlay, new object[] { true, 120f, 5f, halfWidth });
+                Assert.That((bool)type.GetProperty("SelectedHeadingOffScale").GetValue(overlay), Is.True);
+                Transform bug = root.transform.Find("Selected Heading Bug"), off = root.transform.Find("Selected Heading Off Scale");
+                Assert.That(bug.gameObject.activeSelf, Is.False, "No half-bug next to the digits (it read as '1084').");
+                Assert.That(bug.Find("Off Scale Value") == null || !bug.Find("Off Scale Value").gameObject.activeSelf, Is.True);
+                Assert.That(off.gameObject.activeSelf, Is.True);
+
+                var arrow = (RectTransform)off.Find("Arrow");
+                Graphic arrowGraphic = arrow.GetComponent<Graphic>();
+                Assert.That(arrowGraphic, Is.Not.Null);
+                Assert.That(arrowGraphic.color.b, Is.GreaterThan(arrowGraphic.color.r), "Cyan selected-value cue.");
+                Assert.That(arrow.sizeDelta.y, Is.GreaterThanOrEqualTo(14f), "At least 6 mrad tall.");
+                Assert.That(arrow.anchoredPosition.x - arrow.sizeDelta.x * .5f, Is.GreaterThanOrEqualTo(halfWidth), "Outside the tape end, never over a numeral.");
+                Assert.That((float)arrowGraphic.GetType().GetProperty("Direction").GetValue(arrowGraphic), Is.EqualTo(1f), "Points toward the selected heading.");
+
+                var value = off.Find("Field Value").GetComponent<TMPro.TMP_Text>();
+                Assert.That(value.text, Is.EqualTo("HDG 120"), "Labelled value field.");
+                Assert.That(value.fontSize, Is.GreaterThanOrEqualTo(20f));
+                Assert.That(value.color.a, Is.GreaterThanOrEqualTo(.85f));
+                float fieldTop = value.rectTransform.anchoredPosition.y + Public(type, "OffScaleFieldHeight") * .5f;
+                float numeralBottom = Public(type, "LabelY") - Public(type, "LabelHeight") * .5f;
+                Assert.That(numeralBottom - fieldTop, Is.GreaterThanOrEqualTo(8f), "At least 8 ref clear of the numerals.");
+                float arrowBottom = arrow.anchoredPosition.y - arrow.sizeDelta.y * .5f;
+                Assert.That(arrowBottom - fieldTop, Is.GreaterThanOrEqualTo(value.fontSize), "At least 1 em between the arrowhead and the text.");
+                Assert.That(value.rectTransform.anchoredPosition.x + Public(type, "OffScaleFieldWidth") * .5f, Is.LessThanOrEqualTo(halfWidth + .01f),
+                    "The field stays under the tape, clear of instruments outboard of it.");
+                Assert.That(off.Find("Field Top").GetComponent<Image>().enabled, Is.True, "Boxed field.");
+
+                present.Invoke(overlay, new object[] { true, 250f, 5f, halfWidth });
+                Assert.That((float)arrowGraphic.GetType().GetProperty("Direction").GetValue(arrowGraphic), Is.EqualTo(-1f));
+                Assert.That(arrow.anchoredPosition.x, Is.LessThan(-halfWidth));
+                Assert.That(value.rectTransform.anchoredPosition.x, Is.LessThan(0f));
+                Assert.That(value.text, Is.EqualTo("HDG 250"));
+
+                present.Invoke(overlay, new object[] { true, 10f, 5f, halfWidth });
+                Assert.That((bool)type.GetProperty("SelectedHeadingOffScale").GetValue(overlay), Is.False);
+                Assert.That(off.gameObject.activeSelf, Is.False);
+                Assert.That(bug.gameObject.activeSelf, Is.True);
+                Assert.That(((RectTransform)bug).anchoredPosition.x, Is.EqualTo(50f).Within(.01f));
+                // Bug posts reach 5 ref below the row; 24 ref numerals have caps of about 17.3 ref centred on LabelY.
+                float bugBottom = ((RectTransform)bug).anchoredPosition.y - 5f, numeralCapTop = Public(type, "LabelY") + 17.3f * .5f;
+                Assert.That(bugBottom - numeralCapTop, Is.GreaterThanOrEqualTo(8f), "The bug row stays at least 8 ref above the numeral caps.");
+
+                present.Invoke(overlay, new object[] { false, 10f, 5f, halfWidth });
+                Assert.That(bug.gameObject.activeSelf || off.gameObject.activeSelf, Is.False);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(root);
+            }
+        }
+
+        [Test]
+        public void HeadingReadout_ReferenceIsOneLegibleLabelBesideTheDigitsInsideTheBox()
+        {
+            GameObject root = new GameObject("Heading reference", typeof(RectTransform));
+            try
+            {
+                NewRuntimeTape(root, 84f, out Type type);
+                var readout = root.transform.Find("Current Heading Readout").GetComponent<TMPro.TMP_Text>();
+                var reference = root.transform.Find("Heading Reference").GetComponent<TMPro.TMP_Text>();
+                Assert.That(readout.text, Does.Contain("084"));
+                Assert.That(readout.text, Does.Not.Contain("°"), "No small degree/T suffix.");
+                Assert.That(reference.text, Is.EqualTo(Convert.ToString(type.GetField("TrueReferenceText").GetValue(null))));
+                Assert.That(reference.gameObject.activeSelf && reference.enabled, Is.True);
+                Assert.That(reference.fontSize, Is.GreaterThanOrEqualTo(22f), "About 15 ref cap height.");
+                Assert.That(reference.color.a, Is.GreaterThanOrEqualTo(.85f));
+                float boxHalf = Public(type, "ReadoutBoxWidth") * .5f;
+                RectTransform r = reference.rectTransform, d = readout.rectTransform;
+                Assert.That(r.anchoredPosition.x + r.sizeDelta.x * .5f, Is.LessThanOrEqualTo(boxHalf), "Inside the box.");
+                Assert.That(d.anchoredPosition.x - d.sizeDelta.x * .5f, Is.GreaterThanOrEqualTo(-boxHalf));
+                Assert.That(d.anchoredPosition.x + d.sizeDelta.x * .5f, Is.LessThan(r.anchoredPosition.x - r.sizeDelta.x * .5f),
+                    "Digits and reference never overlap.");
+                Assert.That(readout.GetPreferredValues(readout.text).x, Is.LessThanOrEqualTo(d.sizeDelta.x + .5f), "Three digits fit their cell.");
+                Assert.That(reference.GetPreferredValues(reference.text).x, Is.LessThanOrEqualTo(r.sizeDelta.x + .5f), "The reference fits its cell.");
             }
             finally
             {

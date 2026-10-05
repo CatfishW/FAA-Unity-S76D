@@ -1,6 +1,7 @@
 using UnityEngine;
 using TMPro;
 using AircraftControl.Core;
+using FAA.Customization;
 
 namespace HUDControl.Elements
 {
@@ -175,13 +176,15 @@ namespace HUDControl.Elements
             }
 
             int rounded = Mathf.RoundToInt(displayedAltitude);
-            if (rounded != Mathf.RoundToInt(lastDisplayedAltitude) || altitudeReadout.text == "---")
+            if (rounded != Mathf.RoundToInt(lastDisplayedAltitude) || altitudeReadout.text == FaaDigitalColumnStyle.Invalid)
             {
                 altitudeReadout.text = string.Format(displayFormat, rounded);
                 lastDisplayedAltitude = rounded;
             }
 
-            altitudeReadout.color = new Color(0.2f, 1f, 0.2f, 1f);
+            // Pilot symbology colour (never a hard-coded green that fights the colour picker).
+            Color color = FaaHudStyle.WithAlpha(FaaDigitalColumnStyle.Normal, 1f);
+            if (altitudeReadout.color != color) altitudeReadout.color = color;
         }
 
         private void SetReadoutUnavailable()
@@ -191,8 +194,9 @@ namespace HUDControl.Elements
                 return;
             }
 
-            altitudeReadout.text = "---";
-            altitudeReadout.color = new Color(0.2f, 1f, 0.2f, 0.46f);
+            // Dashes, never a frozen zero; still legible (MinTextAlpha) so the loss of data is noticed.
+            altitudeReadout.text = FaaDigitalColumnStyle.Invalid;
+            altitudeReadout.color = FaaHudStyle.WithAlpha(FaaDigitalColumnStyle.Normal, FaaHudStyle.MinTextAlpha);
         }
 
         private static void SetTapeAvailable(RectTransform tape, bool available)

@@ -92,17 +92,20 @@ try
     w.SubmitGesture(0,leftRay,left,true,false,time+.12); w.SubmitGesture(0,leftRay,left,true,true,time+.13);
     check("Locked layout cannot be grabbed", !w.IsManipulating && Vector3.Distance(lockedPose,traffic.WorldCenter)<.001f);
     w.SetEditMode(true); w.OpenMenu(); w.Select("airspeed");
-    var buttons=w.ControlsCanvas.GetComponentsInChildren<UnityEngine.UI.Button>(true);
+    // Settings controls live on the world-space Settings panel (ControlsCanvas only holds the selection frame).
+    var buttons=w.SettingsCanvas.GetComponentsInChildren<UnityEngine.UI.Button>(true);
     float smallerBefore=w.GetEntry("airspeed").scale;
     buttons.First(b=>b.name=="Smaller").onClick.Invoke();
     check("Visible minus button changes selected instrument", Mathf.Abs(w.GetEntry("airspeed").scale-(smallerBefore-.05f))<.001f);
-    var slider=w.ControlsCanvas.GetComponentInChildren<UnityEngine.UI.Slider>(true);
+    var slider=w.SettingsCanvas.GetComponentInChildren<UnityEngine.UI.Slider>(true);
     slider.value=.9f; check("Size slider updates module", Mathf.Abs(w.GetEntry("airspeed").scale-.9f)<.001f);
     w.SetEditMode(false); smallerBefore=w.GetEntry("airspeed").scale;
     buttons.First(b=>b.name=="Smaller").onClick.Invoke(); check("Explicit size button works while gestures remain locked", Mathf.Abs(w.GetEntry("airspeed").scale-smallerBefore+.05f)<.001f && !w.EditMode);
     w.SetEditMode(true); w.Select("traffic"); w.PlaceSelected(170,-20);
-    buttons.First(b=>b.name=="Recall").onClick.Invoke();
-    check("Recall returns misplaced panels near current gaze", Vector3.Angle(camera.transform.forward,traffic.WorldCenter-camera.transform.position)<55f);
+    // PANELS page: RESET RADAR POSITIONS (F10) returns both radars to their default side slots (never toward the current gaze).
+    buttons.First(b=>b.name=="3D Panels").onClick.Invoke(); w.RefreshTransforms();
+    check("RESET RADAR POSITIONS returns radars to their default side slots",
+        Mathf.Abs(Mathf.DeltaAngle(traffic.Layout.yaw,traffic.DefaultLayout.yaw))<.5f&&Mathf.Abs(traffic.Layout.elevation-traffic.DefaultLayout.elevation)<.5f);
     w.Select("traffic"); w.SetScale("traffic",.8f); w.RefreshTransforms();
     float physicalBefore=traffic.Radar.rect.width*traffic.Radar.lossyScale.x;
     if(!trafficDisplay.IsFullscreen) trafficDisplay.ToggleFullscreen();

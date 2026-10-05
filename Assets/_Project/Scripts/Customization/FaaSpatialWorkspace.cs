@@ -11,7 +11,8 @@ namespace FAA.Customization
 {
     /// <summary>
     /// Pilot-owned cockpit UI layout. Radar canvases use seat/aircraft space; only non-conformal
-    /// modules have a size multiplier. Never changes projection, FOV, IPD, flight data or conformal cues.
+    /// modules have a size multiplier. Never changes projection, IPD, flight data or conformal cues. The camera FOV changes only
+    /// during a desktop side-panel inspection (legibility zoom, never in XR) and is restored exactly when the view returns forward.
     /// </summary>
     [DefaultExecutionOrder(12500), DisallowMultipleComponent]
     public sealed partial class FaaSpatialWorkspace : MonoBehaviour
@@ -124,6 +125,7 @@ namespace FAA.Customization
             lastNativeXr = NativeXr;
             if (recenterPending) { RecenterSeat(); recenterPending = false; }
             RefreshTransforms();
+            UpdateInspection(Time.unscaledDeltaTime);
             HandleKeyboard();
             if (Time.unscaledTime >= nextUiRefresh)
             {
@@ -205,6 +207,8 @@ namespace FAA.Customization
                 AddModule("localizer", "Course deviation", root.Find("Localizer Position Ind."));
                 AddModule("bank", "Bank / command references", root.Find("Bank Scale"));
                 AddModule("legacy-compass", "Legacy heading panel", root.Find("Heading Panel"));
+                // Runtime FMA (zone Z1): sizeable like the other text modules (never below FaaHudStyle.MinModuleScale).
+                AddModule("fma", "Flight mode annunciator", root.Find(FaaFlightModeAnnunciator.ObjectName));
                 // The Attitude branch contains the calibrated pitch ladder/boresight. It is deliberately excluded.
             }
             Canvas heading = FindCanvas("FAAHeadingTapeCanvas");
@@ -212,6 +216,7 @@ namespace FAA.Customization
             LoadProfile();
             fixedInstrumentLayout = new FaaNonConformalReflow(modules);
             BindSymbologyVersions(flight,root,heading);
+            RegisterModuleKeepOuts();
             BuildControls();
             BindLaptopCamera();
             LoadUtilityProfile();
@@ -284,7 +289,9 @@ namespace FAA.Customization
         public void Select(string id)
         {
             if (GetEntry(id) == null) return;
-            SelectedId = id; RefreshControls();
+            SelectedId = id;
+            if (GetPanel(id) != null) lastPanelId = id; else lastModuleId = id;
+            RefreshControls();
         }
         public void SetScale(string id, float scale)
         {
@@ -404,7 +411,8 @@ namespace FAA.Customization
         {
             Keyboard keyboard = Keyboard.current; if (keyboard == null) return;
             // F8 already switches the existing HUD implementation. Do not steal it.
-            if (keyboard.f9Key.wasPressedThisFrame) ToggleMenu();
+            // F9 opens Settings and turns the desktop view to it; a second press closes it and returns forward.
+            if (keyboard.f9Key.wasPressedThisFrame) ToggleSettingsInspection();
             if (keyboard.f10Key.wasPressedThisFrame) RecallPanels();
             if (keyboard.escapeKey.wasPressedThisFrame && EditMode) SetEditMode(false);
         }
@@ -412,6 +420,7 @@ namespace FAA.Customization
         {
             LaptopCamera?.StopCamera();
             CancelManipulation();
+            ReleaseModuleKeepOuts();
             ReleaseSymbologyVersions();
             foreach (var panel in panels) panel.Dispose(); panels.Clear();
             foreach(var panel in utilityPanels)panel.Dispose();utilityPanels.Clear();
@@ -423,6 +432,7 @@ namespace FAA.Customization
             CockpitFrame = null;
             DestroyControls();
             Initialized = false; EditMode = false; dirty = false;
+            ViewOffAxis = false; ApplyHudInspection();
         }
     }
 }

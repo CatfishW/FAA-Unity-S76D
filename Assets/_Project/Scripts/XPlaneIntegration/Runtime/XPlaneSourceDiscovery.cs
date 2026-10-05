@@ -128,31 +128,76 @@ namespace FAA.XPlaneIntegration.Runtime
             if(terrain!=null&&(terrainSource!=next||terrainInstance!=terrain))
             {terrain.UseDiscoveredSource(next);terrainInstance=terrain;terrainSource=next;}
         }
+        /// <summary>
+        /// Chip severity from the data path state (14 CFR 29.1322 / AC 25.1322-1 colour use): a validated live local feed
+        /// is Nominal; searching inside the startup window is quiet Status; a healthy fallback feed is a Caution (data may
+        /// belong to another simulator); stale, stopped, unavailable or misconfigured data is a Warning because every flight
+        /// instrument then shows invalid data.
+        /// </summary>
+        public static FAA.Customization.FaaChromeSeverity ClassifySource(bool configError,SelectionMode mode,bool usingFallback,bool feedHealthy,bool hasSelected,bool searching)
+        {
+            if(configError||mode==SelectionMode.Stopped)return FAA.Customization.FaaChromeSeverity.Warning;
+            if(usingFallback)return feedHealthy?FAA.Customization.FaaChromeSeverity.Caution:FAA.Customization.FaaChromeSeverity.Warning;
+            if(hasSelected)return feedHealthy?FAA.Customization.FaaChromeSeverity.Nominal:FAA.Customization.FaaChromeSeverity.Warning;
+            return searching?FAA.Customization.FaaChromeSeverity.Status:FAA.Customization.FaaChromeSeverity.Warning;
+        }
+        /// <summary>Two- or three-word chip wording for the same states (details stay on the settings DATA page).</summary>
+        public static string ChipText(bool configError,SelectionMode mode,bool usingFallback,bool feedHealthy,bool hasSelected,bool searching)
+        {
+            if(configError)return "DATA CONFIG ERROR";
+            if(mode==SelectionMode.Stopped)return "DATA STOPPED";
+            if(usingFallback)return feedHealthy?"FALLBACK DATA":"NO FLIGHT DATA";
+            if(hasSelected)return feedHealthy?"DATA LIVE":"DATA STALE";
+            return searching?"DATA SEARCHING":"NO LOCAL SOURCE";
+        }
+        private string statusDetail,detailSummary,detailText,legacyText;
         private void RefreshStatus()
         {
+            bool configError=config==null;
+            bool healthy=bridge!=null&&bridge.IsFeedHealthy;
+            bool selected=!UsingFallback&&!string.IsNullOrEmpty(SelectedSourceId);
+            double now=XPlaneDiscoveryData.Now;
+            bool searching=!configError&&!selected&&!UsingFallback&&Mode!=SelectionMode.Stopped&&
+                (now-started<config.startupGraceSeconds||now-lastValid<config.sourceLossSeconds);
+            var severity=ClassifySource(configError,Mode,UsingFallback,healthy,selected,searching);
+            string chipText=ChipText(configError,Mode,UsingFallback,healthy,selected,searching);
+            if(detailSummary!=SourceSummary||detailText!=Details)
+            {detailSummary=SourceSummary;detailText=Details;statusDetail=SourceSummary+"\n"+Details;}
+            // Screen-chrome unit: status lives in the single merged chip of the pilot chrome bar (click opens the DATA page).
+            var chrome=FAA.Customization.FaaPilotChrome.Ensure();
+            if(chrome!=null)
+            {
+                chrome.ReportStatus("data",severity,chipText,statusDetail,0);
+                if(statusCanvas!=null){Destroy(statusCanvas.gameObject);statusCanvas=null;sourceText=null;legacyText=null;}
+                return;
+            }
+            // Legacy chip for hosts without the chrome: same wording and severity colours, legible size.
             if(statusCanvas==null)
             {
                 var root=new GameObject("FAA Data Source Status",typeof(RectTransform),typeof(Canvas),typeof(UnityEngine.UI.CanvasScaler),typeof(FAA.Customization.FaaCanvasPixelRaycaster));
                 root.transform.SetParent(transform,false);statusCanvas=root.GetComponent<Canvas>();statusCanvas.sortingOrder=7210;
                 var scaler=root.GetComponent<UnityEngine.UI.CanvasScaler>();scaler.uiScaleMode=UnityEngine.UI.CanvasScaler.ScaleMode.ScaleWithScreenSize;scaler.referenceResolution=new Vector2(1920,1080);scaler.matchWidthOrHeight=.5f;
                 var plate=new GameObject("Data Source",typeof(RectTransform),typeof(Image),typeof(Button));plate.transform.SetParent(root.transform,false);
-                var rect=(RectTransform)plate.transform;rect.anchorMin=rect.anchorMax=rect.pivot=new Vector2(0,0);rect.anchoredPosition=new Vector2(18,18);rect.sizeDelta=new Vector2(380,30);
-                plate.GetComponent<Image>().color=new Color(.015f,.04f,.045f,.86f);
-                plate.GetComponent<Button>().onClick.AddListener(()=>FAA.Customization.FaaSpatialWorkspace.Current?.OpenDataSourceSettings());
+                var rect=(RectTransform)plate.transform;rect.anchorMin=rect.anchorMax=rect.pivot=new Vector2(0,0);rect.anchoredPosition=new Vector2(18,18);rect.sizeDelta=new Vector2(300,34);
+                plate.GetComponent<Image>().color=FAA.Customization.FaaHudStyle.ChromeButton;
+                plate.AddComponent<Outline>().effectColor=FAA.Customization.FaaHudStyle.ChromeOutline;
+                plate.GetComponent<Button>().onClick.AddListener(()=>{var w=FAA.Customization.FaaSpatialWorkspace.Current;if(w!=null)w.OpenDataSourceSettings();});
                 var textObject=new GameObject("Active source label",typeof(RectTransform));textObject.transform.SetParent(rect,false);
-                sourceText=textObject.AddComponent<TextMeshProUGUI>();sourceText.font=TMP_Settings.defaultFontAsset;sourceText.fontSize=12;sourceText.richText=false;sourceText.raycastTarget=false;
+                sourceText=textObject.AddComponent<TextMeshProUGUI>();sourceText.font=TMP_Settings.defaultFontAsset;sourceText.fontSize=FAA.Customization.FaaHudStyle.Chrome;sourceText.richText=false;sourceText.raycastTarget=false;
                 sourceText.rectTransform.anchorMin=Vector2.zero;sourceText.rectTransform.anchorMax=Vector2.one;sourceText.rectTransform.offsetMin=new Vector2(10,1);sourceText.rectTransform.offsetMax=new Vector2(-8,-1);sourceText.alignment=TextAlignmentOptions.MidlineLeft;
             }
             Camera view=Camera.main;bool xr=view!=null&&view.stereoEnabled;
-            statusCanvas.renderMode=xr?RenderMode.ScreenSpaceCamera:RenderMode.ScreenSpaceOverlay;statusCanvas.worldCamera=xr?view:null;if(xr)statusCanvas.planeDistance=1.2f;
-            sourceText.text="DATA: "+(!UsingFallback&&!string.IsNullOrEmpty(SelectedSourceId)&&!bridge.IsFeedHealthy?"STALE - ":"")+XPlaneDiscoveryData.SafeLabel(SourceSummary,55);
-            sourceText.color=UsingFallback?new Color(1,.76f,.35f):bridge.IsFeedHealthy?new Color(.45f,1,.82f):Color.white;
+            var mode=xr?RenderMode.ScreenSpaceCamera:RenderMode.ScreenSpaceOverlay;
+            if(statusCanvas.renderMode!=mode)statusCanvas.renderMode=mode;statusCanvas.worldCamera=xr?view:null;if(xr)statusCanvas.planeDistance=1.2f;
+            if(!ReferenceEquals(legacyText,chipText)){legacyText=chipText;sourceText.text=chipText;} // a status, not a control: no chevron
+            sourceText.color=severity==FAA.Customization.FaaChromeSeverity.Nominal?FAA.Customization.FaaHudStyle.White:FAA.Customization.FaaPilotChrome.ColorFor(severity);
         }
         private void OnDisable()
         {
             restartOnEnable=initialized;
             engine?.Dispose();engine=null;if(bridge!=null&&initialized)bridge.StopBridge();
-            if(statusCanvas!=null)Destroy(statusCanvas.gameObject);statusCanvas=null;
+            if(statusCanvas!=null)Destroy(statusCanvas.gameObject);statusCanvas=null;legacyText=null;
+            FAA.Customization.FaaPilotChrome.Current?.ClearStatus("data"); // never leave a stale data state on the chip
             if(Active==this)Active=null;
         }
         private void OnDestroy(){engine?.Dispose();}

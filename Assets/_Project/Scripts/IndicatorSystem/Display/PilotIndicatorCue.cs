@@ -12,7 +12,12 @@ namespace IndicatorSystem.Display
         private PilotCueSymbol _symbol;
         private RectTransform _plate;
         private Text _title, _detail, _state;
-        private const float PlateWidth = 222f;
+        // Legibility floor (FaaHudStyle.MinLabel = 15 ref, ~16 arcmin): title 16, detail/state 15.
+        private const float PlateWidth = 262f, PlateHeight = 70f;
+        // Last rendered inputs: Present runs every frame per cue, so text is rebuilt only when what it shows changes.
+        private int _titleKey = int.MinValue, _detailA = int.MinValue, _detailB = int.MinValue, _stateKey = -1;
+        private string _titleLabel;
+        private Color _titleTint;
 
         public static PilotIndicatorCue Create(Transform parent)
         {
@@ -27,16 +32,18 @@ namespace IndicatorSystem.Display
             var plate = new GameObject("Readout", typeof(RectTransform), typeof(Image));
             plate.transform.SetParent(root.transform, false);
             cue._plate = plate.GetComponent<RectTransform>();
-            cue._plate.sizeDelta = new Vector2(PlateWidth, 58);
+            cue._plate.sizeDelta = new Vector2(PlateWidth, PlateHeight);
             var background = plate.GetComponent<Image>();
             background.color = new Color(0.015f, 0.055f, 0.08f, 0.83f);
             background.raycastTarget = false;
-            cue._title = MakeText(plate.transform, "Identity", 12, FontStyle.Bold);
-            cue._detail = MakeText(plate.transform, "Range and relative altitude", 11, FontStyle.Normal);
-            cue._state = MakeText(plate.transform, "View and source", 10, FontStyle.Normal);
-            LayoutText(cue._title, new Vector2(8, -5), new Vector2(PlateWidth - 16, 16));
-            LayoutText(cue._detail, new Vector2(8, -23), new Vector2(PlateWidth - 16, 15));
-            LayoutText(cue._state, new Vector2(8, -40), new Vector2(PlateWidth - 16, 14));
+            cue._title = MakeText(plate.transform, "Identity", 16, FontStyle.Bold);
+            cue._detail = MakeText(plate.transform, "Range and relative altitude", 15, FontStyle.Normal);
+            cue._state = MakeText(plate.transform, "View and source", 15, FontStyle.Normal);
+            LayoutText(cue._title, new Vector2(8, -4), new Vector2(PlateWidth - 16, 20));
+            LayoutText(cue._detail, new Vector2(8, -26), new Vector2(PlateWidth - 16, 19));
+            LayoutText(cue._state, new Vector2(8, -47), new Vector2(PlateWidth - 16, 19));
+            cue._detail.color = new Color(0.83f, 0.92f, 0.96f);
+            cue._state.color = new Color(0.62f, 0.76f, 0.82f);
             return cue;
         }
 
@@ -50,14 +57,30 @@ namespace IndicatorSystem.Display
             Color tint = weather ? new Color(0.64f, 0.84f, 1f) : new Color(0.4f, 0.94f, 0.91f);
             if (!weather && data.Priority >= 2) tint = data.Color;
             _symbol.Configure(IconFor(data), offscreen, data.ArrowRotation, tint);
-            _title.text = weather ? WeatherLabel(data.WeatherKind) : AircraftLabel(data.AircraftType) + " · " + CleanLabel(data.Label, "NO ID");
-            _title.color = tint;
-            _detail.color = new Color(0.83f, 0.92f, 0.96f);
-            _detail.text = weather
-                ? data.DistanceNM.ToString("F0", CultureInfo.InvariantCulture) + " NM · " + (data.IsIllustrativeWeather || data.Label == "SIM WX" ? "SIMULATED RETURN" : "RADAR RETURN")
-                : data.DistanceNM.ToString("F1", CultureInfo.InvariantCulture) + " NM  " + FormatRelativeAltitude(data.RelativeAltitudeFeet);
-            _state.text = data.Visibility == IndicatorVisibility.Behind ? "BEHIND YOU · FOLLOW ARROW" : offscreen ? "OUTSIDE VIEW · FOLLOW ARROW" : "IN VIEW · TARGET AT ICON";
-            _state.color = new Color(0.62f, 0.76f, 0.82f);
+            int titleKey = weather ? (int)data.WeatherKind : 1000 + (int)data.AircraftType;
+            if (titleKey != _titleKey || !ReferenceEquals(data.Label, _titleLabel))
+            {
+                _titleKey = titleKey; _titleLabel = data.Label;
+                _title.text = weather ? WeatherLabel(data.WeatherKind) : AircraftLabel(data.AircraftType) + " · " + CleanLabel(data.Label, "NO ID");
+            }
+            if (tint != _titleTint) { _titleTint = tint; _title.color = tint; }
+            bool simulated = data.IsIllustrativeWeather || data.Label == "SIM WX";
+            float distance = data.DistanceNM, rel = data.RelativeAltitudeFeet;
+            int a = weather ? Mathf.RoundToInt(distance) * 2 + (simulated ? 1 : 0) : Mathf.RoundToInt(distance * 10f);
+            int b = weather ? int.MinValue + 1 : float.IsNaN(rel) || float.IsInfinity(rel) ? int.MaxValue : Mathf.RoundToInt(rel / 100f);
+            if (a != _detailA || b != _detailB)
+            {
+                _detailA = a; _detailB = b;
+                _detail.text = weather
+                    ? distance.ToString("F0", CultureInfo.InvariantCulture) + " NM · " + (simulated ? "SIMULATED RETURN" : "RADAR RETURN")
+                    : distance.ToString("F1", CultureInfo.InvariantCulture) + " NM  " + FormatRelativeAltitude(rel);
+            }
+            int stateKey = data.Visibility == IndicatorVisibility.Behind ? 2 : offscreen ? 1 : 0;
+            if (stateKey != _stateKey)
+            {
+                _stateKey = stateKey;
+                _state.text = stateKey == 2 ? "BEHIND YOU · FOLLOW ARROW" : stateKey == 1 ? "OUTSIDE VIEW · FOLLOW ARROW" : "IN VIEW · TARGET AT ICON";
+            }
         }
 
         public static string AircraftLabel(TrafficRadar.TrafficRadarDataManager.AircraftType type)
@@ -109,8 +132,10 @@ namespace IndicatorSystem.Display
         public static Rect ScreenBounds(IndicatorData data, float scale)
         {
             bool left = data.ScreenPosition.x > Screen.width * 0.5f;
-            return new Rect(data.ScreenPosition.x - (left ? 258f : 27f) * scale,
-                data.ScreenPosition.y - 34f * scale, 285f * scale, 68f * scale);
+            // Symbol (±21) plus the plate offset 30 and width; 6 ref margin. Kept in step with PlateWidth/PlateHeight.
+            const float side = 30f + PlateWidth + 6f;
+            return new Rect(data.ScreenPosition.x - (left ? side : 27f) * scale,
+                data.ScreenPosition.y - (PlateHeight * .5f + 6f) * scale, (side + 27f) * scale, (PlateHeight + 12f) * scale);
         }
 
         internal static Text MakeText(Transform parent, string name, int size, FontStyle style)

@@ -72,9 +72,9 @@ namespace TrafficRadar
         [Tooltip("Show FAA sectional chart as background")]
         [SerializeField] private bool showChartBackground = true;
         
-        [Tooltip("Chart background opacity")]
-        [Range(0f, 1f)]
-        [SerializeField] private float chartOpacity = 0.28f;
+        [Tooltip("Chart background opacity (context underlay; capped at MaxChartOpacity and drawn desaturated)")]
+        [Range(0f, 0.25f)]
+        [SerializeField] private float chartOpacity = 0.22f;
         
         [Tooltip("Edge softness for circular chart mask (0 = hard edge, 0.1 = soft edge)")]
         [Range(0f, 0.1f)]
@@ -126,14 +126,14 @@ namespace TrafficRadar
         [Tooltip("Minimum range in nautical miles")]
         [SerializeField] private float minRangeNM = 2f;
         
-        [Tooltip("Maximum range in nautical miles")]
-        [SerializeField] private float maxRangeNM = 150f;
+        [Tooltip("Maximum range in nautical miles (TCAS-style displays stop at 80 NM)")]
+        [SerializeField] private float maxRangeNM = 80f;
         
         [Tooltip("Zoom speed multiplier per scroll step")]
         [SerializeField] private float zoomSpeed = 1.5f;
         
         [Tooltip("Available range options (for CycleRange, optional)")]
-        [SerializeField] private float[] rangeOptionsNM = { 5f, 10f, 20f, 40f, 80f };
+        [SerializeField] private float[] rangeOptionsNM = { 2f, 5f, 10f, 20f, 40f, 80f };
         
         [Tooltip("Number of range rings to display")]
         [SerializeField] private int rangeRingCount = 4;
@@ -210,7 +210,7 @@ namespace TrafficRadar
         [SerializeField] private Color backgroundColor = new Color(0.004f, 0.055f, 0.06f, 0.34f);
         [SerializeField] private Color rangeRingColor = new Color(0.18f, 0.9f, 0.84f, 0.58f);
         [SerializeField] private Color compassMarkingsColor = new Color(0.74f, 1f, 0.95f, 0.88f);
-        [SerializeField] private Color ownAircraftColor = new Color(0.35f, 1f, 0.55f, 1f);
+        [SerializeField] private Color ownAircraftColor = new Color(0.85f, 1f, 1f, 1f);
 
         [Header("Navigation Target")]
         [Tooltip("Accent used for the pilot-selected map target and HUD guidance cue.")]
@@ -272,8 +272,46 @@ namespace TrafficRadar
         private RectTransform rectTransform;
         private List<RadarTrafficTarget> currentTargets = new List<RadarTrafficTarget>();
         private RadarTrafficOverlay trafficAnnotations;
+        private readonly List<RadarTrafficTarget> _controllerTargets = new List<RadarTrafficTarget>();
+        private readonly List<RadarTrafficTarget> _targetPool = new List<RadarTrafficTarget>();
         private float trafficReceivedAt;
         public IReadOnlyList<RadarTrafficTarget> DisplayTargets => currentTargets;
+        /// <summary>The chart underlay is shown only out to this range; beyond it the mosaic cannot cover the scope legibly.</summary>
+        public const float ChartMaxRangeNM = 40f;
+        private bool _chartCoverageValid;
+        private bool _legacyMapLayerRetired;
+        private float _labelScale = 1f;
+        /// <summary>False when the chart cannot correctly cover the selected range (no georeferenced mosaic,
+        /// partial coverage or range beyond <see cref="ChartMaxRangeNM"/>). The chart is then hidden, never partial.</summary>
+        public bool ChartAvailable => _chartCoverageValid;
+        /// <summary>Alias of <see cref="IsMapDragging"/> for overlay layers.</summary>
+        public bool IsMapDragActive => _mapDragActive;
+        /// <summary>Readability multiplier for TMP labels, driven by the host so world-space panels keep the FAA minimum.</summary>
+        public float LabelScale
+        {
+            get => _labelScale;
+            set
+            {
+                float next = Mathf.Clamp(value, 1f, 2f);
+                if (Mathf.Abs(next - _labelScale) < .01f) return;
+                _labelScale = next;
+                ApplyPilotLabelStyle();
+                if (_compassLabelRects != null) PositionCompassLabels(_currentHeadingRotation);
+            }
+        }
+        private float ChartTargetOpacity => showChartBackground && !preferXPlaneTrafficTexture && _chartCoverageValid ? Mathf.Min(chartOpacity, MaxChartOpacity) : 0f;
+
+        // ---- Traffic-first scope (FAA review m6) ----
+        /// <summary>The sectional is context only: it is drawn desaturated and dimmed, never above this opacity, so cyan traffic and the
+        /// white own-ship dominate and amber/red stay reserved for advisories (AC 20-172B, AC 25-11B colour coding).</summary>
+        public const float MaxChartOpacity = .25f, ChartSaturation = .10f, ChartBrightness = .40f;
+        /// <summary>The scope backdrop is a near-black disc this opaque (HUD presentation), drawn BELOW the chart.</summary>
+        public const float MinScopeBackdropAlpha = .88f, MaxScopeBackdropAlpha = .95f;
+        public const string ScopeBackdropName = "Scope Backdrop";
+        private RawImage _scopeBackdrop;
+        private Material _scopeBackdropMaterial;
+        /// <summary>True while the separate backdrop disc draws the scope background (the radar texture then draws none).</summary>
+        public bool ScopeBackdropActive => _scopeBackdrop != null && _scopeBackdrop.enabled && _scopeBackdropMaterial != null;
         public bool ShowAltitudeLabels { get => showAltitudeLabels; set => showAltitudeLabels = value; }
         public float SecondsSinceTrafficUpdate => Application.isPlaying ? Mathf.Max(0, Time.unscaledTime - trafficReceivedAt) : 0;
 
@@ -419,6 +457,12 @@ namespace TrafficRadar
         }
 
         /// <summary>
+        /// The range the pilot selected: the zoom target while a range change is animating, else the current range. Readouts show
+        /// this so a 0.3 s zoom never flashes intermediate values such as "13.7 NM".
+        /// </summary>
+        public float SelectedRangeNM => isAnimatingZoom ? Mathf.Clamp(zoomToRange, minRangeNM, maxRangeNM) : rangeNM;
+
+        /// <summary>
         /// Minimum zoom range in nautical miles.
         /// </summary>
         public float MinRangeNM => minRangeNM;
@@ -442,8 +486,9 @@ namespace TrafficRadar
             set
             {
                 float previous = chartOpacity;
-                chartOpacity = Mathf.Clamp01(value);
-                BeginChartFade(showChartBackground && !preferXPlaneTrafficTexture ? chartOpacity : 0f, true);
+                // Context underlay only: never above MaxChartOpacity, so the chart cannot compete with traffic.
+                chartOpacity = Mathf.Clamp(value, 0f, MaxChartOpacity);
+                BeginChartFade(ChartTargetOpacity, true);
                 if (!Mathf.Approximately(previous, chartOpacity))
                 {
                     ChartOpacityChanged?.Invoke(chartOpacity);
@@ -753,13 +798,17 @@ namespace TrafficRadar
             minimumPanelBackgroundOpacity = 0f;
             minimumChartBackgroundOpacity = 0f;
             showRadarBackground = true;
-            backgroundColor = new Color(0.004f, 0.055f, 0.06f, Mathf.Clamp(panelOpacity, 0.12f, 0.55f));
-            chartOpacity = Mathf.Clamp(requestedChartOpacity, 0.1f, 0.48f);
+            // A near-black, near-opaque scope disc (drawn below the chart) keeps cyan traffic well above 3:1 over bright
+            // terrain (AC 25-11B); the chart is a desaturated, dimmed underlay at <= 25% so it never competes with intruders.
+            // The radar is a peripheral panel, so the opaque disc never hides the forward view.
+            backgroundColor = new Color(0.004f, 0.022f, 0.03f, Mathf.Clamp(panelOpacity, MinScopeBackdropAlpha, MaxScopeBackdropAlpha));
+            chartOpacity = Mathf.Clamp(requestedChartOpacity, 0.1f, MaxChartOpacity);
             rangeRingColor = new Color(0.18f, 0.9f, 0.84f, 0.58f);
             compassMarkingsColor = new Color(0.74f, 1f, 0.95f, 0.88f);
-            ownAircraftColor = new Color(0.35f, 1f, 0.55f, 1f);
+            // Own-ship white (AC 20-172B), distinct from cyan traffic.
+            ownAircraftColor = new Color(0.85f, 1f, 1f, 1f);
             ClearRectangularMaskPlate();
-            BeginChartFade(showChartBackground && !preferXPlaneTrafficTexture ? chartOpacity : 0f, false);
+            BeginChartFade(ChartTargetOpacity, false);
             MarkRadarDirty();
         }
 
@@ -790,7 +839,9 @@ namespace TrafficRadar
         private void Awake()
         {
             rectTransform = GetComponent<RectTransform>();
-            _chartVisualOpacity = showChartBackground ? Mathf.Clamp01(chartOpacity) : 0f;
+            NormalizeRangeLimits();
+            // Coverage is unknown until a georeferenced mosaic is cropped; start hidden, fade in when valid.
+            _chartVisualOpacity = 0f;
             _lineworkVisualAlpha = showReferenceLinework ? 1f : 0f;
             _lineworkFadeFromAlpha = _lineworkVisualAlpha;
             _lineworkFadeToAlpha = _lineworkVisualAlpha;
@@ -1025,7 +1076,7 @@ namespace TrafficRadar
             {
                 foreach (RawImage image in GetComponentsInChildren<RawImage>(true))
                 {
-                    if (image != null && image != radarImage)
+                    if (image != null && image != radarImage && !IsLegacyMapImage(image) && image.gameObject.name != ScopeBackdropName)
                     {
                         chartBackgroundImage = image;
                         break;
@@ -1042,6 +1093,13 @@ namespace TrafficRadar
                 chartBackgroundImage.raycastTarget = false;
                 StoreChartBaseLayout(chartBackgroundImage.rectTransform);
             }
+        }
+
+        private bool IsLegacyMapImage(RawImage image)
+        {
+            for (Transform t = image.transform; t != null && t != transform; t = t.parent)
+                if (t.name == "MapCanvas") return true;
+            return false;
         }
 
         private bool TryResolveChartPosition(out float latitude, out float longitude)
@@ -1091,7 +1149,7 @@ namespace TrafficRadar
 
         private bool TryFetchChartForCurrentPosition(bool force)
         {
-            if (!showChartBackground || preferXPlaneTrafficTexture || chartProvider == null)
+            if (!showChartBackground || preferXPlaneTrafficTexture || chartProvider == null || rangeNM > ChartMaxRangeNM + .01f)
             {
                 return false;
             }
@@ -1223,9 +1281,9 @@ namespace TrafficRadar
             // provider swaps in the replacement texture atomically, so pilots
             // never see an untextured circular scope.
             yield return new WaitForSecondsRealtime(duration * 0.28f);
-            if (showChartBackground && !preferXPlaneTrafficTexture)
+            if (ChartTargetOpacity > 0.001f)
             {
-                BeginChartFade(targetOpacity, true);
+                BeginChartFade(ChartTargetOpacity, true);
             }
         }
 
@@ -1248,6 +1306,9 @@ namespace TrafficRadar
             
             if (radarOverlayMaterial != null)
                 Destroy(radarOverlayMaterial);
+
+            if (_scopeBackdropMaterial != null)
+                Destroy(_scopeBackdropMaterial);
         }
 
         private void Update()
@@ -1277,6 +1338,7 @@ namespace TrafficRadar
 
             UpdateNavigationTarget();
             UpdateNavigationPreview();
+            TrackScopeBackdropLayout();
             
             DrawRadarIfNeeded();
             UpdateMapPan();
@@ -1305,7 +1367,7 @@ namespace TrafficRadar
                 changed = true;
             }
 
-            float minimumChartAlpha = Mathf.Clamp01(minimumChartBackgroundOpacity);
+            float minimumChartAlpha = Mathf.Min(Mathf.Clamp01(minimumChartBackgroundOpacity), MaxChartOpacity);
             if (chartOpacity < minimumChartAlpha)
             {
                 chartOpacity = minimumChartAlpha;
@@ -1318,9 +1380,29 @@ namespace TrafficRadar
             }
         }
 
+        /// <summary>Serialized scenes may still carry the legacy 150 NM limit/options.</summary>
+        private void NormalizeRangeLimits()
+        {
+            maxRangeNM = Mathf.Clamp(maxRangeNM, Mathf.Max(minRangeNM, 2f), 80f);
+            if (rangeOptionsNM == null || rangeOptionsNM.Length == 0 || rangeOptionsNM[rangeOptionsNM.Length - 1] > 80f || rangeOptionsNM[0] > 2f)
+                rangeOptionsNM = new[] { 2f, 5f, 10f, 20f, 40f, 80f };
+            rangeNM = Mathf.Clamp(rangeNM, minRangeNM, maxRangeNM);
+        }
+
+        /// <summary>The legacy Online Maps 'MapCanvas/Map Image' is a second, rectangularly clipped map layer.
+        /// The circular chart layer is the single underlay, so the legacy one is retired.</summary>
+        private void RetireLegacyMapLayer()
+        {
+            if (_legacyMapLayerRetired) return;
+            _legacyMapLayerRetired = true;
+            Transform legacy = transform.Find("MapCanvas");
+            if (legacy != null && legacy.gameObject.activeSelf) legacy.gameObject.SetActive(false);
+        }
+
         private void EnsureRuntimeDisplayReady()
         {
             NormalizePanelReadability();
+            RetireLegacyMapLayer();
 
             if (rectTransform == null)
             {
@@ -1510,7 +1592,6 @@ namespace TrafficRadar
                 return;
             }
 
-            float[] baseAngles = { 0f, 90f, 180f, 270f };
             float radius = GetCompassLabelRadius();
             for (int i = 0; i < _compassLabelRects.Length && i < 4; i++)
             {
@@ -1520,10 +1601,15 @@ namespace TrafficRadar
                     continue;
                 }
 
+                // Track up: a single north pointer; rotating E/S/W letters are moving clutter.
+                bool show = CompassLabelVisible(i);
+                if (labelRect.gameObject.activeSelf != show) labelRect.gameObject.SetActive(show);
+                if (!show) continue;
+
                 labelRect.anchorMin = new Vector2(0.5f, 0.5f);
                 labelRect.anchorMax = new Vector2(0.5f, 0.5f);
                 labelRect.pivot = new Vector2(0.5f, 0.5f);
-                float radians = (baseAngles[i] + headingRotation) * Mathf.Deg2Rad;
+                float radians = (i * 90f + headingRotation) * Mathf.Deg2Rad;
                 labelRect.anchoredPosition = new Vector2(
                     Mathf.Sin(radians) * radius,
                     Mathf.Cos(radians) * radius);
@@ -1531,15 +1617,27 @@ namespace TrafficRadar
             }
         }
 
+        private bool CompassLabelVisible(int index) =>
+            (!preferXPlaneTrafficTexture || !hideGeneratedOverlaysWithXPlaneTexture) && (!enableTrackUpMode || index == 0);
+
         #endregion
 
         #region Public Methods
 
         /// <summary>
-        /// Cycle through available range options.
+        /// Cycle through available range options. With a controller, every control steps
+        /// through the controller's single range list.
         /// </summary>
         public void CycleRange()
         {
+            if (radarController != null)
+            {
+                float target = radarController.NextRangeOption(isAnimatingZoom ? zoomToRange : rangeNM, 1);
+                if (target <= (isAnimatingZoom ? zoomToRange : rangeNM) + .01f) target = radarController.RangeOptionsNM[0];
+                SetRange(target);
+                return;
+            }
+
             int currentIndex = 0;
             for (int i = 0; i < rangeOptionsNM.Length; i++)
             {
@@ -2242,7 +2340,7 @@ namespace TrafficRadar
             showChartBackground = visible;
             EnsureChartImageReference();
             SetupDisplay();
-            BeginChartFade(showChartBackground && !preferXPlaneTrafficTexture ? chartOpacity : 0f, animate);
+            BeginChartFade(ChartTargetOpacity, animate);
 
             if (showChartBackground && !preferXPlaneTrafficTexture)
             {
@@ -2863,6 +2961,7 @@ namespace TrafficRadar
 
         private void SetupDisplay()
         {
+            RetireLegacyMapLayer();
             EnsureRadarImageReference();
             if (!preferXPlaneTrafficTexture &&
                 (radarTexture == null || clearPixels == null || clearPixels.Length != displaySize * displaySize))
@@ -2998,7 +3097,7 @@ namespace TrafficRadar
             {
                 foreach (RawImage image in GetComponentsInChildren<RawImage>(true))
                 {
-                    if (image != null && image != chartBackgroundImage)
+                    if (image != null && image != chartBackgroundImage && image.gameObject.name != ScopeBackdropName)
                     {
                         radarImage = image;
                         break;
@@ -3131,11 +3230,11 @@ namespace TrafficRadar
 
             if (compassLabels != null)
             {
-                foreach (TextMeshProUGUI label in compassLabels)
+                for (int i = 0; i < compassLabels.Length; i++)
                 {
-                    if (label != null)
+                    if (compassLabels[i] != null)
                     {
-                        label.gameObject.SetActive(visible);
+                        compassLabels[i].gameObject.SetActive(visible && (!enableTrackUpMode || i == 0));
                     }
                 }
             }
@@ -3185,9 +3284,7 @@ namespace TrafficRadar
             // not pop the map or hide traffic for a frame.
             if (!_chartFadeAnimating)
             {
-                _chartVisualOpacity = showChartBackground && !preferXPlaneTrafficTexture
-                    ? Mathf.Clamp01(chartOpacity)
-                    : 0f;
+                _chartVisualOpacity = Mathf.Clamp01(ChartTargetOpacity);
             }
 
             ApplyChartVisualOpacity();
@@ -3362,15 +3459,29 @@ namespace TrafficRadar
 
         private void UpdateChartGeographicCrop(RectTransform chartRect)
         {
-            if (chartProvider == null || preferXPlaneTrafficTexture || !TryResolveChartPosition(out float latitude, out float longitude)) return;
+            if (chartProvider == null || preferXPlaneTrafficTexture) return;
+            if (!TryResolveChartPosition(out float latitude, out float longitude)) { SetChartCoverage(false); return; }
             float scopeDiameter = rectTransform != null ? Mathf.Min(rectTransform.rect.width, rectTransform.rect.height) : displaySize;
             // The fullscreen map has extra geometry for panning. Expand its UV
             // coverage by exactly that factor, not its geographic scale on screen.
             float coverage = chartRect.rect.width / Mathf.Max(1f, scopeDiameter);
+            bool covered = false;
             if (chartProvider.TryGetChartUvRect(latitude, longitude, rangeNM * coverage, out Rect uv))
+            {
                 chartBackgroundImage.uvRect = uv;
-            else
-                chartBackgroundImage.uvRect = new Rect(0, 0, 1, 1);
+                // The scope itself (not the full-map pan margin) must be fully covered by real chart pixels.
+                covered = coverage <= 1.001f ? FAASectionalChartProvider.CoversUv(uv)
+                    : chartProvider.TryGetChartUvRect(latitude, longitude, rangeNM, out Rect scopeUv) && FAASectionalChartProvider.CoversUv(scopeUv);
+            }
+            SetChartCoverage(covered && rangeNM <= ChartMaxRangeNM + .01f);
+        }
+
+        /// <summary>Partial, procedural or out-of-range charts are removed (faded), never shown with false edges.</summary>
+        private void SetChartCoverage(bool valid)
+        {
+            if (_chartCoverageValid == valid) return;
+            _chartCoverageValid = valid;
+            BeginChartFade(ChartTargetOpacity, Application.isPlaying);
         }
 
         public static Vector2 CalculateCompactChartSize(Vector2 scopeSize)
@@ -3444,12 +3555,88 @@ namespace TrafficRadar
             circularMaskMaterial.SetFloat(CircularMaskFixedProperty, 1f);
         }
 
+        /// <summary>
+        /// Keeps the scope backdrop disc (a sibling directly below the chart, matching the radar image's circle) in step with the
+        /// pilot's BKG/CLR setting and background colour. Returns false when it cannot be used, so the texture draws the background.
+        /// Writes only when something changed (cheap enough to call from Update for layout tracking).
+        /// </summary>
+        private bool SyncScopeBackdrop()
+        {
+            bool want = !preferXPlaneTrafficTexture && showRadarBackground && radarImage != null && radarImage.transform.parent != null;
+            if (_scopeBackdrop == null)
+            {
+                if (!want) return false;
+                Shader shader = circularMaskMaterial != null ? circularMaskMaterial.shader
+                    : radarOverlayMaterial != null ? radarOverlayMaterial.shader : Shader.Find("TrafficRadar/CircularRadarMask");
+                if (shader == null) return false;
+                Transform parent = radarImage.transform.parent;
+                Transform existing = parent.Find(ScopeBackdropName);
+                GameObject go = existing != null ? existing.gameObject
+                    : new GameObject(ScopeBackdropName, typeof(RectTransform), typeof(CanvasRenderer), typeof(RawImage));
+                go.transform.SetParent(parent, false);
+                if (!go.TryGetComponent(out _scopeBackdrop)) _scopeBackdrop = go.AddComponent<RawImage>();
+                _scopeBackdrop.texture = null; // white: the colour carries the near-black tint and alpha
+                _scopeBackdrop.raycastTarget = false;
+                _scopeBackdropMaterial = new Material(shader) { name = "ScopeBackdrop_Runtime", hideFlags = HideFlags.DontSave };
+                _scopeBackdropMaterial.SetFloat("_Opacity", 1f);
+                _scopeBackdropMaterial.SetFloat("_UseFixedMask", 0f);
+                _scopeBackdrop.material = _scopeBackdropMaterial;
+            }
+            if (_scopeBackdropMaterial == null) return false;
+            if (!want)
+            {
+                if (_scopeBackdrop.enabled) _scopeBackdrop.enabled = false;
+                return false;
+            }
+            RectTransform source = radarImage.rectTransform, target = _scopeBackdrop.rectTransform;
+            if (target.parent != source.parent) target.SetParent(source.parent, false);
+            if (target.anchorMin != source.anchorMin) target.anchorMin = source.anchorMin;
+            if (target.anchorMax != source.anchorMax) target.anchorMax = source.anchorMax;
+            if (target.pivot != source.pivot) target.pivot = source.pivot;
+            if (target.anchoredPosition != source.anchoredPosition) target.anchoredPosition = source.anchoredPosition;
+            if (target.sizeDelta != source.sizeDelta) target.sizeDelta = source.sizeDelta;
+            if (target.localScale != source.localScale) target.localScale = source.localScale;
+            // Directly below the chart (or the radar image when there is no chart layer).
+            Transform above = chartBackgroundImage != null && chartBackgroundImage.transform.parent == target.parent
+                ? chartBackgroundImage.transform : source;
+            int aboveIndex = above.GetSiblingIndex(), own = target.GetSiblingIndex();
+            if (own != aboveIndex - 1) target.SetSiblingIndex(own < aboveIndex ? aboveIndex - 1 : aboveIndex);
+            Color tint = backgroundColor;
+            if (_scopeBackdrop.color != tint) _scopeBackdrop.color = tint;
+            if (_scopeBackdrop.material != _scopeBackdropMaterial) _scopeBackdrop.material = _scopeBackdropMaterial;
+            _scopeBackdropMaterial.SetFloat("_SoftEdge", chartEdgeSoftness);
+            bool visible = tint.a > .001f;
+            if (_scopeBackdrop.enabled != visible) _scopeBackdrop.enabled = visible;
+            return true;
+        }
+
+        /// <summary>Layout-only tracking of the backdrop (full-map transitions resize the radar image).</summary>
+        private void TrackScopeBackdropLayout()
+        {
+            if (_scopeBackdrop == null || radarImage == null) return;
+            if (preferXPlaneTrafficTexture || !showRadarBackground)
+            {
+                // The X-Plane texture path never redraws this texture, so hide the disc here.
+                if (_scopeBackdrop.enabled) _scopeBackdrop.enabled = false;
+                return;
+            }
+            RectTransform source = radarImage.rectTransform, target = _scopeBackdrop.rectTransform;
+            Transform chart = chartBackgroundImage != null ? chartBackgroundImage.transform : null;
+            if (target.sizeDelta != source.sizeDelta || target.anchoredPosition != source.anchoredPosition ||
+                target.anchorMin != source.anchorMin || target.anchorMax != source.anchorMax || target.parent != source.parent ||
+                (chart != null && chart.parent == target.parent && target.GetSiblingIndex() > chart.GetSiblingIndex()))
+                SyncScopeBackdrop();
+        }
+
         private void ApplyChartVisualOpacity()
         {
             float visualOpacity = Mathf.Clamp01(_chartVisualOpacity);
             if (circularMaskMaterial != null)
             {
                 circularMaskMaterial.SetFloat("_Opacity", visualOpacity);
+                // Context, not content: grey and dim, so traffic colours keep their meaning on top of it.
+                circularMaskMaterial.SetFloat("_Saturation", ChartSaturation);
+                circularMaskMaterial.SetFloat("_Brightness", ChartBrightness);
             }
             else if (chartBackgroundImage != null)
             {
@@ -3483,7 +3670,13 @@ namespace TrafficRadar
         {
             currentTargets = targets ?? new List<RadarTrafficTarget>();
             trafficReceivedAt = Time.unscaledTime;
-            MarkRadarDirty();
+            MarkTrafficDirty();
+        }
+
+        /// <summary>The cached chart/linework texture holds no traffic when the vector overlay is active.</summary>
+        private void MarkTrafficDirty()
+        {
+            if (trafficAnnotations == null || !trafficAnnotations.isActiveAndEnabled) MarkRadarDirty();
         }
 
         public static Vector2 CalculateTargetDisplayPosition(float distanceNM, float bearingDegrees,
@@ -3501,41 +3694,45 @@ namespace TrafficRadar
         /// </summary>
         private void OnControllerTargetsUpdated(IReadOnlyList<RadarTarget> targets)
         {
+            // Own-ship updates can arrive at simulator rate: reuse a dedicated list and pooled
+            // target objects instead of allocating a copy of every aircraft per update.
+            currentTargets = _controllerTargets;
             currentTargets.Clear();
             trafficReceivedAt = Time.unscaledTime;
             
             if (targets == null)
             {
-                MarkRadarDirty();
+                MarkTrafficDirty();
                 return;
             }
             
-            foreach (var target in targets)
+            for (int i = 0; i < targets.Count; i++)
             {
-                currentTargets.Add(new RadarTrafficTarget
-                {
-                    icao24 = target.Icao24,
-                    callsign = target.Callsign,
-                    latitude = (float)target.Latitude,
-                    longitude = (float)target.Longitude,
-                    altitudeFt = target.AltitudeFeet,
-                    heading = target.Heading,
-                    groundSpeedKts = target.GroundSpeedKnots,
-                    verticalRateFpm = target.VerticalRateFpm,
-                    sampleAgeSeconds = target.TimeSinceUpdate,
-                    distanceNM = target.DistanceNM,
-                    bearingDeg = target.BearingDegrees,
-                    relativeAltitudeFt = target.RelativeAltitudeFeet,
-                    threatLevel = target.ThreatLevel,
-                    radarPosition = target.RadarPosition
-                });
+                var target = targets[i];
+                if (i >= _targetPool.Count) _targetPool.Add(new RadarTrafficTarget());
+                var t = _targetPool[i];
+                t.icao24 = target.Icao24;
+                t.callsign = target.Callsign;
+                t.latitude = (float)target.Latitude;
+                t.longitude = (float)target.Longitude;
+                t.altitudeFt = target.AltitudeFeet;
+                t.heading = target.Heading;
+                t.groundSpeedKts = target.GroundSpeedKnots;
+                t.verticalRateFpm = target.VerticalRateFpm;
+                t.sampleAgeSeconds = target.TimeSinceUpdate;
+                t.distanceNM = target.DistanceNM;
+                t.bearingDeg = target.BearingDegrees;
+                t.relativeAltitudeFt = target.RelativeAltitudeFeet;
+                t.threatLevel = target.ThreatLevel;
+                t.radarPosition = target.RadarPosition;
+                currentTargets.Add(t);
             }
             
             if (verboseLogging)
             {
                 Debug.Log($"[TrafficRadarDisplay] Received {currentTargets.Count} targets from controller");
             }
-            MarkRadarDirty();
+            MarkTrafficDirty();
         }
 
         private void OnChartLoaded(Texture2D chartTexture)
@@ -3547,9 +3744,9 @@ namespace TrafficRadar
                 chartTexture.filterMode = FilterMode.Bilinear;
                 chartTexture.wrapMode = TextureWrapMode.Clamp;
                 ApplyMapPanVisual(true);
-                if (showChartBackground && !preferXPlaneTrafficTexture && _chartVisualOpacity <= 0.001f)
+                if (ChartTargetOpacity > 0.001f && _chartVisualOpacity <= 0.001f)
                 {
-                    BeginChartFade(chartOpacity, true);
+                    BeginChartFade(ChartTargetOpacity, true);
                 }
             }
 
@@ -4098,8 +4295,9 @@ namespace TrafficRadar
             int centerY = displaySize / 2;
             float radius = displaySize / 2f;
 
-            // Draw background circle only if enabled
-            if (showRadarBackground)
+            // Background: a separate near-black disc below the chart when available (so the chart sits ON the dark scope, not
+            // under a translucent backdrop baked into this texture); the texture draws it only as a fallback.
+            if (showRadarBackground && !SyncScopeBackdrop())
             {
                 DrawFilledCircle(centerX, centerY, (int)radius, backgroundColor);
             }
@@ -4120,8 +4318,9 @@ namespace TrafficRadar
             // texture means the traffic targets/range rings remain useful
             // during a drag while the own-ship marker cannot obscure chart
             // details underneath it.
-            if (!_mapDragActive)
+            if (!_mapDragActive && (trafficAnnotations == null || !trafficAnnotations.isActiveAndEnabled))
             {
+                // With the vector overlay, own-ship is drawn there as the TOP layer (never under traffic).
                 DrawOwnAircraft(centerX, centerY);
             }
 
@@ -4282,12 +4481,13 @@ namespace TrafficRadar
                 0.04f,
                 Mathf.Max(0.86f, compassMarkingsColor.a) * _lineworkVisualAlpha);
             Color outlineColor = new Color(0.005f, 0.035f, 0.035f, 0.84f);
-            float labelFontSize = IsFullscreen
-                ? Mathf.Max(10f, fullscreenCompassFontSize)
-                : Mathf.Max(8f, compactCompassFontSize);
-            Vector2 labelSize = IsFullscreen
+            // Never below the FAA minimum (15 canvas units ~ 16 arcmin on the radar panel), scaled for world space.
+            float labelFontSize = (IsFullscreen
+                ? Mathf.Max(15f, fullscreenCompassFontSize)
+                : Mathf.Max(15f, compactCompassFontSize)) * _labelScale;
+            Vector2 labelSize = (IsFullscreen
                 ? new Vector2(48f, 34f)
-                : new Vector2(32f, 24f);
+                : new Vector2(32f, 24f)) * _labelScale;
             foreach (TextMeshProUGUI label in compassLabels)
             {
                 if (label == null)
@@ -4315,7 +4515,7 @@ namespace TrafficRadar
             if (rangeLabel != null)
             {
                 rangeLabel.fontStyle = FontStyles.Bold;
-                rangeLabel.fontSize = IsFullscreen ? 16f : 14f;
+                rangeLabel.fontSize = (IsFullscreen ? 16f : 15f) * _labelScale;
                 rangeLabel.extraPadding = true;
                 rangeLabel.color = labelColor;
                 rangeLabel.outlineWidth = IsFullscreen ? 0.20f : 0.16f;
@@ -4521,8 +4721,9 @@ namespace TrafficRadar
             {
                 // Convert radar position (-1 to 1) to pixel position
                 Vector2 position = GetTargetDisplayPosition(target);
-                int x = centerX + (int)(position.x * radius * 0.9f);
-                int y = centerY + (int)(position.y * radius * 0.9f);
+                // Same scale as the chart and rings: the outer ring is the selected range.
+                int x = centerX + (int)(position.x * radius);
+                int y = centerY + (int)(position.y * radius);
 
                 // Get symbol properties based on threat level
                 Color symbolColor = ThreatLevelConfig.GetColor(target.threatLevel);

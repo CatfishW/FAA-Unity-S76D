@@ -56,15 +56,15 @@ namespace HUDControl.Elements
         [Tooltip("Traffic radar display that supplies the selected map target. Leave empty to auto-find the active display.")]
         [SerializeField] private TrafficRadarDisplay navigationDisplay;
 
-        [Tooltip("Show the selected map target as an amber cue on the localizer bar.")]
-        [SerializeField] private bool showNavigationTargetCue = true;
+        [Tooltip("Retired: the selected map target is shown only on the heading tape (one representation, no amber, no pulsing). Kept for serialized data.")]
+        [SerializeField] private bool showNavigationTargetCue = false;
 
         [Tooltip("Relative bearing represented by the full localizer bar, in degrees left/right of the aircraft nose.")]
         [Range(30f, 90f)]
         [SerializeField] private float navigationTargetBearingWindow = 60f;
 
-        [Tooltip("Accent used for a selected map target.")]
-        [SerializeField] private Color navigationTargetColor = new Color(1f, 0.78f, 0.28f, 1f);
+        [Tooltip("Retired accent (amber is reserved for cautions).")]
+        [SerializeField] private Color navigationTargetColor = new Color(0.2f, 1f, 0.2f, 1f);
 
         [Tooltip("Pulse speed for the selected target cue.")]
         [Min(0f)]
@@ -113,9 +113,7 @@ namespace HUDControl.Elements
 
         private void Update()
         {
-            // The X-Plane bridge normally calls UpdateElement, but keeping the
-            // cue alive here also covers editor previews and scenes where the
-            // HUD controller is intentionally disabled.
+            // The retired target cue is kept hidden here as well, covering scenes where the HUD controller is disabled.
             if (isInitialized)
             {
                 UpdateNavigationTargetCue();
@@ -130,10 +128,9 @@ namespace HUDControl.Elements
 
         private void EnsureNavigationTargetCue()
         {
-            // Every generated deviation dot carries a copy of this component
-            // with a null CDI reference. Only the actual localizer root should
-            // create a target cue.
-            if (!showNavigationTargetCue || cdiNeedle == null)
+            // Retired: a bearing cue on the course-deviation bar duplicated the heading-tape target cue and
+            // used amber for a non-caution state. Never create it; an existing one is only kept hidden.
+            if (!NavigationTargetCueAllowed || cdiNeedle == null)
             {
                 return;
             }
@@ -166,9 +163,18 @@ namespace HUDControl.Elements
             navigationTargetCue.transform.SetAsLastSibling();
         }
 
+        /// <summary>Map targets are drawn only on the heading tape; deviation bars carry deviation only.</summary>
+        private const bool NavigationTargetCueAllowed = false;
+
         private void UpdateNavigationTargetCue()
         {
-            if (!showNavigationTargetCue || cdiNeedle == null)
+            if (navigationTargetCue == null && cdiNeedle != null)
+            {
+                Transform existing = transform.Find("FAA Navigation Target Cue");
+                if (existing != null) navigationTargetCue = existing.GetComponent<NavigationTargetCueGraphic>();
+            }
+
+            if (!NavigationTargetCueAllowed || !showNavigationTargetCue || cdiNeedle == null)
             {
                 if (navigationTargetCue != null)
                 {
@@ -220,11 +226,18 @@ namespace HUDControl.Elements
         
         public void SetDeviation(float dots)
         {
+            bool hadData = HasDeviationData;
             HasDeviationData = !float.IsNaN(dots) && !float.IsInfinity(dots);
-            if (!HasDeviationData) return;
+            // Any call means real data drives this element: never fall back to a simulated deviation.
             simulateDeviation = false;
+            if (!HasDeviationData) return;
             targetDeviation = Mathf.Clamp(dots, -2.5f, 2.5f);
+            // Re-acquired guidance starts at the measured deviation, not sliding in from a stale value.
+            if (!hadData) displayedDeviation = targetDeviation;
         }
+
+        /// <summary>Latest measured deviation in dots (clamped to +/-2.5); meaningful only while HasDeviationData.</summary>
+        public float GetTargetDeviation() => targetDeviation;
         
         public float GetDisplayedDeviation() => displayedDeviation;
     }

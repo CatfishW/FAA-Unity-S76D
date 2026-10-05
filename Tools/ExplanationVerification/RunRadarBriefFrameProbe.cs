@@ -16,7 +16,7 @@ bool persist=w.PersistChanges,open=brief.IsOpen,expanded=info!=null&&info.IsExpa
 var cameraController=w.View.GetComponent<AircraftControl.Camera.AircraftCameraController>();
 var rows=new System.Collections.Generic.List<object>();int start=Time.frameCount,last=-1,phase=-1;
 System.Action cleanup=null;Canvas.WillRenderCanvases callback=null;
-cleanup=()=>{Canvas.willRenderCanvases-=callback;w.CancelManipulation();cameraController.ResetView();
+cleanup=()=>{Canvas.willRenderCanvases-=callback;w.CancelManipulation();cameraController.ResetViewImmediate();
  if(traffic.IsFullscreen!=full)traffic.ToggleFullscreen();if(info!=null)info.SetExpanded(expanded,true);
  controls.SetRadarConfigurationVisible(FAA.Customization.FaaRadarKind.Weather,expanded);
  foreach(var panel in w.InteractivePanels){var p=poses[panel.Id];panel.Layout.yaw=p.yaw;panel.Layout.elevation=p.elevation;panel.Layout.distance=p.distance;panel.Layout.scale=p.scale;}
@@ -35,7 +35,7 @@ callback=()=>
    if(phase==2){w.SetScale("weather",1.6f);w.SetScale("traffic",1.6f);foreach(var p in w.Panels){p.Layout.yaw=0;p.Layout.distance=.55f;}w.RefreshTransforms();}
    if(phase==3){foreach(var p in w.Panels){p.Layout.scale=.8f;p.Layout.distance=1.7f;}w.RecallPanels();w.InspectPanel("weather");}
    if(phase==4){w.InspectPanel("traffic");if(!traffic.IsFullscreen)traffic.ToggleFullscreen();}
-   if(phase==5){cameraController.ResetView();if(traffic.IsFullscreen)traffic.ToggleFullscreen();w.RecallPanels();info?.SetExpanded(false,true);controls.SetRadarConfigurationVisible(FAA.Customization.FaaRadarKind.Weather,false);}
+   if(phase==5){cameraController.ResetViewImmediate();if(traffic.IsFullscreen)traffic.ToggleFullscreen();w.RecallPanels();info?.SetExpanded(false,true);controls.SetRadarConfigurationVisible(FAA.Customization.FaaRadarKind.Weather,false);}
   }
   if(elapsed%80<24)return;
   var panelRows=w.Panels.Select(p=>{

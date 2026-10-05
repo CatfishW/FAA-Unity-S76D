@@ -21,12 +21,16 @@ try
     check("Camera source is bound but OFF by default",webcam!=null&&!webcam.CameraActive&&!webcam.Starting&&!webcam.RecognitionReady);
     check("Local worker/model resolve without downloads",webcam.TryResolveWorker(out string executable,out string script,out string model));
     w.OpenMenu();
-    var button=w.ControlsCanvas.GetComponentsInChildren<UnityEngine.UI.Button>(true).First(b=>b.name=="Laptop Camera");
+    // OPEN HAND STUDIO is on the Settings PANELS page (open-only: it never closes the panel or stops the camera).
+    var button=w.SettingsCanvas.GetComponentsInChildren<UnityEngine.UI.Button>(true).First(b=>b.name=="Laptop Camera");
     if(!webcam.PanelOpen)button.onClick.Invoke();
     check("Opening camera panel does not activate webcam",webcam.PanelOpen&&!webcam.CameraActive&&!webcam.Starting);
-    check("Start/stop and device-selection controls exist",webcam.GetComponent<FAA.Customization.FaaLaptopCameraGestures>()!=null&&
-        w.ControlsCanvas.GetComponentsInChildren<UnityEngine.UI.Button>(true).Any(b=>b.name=="Webcam Start Stop")&&
-        w.ControlsCanvas.GetComponentsInChildren<UnityEngine.UI.Button>(true).Any(b=>b.name=="Webcam Next Device"));
+    var camButtons=webcam.CameraCanvas.GetComponentsInChildren<UnityEngine.UI.Button>(true);
+    check("Start/stop and device-selection controls exist",camButtons.Any(b=>b.name=="Webcam Start Stop")&&camButtons.Any(b=>b.name=="Webcam Next Device"));
+    // One button starts the camera (it asks macOS for access when needed); no separate ALLOW CAMERA, no permission line when normal.
+    check("No second permission button in the normal state",!camButtons.First(b=>b.name=="Request Camera Permission").gameObject.activeInHierarchy);
+    check("Stow Camera is the header CLOSE; the old Webcam Hide stays inactive",camButtons.Any(b=>b.name=="Stow Camera")&&
+        !camButtons.First(b=>b.name=="Webcam Hide").gameObject.activeSelf);
     w.SetEditMode(false);check("Locked HUD rejects webcam resize",!w.BeginWebcamSizing());
     w.SetEditMode(true);
     check("Unlocked main HUD accepts gesture baseline",w.BeginWebcamSizing());
@@ -57,6 +61,8 @@ try
 finally
 {
     webcam.StopCamera();w.EndWebcamSizing();
+    // OPEN HAND STUDIO turned (and zoomed) the desktop view: return forward at once for the next probe.
+    w.ReturnToForwardView();w.View.GetComponent<AircraftControl.Camera.AircraftCameraController>()?.ResetViewImmediate();
     foreach(var m in w.Modules)m.Layout.scale=baseline[m.Id];
     w.SetEditMode(editing);w.Select(selected);if(w.MenuOpen!=menu)w.ToggleMenu();
     if(webcam.PanelOpen!=panel)webcam.TogglePanel();w.RefreshTransforms();

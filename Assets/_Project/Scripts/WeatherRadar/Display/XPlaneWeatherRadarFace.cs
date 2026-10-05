@@ -10,10 +10,37 @@ namespace WeatherRadar
     public sealed class XPlaneWeatherRadarFace : MaskableGraphic
     {
         [SerializeField] private WeatherRadarDataProvider dataProvider;
-        private readonly TMP_Text[] _rangeLabels = new TMP_Text[3];
+        /// <summary>FAA minimum legible size on the radar canvas (1 unit is about 1 reference px at the audited panel scale).</summary>
+        public const float MinimumFontSize = 15f;
+        /// <summary>Only the half-range and full-range arcs are labelled (rings 2 and 4 of 4).</summary>
+        public static readonly int[] LabelledRings = { 2, 4 };
+        private readonly TMP_Text[] _rangeLabels = new TMP_Text[2];
         private Vector2 _lastSize;
         private float _lastRange = -1f;
+        private float _textScale = 1f, _lastScale = -1f;
         private static readonly Color Ink = new Color(.64f, .79f, .83f, .54f);
+        /// <summary>Near-black knockout plate behind each range label (WeatherRadarPalette.NoReturn tone), so a white numeral never
+        /// sits directly on a green/yellow/red return.</summary>
+        public static readonly Color PlateColor = new Color(.016f, .04f, .055f, .86f);
+        private readonly Rect[] _plates = new Rect[2];
+
+        /// <summary>Knockout plate (face-local rect) behind range label <paramref name="index"/>; empty before the first layout.</summary>
+        public Rect LabelPlate(int index) => index >= 0 && index < _plates.Length ? _plates[index] : default;
+
+        /// <summary>Plate size for a range numeral of <paramref name="digits"/> characters at <paramref name="fontSize"/>.</summary>
+        public static Vector2 PlateSize(int digits, float fontSize) =>
+            new Vector2(Mathf.Max(fontSize * 1.4f, Mathf.Max(1, digits) * fontSize * .64f + 10f), fontSize + 6f);
+
+        /// <summary>Readability multiplier driven by the host so world-space panels keep the FAA minimum.</summary>
+        public float TextScale
+        {
+            get => _textScale;
+            set => _textScale = Mathf.Clamp(value, 1f, 2f);
+        }
+
+        /// <summary>Label font for a sector of the given width (never below the FAA minimum).</summary>
+        public static float LabelFontSize(float sectorWidth, float scale) =>
+            Mathf.Clamp(sectorWidth / 22f, MinimumFontSize, 17f) * Mathf.Max(1f, scale);
 
         public void Configure(WeatherRadarDataProvider provider)
         {
@@ -32,40 +59,62 @@ namespace WeatherRadar
         private void Update()
         {
             float range = dataProvider != null ? dataProvider.RadarData.currentRange : 160f;
-            if (_rangeLabels[0] == null || _lastSize != rectTransform.rect.size || !Mathf.Approximately(range, _lastRange))
+            if (_rangeLabels[0] == null || _lastSize != rectTransform.rect.size || !Mathf.Approximately(range, _lastRange) ||
+                !Mathf.Approximately(_textScale, _lastScale))
                 RefreshFace();
         }
 
         private void RefreshFace()
         {
             _lastSize = rectTransform.rect.size;
+            _lastScale = _textScale;
             _lastRange = dataProvider != null ? dataProvider.RadarData.currentRange : 160f;
             Rect bounds = rectTransform.rect;
             Vector2 origin = new Vector2(bounds.center.x, bounds.yMin + bounds.height * XPlaneWeatherRadarGeometry.OriginHeight);
             float radius = bounds.height * XPlaneWeatherRadarGeometry.Radius;
+            // Retire the old 1/4 and 3/4 labels that sat on the boresight returns.
+            foreach (string retired in new[] { "Range 1", "Range 3" })
+            {
+                Transform old = transform.Find(retired);
+                if (old != null && old.gameObject.activeSelf) old.gameObject.SetActive(false);
+            }
+            float fontSize = LabelFontSize(bounds.width, _textScale);
             for (int i = 0; i < _rangeLabels.Length; i++)
             {
+                int ring = LabelledRings[i];
                 if (_rangeLabels[i] == null)
                 {
-                    Transform child = transform.Find("Range " + (i + 1));
-                    var go = child != null ? child.gameObject : new GameObject("Range " + (i + 1), typeof(RectTransform));
+                    Transform child = transform.Find("Range " + ring);
+                    var go = child != null ? child.gameObject : new GameObject("Range " + ring, typeof(RectTransform));
                     go.transform.SetParent(transform, false);
                     _rangeLabels[i] = go.GetComponent<TextMeshProUGUI>() ?? go.AddComponent<TextMeshProUGUI>();
                 }
                 TMP_Text label = _rangeLabels[i];
-                label.text = XPlaneWeatherRadarGeometry.RangeAtRing(_lastRange, i + 1).ToString("0.##");
-                label.fontSize = Mathf.Clamp(bounds.width / 31f, 9f, 13f);
+                label.gameObject.SetActive(true);
+                label.text = XPlaneWeatherRadarGeometry.RangeAtRing(_lastRange, ring).ToString("0.##");
+                label.fontSize = fontSize;
                 label.enableAutoSizing = false;
+                label.fontStyle = FontStyles.Bold;
                 label.alignment = TextAlignmentOptions.Center;
-                label.color = new Color(.72f, .84f, .87f, .86f);
+                // Light text with a dark halo stays legible on the near-black face and on any return colour.
+                label.color = new Color(.84f, .94f, .96f, 1f);
                 label.faceColor = Color.white;
+                label.extraPadding = true;
+                label.outlineWidth = .22f;
+                label.outlineColor = new Color32(0, 8, 10, 230);
                 label.canvasRenderer.SetColor(Color.white);
                 label.raycastTarget = false;
                 label.textWrappingMode = TextWrappingModes.NoWrap;
                 var rect = label.rectTransform;
                 rect.anchorMin = rect.anchorMax = rect.pivot = new Vector2(.5f, .5f);
-                rect.sizeDelta = new Vector2(42f, 18f);
-                rect.anchoredPosition = XPlaneWeatherRadarGeometry.Point(origin, radius * (i + 1) / 4f, 28f) + new Vector2(0f, 10f);
+                rect.sizeDelta = new Vector2(48f, 22f) * Mathf.Max(1f, _textScale);
+                // Just inside each labelled arc beside the left radial: clear of the boresight returns and
+                // inside the sector picture.
+                rect.anchoredPosition = XPlaneWeatherRadarGeometry.Point(origin, radius * ring / 4f - fontSize * .7f,
+                    -XPlaneWeatherRadarGeometry.HalfAngle + 9f) + new Vector2(4f, 0f);
+                Vector2 plate = PlateSize(label.text.Length, fontSize);
+                // The label is centre-anchored, so its face-local centre is the rect centre plus its anchored position.
+                _plates[i] = new Rect(bounds.center + rect.anchoredPosition - plate * .5f, plate);
             }
             SetVerticesDirty();
         }
@@ -91,8 +140,8 @@ namespace WeatherRadar
                 }
             }
             Color dim = new Color(Ink.r, Ink.g, Ink.b, .25f);
-            foreach (float angle in new[] { -halfAngle, halfAngle })
-                Line(vh, XPlaneWeatherRadarGeometry.Point(origin, radius * .08f, angle), XPlaneWeatherRadarGeometry.Point(origin, radius, angle), .8f, dim);
+            Line(vh, XPlaneWeatherRadarGeometry.Point(origin, radius * .08f, -halfAngle), XPlaneWeatherRadarGeometry.Point(origin, radius, -halfAngle), .8f, dim);
+            Line(vh, XPlaneWeatherRadarGeometry.Point(origin, radius * .08f, halfAngle), XPlaneWeatherRadarGeometry.Point(origin, radius, halfAngle), .8f, dim);
             // The forward reference is deliberately neutral: not an invented navigation course.
             Line(vh, origin + Vector2.up * 14f, origin + Vector2.up * radius, .8f, dim);
             for (int angle = -50; angle <= 50; angle += 10)
@@ -102,6 +151,20 @@ namespace WeatherRadar
             Line(vh, origin + new Vector2(-8f, -1f), origin + Vector2.up * 2f, 1.6f, aircraft);
             Line(vh, origin + Vector2.up * 2f, origin + new Vector2(8f, -1f), 1.6f, aircraft);
             Line(vh, origin + new Vector2(-4f, -6f), origin + new Vector2(4f, -6f), 1.4f, aircraft);
+            // Knockout plates last, so neither returns nor arcs run through the labels drawn on top (children of this graphic).
+            for (int i = 0; i < _plates.Length; i++)
+                if (_plates[i].width > 0f && _rangeLabels[i] != null && _rangeLabels[i].gameObject.activeSelf) Box(vh, _plates[i], PlateColor);
+        }
+
+        private static void Box(VertexHelper vh, Rect r, Color tint)
+        {
+            int start = vh.currentVertCount;
+            vh.AddVert(new Vector2(r.xMin, r.yMin), tint, Vector2.zero);
+            vh.AddVert(new Vector2(r.xMin, r.yMax), tint, Vector2.zero);
+            vh.AddVert(new Vector2(r.xMax, r.yMax), tint, Vector2.zero);
+            vh.AddVert(new Vector2(r.xMax, r.yMin), tint, Vector2.zero);
+            vh.AddTriangle(start, start + 1, start + 2);
+            vh.AddTriangle(start, start + 2, start + 3);
         }
 
         private static void Line(VertexHelper vh, Vector2 a, Vector2 b, float width, Color tint)

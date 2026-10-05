@@ -11,6 +11,19 @@ namespace FAA.Customization
         public const float DefaultYaw = 90f;
         public const float DefaultElevation = -8f;
         public const float DefaultDistance = 1.5f;
+        /// <summary>Comfortable head/eye envelope for frequently used utility panels (settings, hand studio): no extreme look-down or look-up.</summary>
+        public const float UtilityMinElevation = -30f, UtilityMaxElevation = 15f;
+
+        /// <summary><see cref="Protect"/> for utility panels: first bounds the elevation to the comfort range, then clears the forward cone.</summary>
+        public static bool ProtectUtility(FaaSpatialLayoutEntry entry, float width, float height, float fallbackSide)
+        {
+            if (entry == null) return false;
+            float elevation = entry.elevation;
+            if (FaaSpatialLayoutMath.Finite(elevation)) entry.elevation = Mathf.Clamp(elevation, UtilityMinElevation, UtilityMaxElevation);
+            // Protect only ever moves elevation toward zero (or resets a corrupt entry to the default), so it stays in range.
+            bool changed = Protect(entry, width, height, fallbackSide);
+            return changed || !Mathf.Approximately(elevation, entry.elevation);
+        }
 
         public static float AngularRadius(float width, float height, float scale, float distance)
         {

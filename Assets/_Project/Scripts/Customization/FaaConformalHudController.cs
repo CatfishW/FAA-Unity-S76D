@@ -75,6 +75,17 @@ namespace FAA.Customization
         private Vector2 _headingHeadFixedAnchoredPosition;
         private Quaternion _headingHeadFixedLocalRotation;
         private bool _headingHeadFixedRootCaptured;
+        // True only after this controller actually projected the heading root. The heading tape places its own
+        // lane at runtime; restoring it every LateUpdate would pin it back to its first captured position.
+        private bool _headingProjected;
+        // Conformal boresight (review C3): while the rotorcraft scene layer is active, the cockpit camera is held on the airframe
+        // axis (AircraftCameraController.FlightPathBlend = 0) so the waterline stays near screen centre instead of being pushed
+        // 0.6 x (pitch - FPA) away from it. The previous value is restored when the layer is not active.
+        private AircraftCameraController _blendCamera;
+        private UnityEngine.Camera _blendCameraOwner;
+        private AircraftCameraController _blendCameraLookup;
+        private float _savedFlightPathBlend;
+        private bool _flightPathBlendHeld;
         private static FaaConformalHudController _runtimeInstance;
 
         public HudPresentationMode PresentationMode => presentationMode;
@@ -139,6 +150,7 @@ namespace FAA.Customization
             Canvas.preWillRenderCanvases -= RefreshRenderProjection;
             Application.onBeforeRender -= RefreshRenderProjection;
             if (_rotorcraftLayer != null) _rotorcraftLayer.enabled = false;
+            HoldBoresightView(false);
             RestoreHeadFixedRoot();
         }
 
@@ -164,6 +176,7 @@ namespace FAA.Customization
             if (!ResolveTargets())
             {
                 if (_rotorcraftLayer != null) _rotorcraftLayer.enabled = false;
+                HoldBoresightView(false);
                 return;
             }
 
@@ -218,6 +231,7 @@ namespace FAA.Customization
                 _headingHudRoot = null;
                 _headFixedRootCaptured = false;
                 _headingHeadFixedRootCaptured = false;
+                _headingProjected = false;
                 _warnedMissingCanvas = false;
             }
 
@@ -300,9 +314,11 @@ namespace FAA.Customization
                     _rotorcraftLayer = GetComponent<FaaRotorcraftConformalLayer>() ?? gameObject.AddComponent<FaaRotorcraftConformalLayer>();
                 _rotorcraftLayer.Bind(projectionCamera, aircraftTransform, _screenCanvas);
                 _rotorcraftLayer.enabled = true;
+                HoldBoresightView(true);
                 return;
             }
             if (_rotorcraftLayer != null) _rotorcraftLayer.enabled = false;
+            HoldBoresightView(false);
             bool useWorldSpace = presentationMode == HudPresentationMode.Conformal &&
                                  useWorldSpaceConformalCanvas && _conformalCanvas != null;
 
@@ -377,15 +393,21 @@ namespace FAA.Customization
                 // Never freeze a visible reference in the last forward position
                 // while looking behind. Leave independently controlled UI alone.
                 MoveOutsideView(_screenCanvas, _screenHudRoot, _headFixedAnchoredPosition);
-                if (projectHeadingTape)
+                if (projectHeadingTape && _headingCanvas != null && _headingHudRoot != null)
+                {
                     MoveOutsideView(_headingCanvas, _headingHudRoot, _headingHeadFixedAnchoredPosition);
+                    _headingProjected = true;
+                }
                 return;
             }
             ProjectRoot(_screenCanvas, _screenHudRoot, _headFixedAnchoredPosition, _headFixedLocalRotation,
                 screenPoint, screenUp);
-            if (projectHeadingTape)
+            if (projectHeadingTape && _headingCanvas != null && _headingHudRoot != null)
+            {
                 ProjectRoot(_headingCanvas, _headingHudRoot, _headingHeadFixedAnchoredPosition,
                     _headingHeadFixedLocalRotation, screenPoint, screenUp);
+                _headingProjected = true;
+            }
         }
 
         public static bool TryProjectReference(UnityEngine.Camera camera, Quaternion reference,
@@ -451,11 +473,44 @@ namespace FAA.Customization
                 _screenHudRoot.anchoredPosition = _headFixedAnchoredPosition;
                 _screenHudRoot.localRotation = _headFixedLocalRotation;
             }
-            if (_headingHeadFixedRootCaptured && _headingHudRoot != null)
+            if (_headingProjected && _headingHeadFixedRootCaptured && _headingHudRoot != null)
             {
                 _headingHudRoot.anchoredPosition = _headingHeadFixedAnchoredPosition;
                 _headingHudRoot.localRotation = _headingHeadFixedLocalRotation;
             }
+            _headingProjected = false;
+        }
+
+        /// <summary>
+        /// Holds the cockpit camera on the airframe boresight while the rotorcraft scene layer is active (FlightPathBlend = 0) and
+        /// restores the value it replaced when the layer is not active, the camera changes, or this controller is disabled. The value
+        /// is written only on those transitions, never every frame.
+        /// </summary>
+        private void HoldBoresightView(bool hold)
+        {
+            AircraftCameraController target = null;
+            if (hold && projectionCamera != null)
+            {
+                if (_blendCameraOwner != projectionCamera)
+                {
+                    _blendCameraOwner = projectionCamera;
+                    _blendCameraLookup = projectionCamera.GetComponent<AircraftCameraController>();
+                }
+                target = _blendCameraLookup;
+            }
+
+            if (_flightPathBlendHeld && (!hold || _blendCamera != target))
+            {
+                if (_blendCamera != null) _blendCamera.FlightPathBlend = _savedFlightPathBlend;
+                _blendCamera = null;
+                _flightPathBlendHeld = false;
+            }
+
+            if (!hold || target == null || _flightPathBlendHeld) return;
+            _blendCamera = target;
+            _savedFlightPathBlend = target.FlightPathBlend;
+            target.FlightPathBlend = 0f;
+            _flightPathBlendHeld = true;
         }
 
         private static Vector2 GetReferenceResolution(Canvas canvas)

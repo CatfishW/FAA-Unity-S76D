@@ -201,46 +201,46 @@ namespace VoiceControl.Adapters
                 ),
                 new VoiceCommandInfo(
                     "set_background_color",
-                    "Set the radar background color",
+                    "Set the radar background color (dark colors only, so traffic symbols keep their contrast)",
                     new VoiceCommandParameter(
                         "color",
                         "string",
-                        "Color name: red, green, blue, yellow, cyan, magenta, white, black, dark_blue, dark_green",
+                        "Color name: black, dark_blue, dark_green",
                         true,
-                        new[] { "red", "green", "blue", "yellow", "cyan", "magenta", "white", "black", "dark_blue", "dark_green" }
+                        BackgroundColorNames
                     )
                 ),
                 new VoiceCommandInfo(
                     "set_range_ring_color",
-                    "Set the range ring color",
+                    "Set the range ring color (amber and red are reserved for advisories)",
                     new VoiceCommandParameter(
                         "color",
                         "string",
-                        "Color name: red, green, blue, yellow, cyan, magenta, white, gray, orange",
+                        "Color name: cyan, white, gray, green",
                         true,
-                        new[] { "red", "green", "blue", "yellow", "cyan", "magenta", "white", "gray", "orange" }
+                        ReferenceColorNames
                     )
                 ),
                 new VoiceCommandInfo(
                     "set_compass_color",
-                    "Set the compass markings color",
+                    "Set the compass markings color (amber and red are reserved for advisories)",
                     new VoiceCommandParameter(
                         "color",
                         "string",
-                        "Color name: red, green, blue, yellow, cyan, magenta, white, gray, orange",
+                        "Color name: cyan, white, gray, green",
                         true,
-                        new[] { "red", "green", "blue", "yellow", "cyan", "magenta", "white", "gray", "orange" }
+                        ReferenceColorNames
                     )
                 ),
                 new VoiceCommandInfo(
                     "set_own_aircraft_color",
-                    "Set the own aircraft symbol color",
+                    "Set the own aircraft symbol color (white, cyan or green; amber and red are reserved for traffic advisories)",
                     new VoiceCommandParameter(
                         "color",
                         "string",
-                        "Color name: red, green, blue, yellow, cyan, magenta, white, orange",
+                        "Color name: white, cyan, green",
                         true,
-                        new[] { "red", "green", "blue", "yellow", "cyan", "magenta", "white", "orange" }
+                        OwnAircraftColorNames
                     )
                 ),
                 // Opacity/transparency commands
@@ -543,6 +543,37 @@ namespace VoiceControl.Adapters
             return true;
         }
         
+        /// <summary>
+        /// Own-ship colours a voice command may select. Amber/yellow/orange and red are reserved for traffic and resolution
+        /// advisories, and magenta/blue are not own-ship conventions, so they are refused (AC 20-172B, AC 25-11B colour coding).
+        /// </summary>
+        public static readonly string[] OwnAircraftColorNames = { "white", "cyan", "green" };
+        /// <summary>Reference linework (range rings, compass) never takes an alert colour either.</summary>
+        public static readonly string[] ReferenceColorNames = { "cyan", "white", "gray", "green" };
+        /// <summary>The scope stays dark so cyan traffic and the white own-ship keep at least 3:1 contrast (AC 25-11B).</summary>
+        public static readonly string[] BackgroundColorNames = { "black", "dark_blue", "dark_green" };
+
+        /// <summary>True when <paramref name="colorName"/> (lower case, underscores) is an allowed own-ship colour.</summary>
+        public static bool IsAllowedOwnAircraftColor(string colorName) => Contains(OwnAircraftColorNames, colorName);
+
+        /// <summary>True when <paramref name="colorName"/> is allowed for the given colour target.</summary>
+        public static bool IsAllowedColor(string target, string colorName) => target switch
+        {
+            "own_aircraft" => Contains(OwnAircraftColorNames, colorName),
+            "range_ring" => Contains(ReferenceColorNames, colorName) || colorName == "grey",
+            "compass" => Contains(ReferenceColorNames, colorName) || colorName == "grey",
+            "background" => Contains(BackgroundColorNames, colorName),
+            _ => false
+        };
+
+        private static bool Contains(string[] names, string value)
+        {
+            if (string.IsNullOrEmpty(value)) return false;
+            foreach (string name in names)
+                if (name == value) return true;
+            return false;
+        }
+
         private bool HandleSetColor(Dictionary<string, object> parameters, string target)
         {
             if (display == null)
@@ -558,6 +589,11 @@ namespace VoiceControl.Adapters
             }
             
             string colorName = colorObj.ToString().ToLower().Replace(" ", "_");
+            if (!IsAllowedColor(target, colorName))
+            {
+                Log($"{target} color '{colorName}' refused: amber and red are reserved for traffic advisories and the scope stays dark");
+                return false;
+            }
             Color color = ParseColorName(colorName);
             
             switch (target)

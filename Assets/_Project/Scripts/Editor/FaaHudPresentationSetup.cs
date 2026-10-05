@@ -37,13 +37,14 @@ public static class FaaHudPresentationSetup
             style.Configure(value, units, altitude);
             // Fixed character cells prevent changing digit widths from shifting
             // the readout. Altitude grouping improves rapid thousands recognition.
+            // No leading zeros on airspeed (AC 25-11B: a zero-padded speed reads like a heading).
             var element = value.GetComponentsInParent<MonoBehaviour>(true).FirstOrDefault(c =>
                 c != null && c.GetType().Name == (altitude ? "AltimeterElement" : "AirspeedIndicatorElement"));
             if (element != null)
             {
                 SerializedObject serialized = new SerializedObject(element);
                 serialized.FindProperty("displayFormat").stringValue = altitude
-                    ? "{0:#,##0}" : "<mspace=0.62em>{0:000}</mspace>";
+                    ? "{0:#,##0}" : FaaPrimaryFlightReadout.AirspeedFormat;
                 serialized.ApplyModifiedProperties();
             }
             EditorUtility.SetDirty(style);
@@ -52,8 +53,9 @@ public static class FaaHudPresentationSetup
         {
             if (heading.gameObject.scene != scene) continue;
             Undo.RegisterFullObjectHierarchyUndo(heading.gameObject, "Position heading tape");
-            heading.Configure(new Vector2(0f, -180f), new Vector2(520f, 64f),
-                new Color(.2f, 1f, .2f, 1f), new Color(.2f, 1f, .2f, .60f));
+            // Zone Z5 lane: the tape's top edge 790 ref from the top (the overlay re-pins this lane in play mode).
+            heading.Configure(new Vector2(0f, 540f - FaaHeadingTapeOverlay.LaneTopFromScreenTop - FaaHeadingTapeOverlay.TopExtent),
+                new Vector2(520f, 64f), new Color(.2f, 1f, .2f, 1f), new Color(.2f, 1f, .2f, .92f));
             EditorUtility.SetDirty(heading);
         }
         foreach (var controls in Object.FindObjectsByType<FaaRadarControlsOverlay>(FindObjectsInactive.Include, FindObjectsSortMode.None))

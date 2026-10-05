@@ -44,7 +44,11 @@ try
     w.SetSymbologyVersion(FAA.Customization.FaaSymbologyVersion.ClassicAnalog);w.SetClassicInstrumentAttitude(false);w.RefreshTransforms();
     check("Scene-aligned center hides only local attitude inset",!w.UsesClassicAttitude&&!w.ClassicHud.InstrumentRoots["attitude"].gameObject.activeSelf&&layer.enabled);
     w.SetClassicInstrumentAttitude(true);
-    check("Conformal FPV/FPA and reference transform preserved",layer.enabled&&layer.SelectedFpaDegrees==fpa&&layer.transform.localScale==layerScale);
+    // The conformal FPV/FPA (and ladder, horizon, waterline) are intentionally not drawn over the non-conformal local inset (CL-02).
+    check("FPA setting and layer transform preserved; conformal FPV/FPA intentionally not drawn over the local inset",layer.enabled&&layer.SelectedFpaDegrees==fpa&&layer.transform.localScale==layerScale);
+    layer.RefreshPresentation();
+    check("Classic local attitude carries no conformal ladder, waterline, FPV or FPA",w.UsesClassicAttitude&&layer.LastRungCount==0&&!layer.FpaReferenceVisible&&!layer.FpvLimited&&!layer.WaterlineVisible&&
+        !layer.GetComponentsInChildren<TMPro.TMP_Text>().Any(t=>t.text.StartsWith("FPA")||t.text=="FPV"));
     w.SetEditMode(true);var sizedDial=w.ClassicHud.InstrumentRoots["airspeed"];float beforeSize=sizedDial.rect.width*sizedDial.lossyScale.x;
     bool armed=w.BeginWebcamSizing();w.ApplyWebcamSizing(1.1f);w.RefreshTransforms();
     check("Main HUD gesture sizing visibly enlarges classic dials",armed&&w.WebcamSizing&&sizedDial.rect.width*sizedDial.lossyScale.x>beforeSize*1.03f);
@@ -63,10 +67,16 @@ try
     check("Invalid profile enum rejected without changing display",!w.SetSymbologyVersion((FAA.Customization.FaaSymbologyVersion)999)&&w.CurrentSymbology==FAA.Customization.FaaSymbologyVersion.ClassicAnalog);
     check("Radar/settings positions and sizes never changed",w.InteractivePanels.All(p=>p.Layout.yaw==panels[p.Id].yaw&&p.Layout.elevation==panels[p.Id].elevation&&p.Layout.distance==panels[p.Id].distance&&p.Layout.scale==panels[p.Id].scale));
     check("Camera remained off",!w.LaptopCamera.CameraActive&&!w.LaptopCamera.Starting);
+    // FaaHudInspection drives the shared fade (Classic applies min(PanelInspectionOpacity, ForwardHudIntensity)), so
+    // PanelInspectionOpacity stays 1. The Classic root alpha then eases toward 0.16 over about 0.2 s (not observable in this frame).
     w.InspectUtility("settings");w.RefreshTransforms();
-    check("Desktop panel inspection dims without moving or reprojecting Classic",w.ClassicHud.PanelInspectionOpacity<.2f&&canvas.renderMode==mode&&canvas.planeDistance==depth);
+    check("Desktop panel inspection starts the shared HUD fade without moving or reprojecting Classic",
+        (FAA.Customization.FaaHudInspection.Active&&FAA.Customization.FaaHudInspection.TargetId=="settings"||w.ExceedanceAlertActive)&&
+        w.ClassicHud.PanelInspectionOpacity==1f&&canvas.renderMode==mode&&canvas.planeDistance==depth);
     w.ReturnToForwardView();w.RefreshTransforms();
-    check("Returning forward immediately restores Classic opacity",w.ClassicHud.PanelInspectionOpacity==1f);
+    // The HUD fades back once the eased view is within 40 deg of forward (about 0.5 s), not instantly; this frame only ends the inspection.
+    check("Returning forward ends the panel inspection; the HUD fades back as the view eases forward",
+        w.InspectedPanelId==null&&!(FAA.Customization.FaaHudInspection.Active&&FAA.Customization.FaaHudInspection.TargetId=="settings")&&w.ClassicHud.PanelInspectionOpacity==1f);
     // A disabled, temporary renderer fixture receives artificial test values. The actual live display is not injected.
     var fixture=new GameObject("Analog verification fixture",typeof(RectTransform));fixture.SetActive(false);
     var gauge=fixture.AddComponent<FAA.Customization.FaaClassicGaugeGraphic>();gauge.Configure(FAA.Customization.FaaClassicGaugeGraphic.Gauge.Airspeed,Color.green);

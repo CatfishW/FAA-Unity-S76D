@@ -164,11 +164,11 @@ namespace FAA.Customization.Tests
                 bool traffic = (bool)Get(settings, "showTrafficIndicators"), weather = (bool)Get(settings, "showWeatherIndicators");
                 Assert.That(panel.GetType().GetProperty("IsExpanded").GetValue(panel), Is.False);
                 var root = ((Component)panel).GetComponent<RectTransform>();
-                Assert.That(root.sizeDelta, Is.EqualTo(new Vector2(160, 35)));
+                Assert.That(root.sizeDelta, Is.EqualTo(new Vector2(190, 42)));
                 var header = root.GetComponentsInChildren<UnityEngine.UI.Button>(true)[0];
                 header.onClick.Invoke();
                 Assert.That(panel.GetType().GetProperty("IsExpanded").GetValue(panel), Is.True);
-                Assert.That(root.sizeDelta, Is.EqualTo(new Vector2(306, 167)));
+                Assert.That(root.sizeDelta, Is.EqualTo(new Vector2(360, 214)));
                 header.onClick.Invoke();
                 Assert.That(panel.GetType().GetProperty("IsExpanded").GetValue(panel), Is.False);
                 Assert.That(header.gameObject.activeInHierarchy, Is.True, "The reopen button must remain available");

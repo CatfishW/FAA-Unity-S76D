@@ -292,8 +292,9 @@ namespace HUDControl.Elements
                 return;
             }
 
+            // Integer percent without leading zeros (zero padding is reserved for directions), as in the Digital columns.
             string text = dataValid
-                ? Mathf.RoundToInt(value).ToString("000", CultureInfo.InvariantCulture)
+                ? Mathf.RoundToInt(value).ToString(CultureInfo.InvariantCulture)
                 : "---";
             if (readout.text != text)
             {

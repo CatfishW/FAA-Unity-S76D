@@ -1,6 +1,7 @@
 using UnityEngine;
 using TMPro;
 using AircraftControl.Core;
+using FAA.Customization;
 
 namespace HUDControl.Elements
 {
@@ -59,6 +60,11 @@ namespace HUDControl.Elements
         private Vector2 tapeBasePos;
         private bool hasExternalAirspeed;
         private bool externalDataUnavailable;
+        private bool vneExceeded;
+        private string resolvedSource, resolvedFormat;
+
+        /// <summary>Knots below the DEMONSTRATOR Vne at which a held overspeed indication clears (no flicker at the limit).</summary>
+        public const float VneHysteresisKnots = 2f;
         
         public override string ElementId => "Airspeed";
         
@@ -68,6 +74,7 @@ namespace HUDControl.Elements
             targetAirspeed = 0f;
             hasExternalAirspeed = false;
             externalDataUnavailable = false;
+            vneExceeded = false;
             lastDisplayedAirspeed = -1f;
             
             if (speedTape != null)
@@ -111,10 +118,67 @@ namespace HUDControl.Elements
                 
                 if (rounded != Mathf.RoundToInt(lastDisplayedAirspeed))
                 {
-                    airspeedReadout.text = string.Format(displayFormat, rounded);
+                    airspeedReadout.text = string.Format(EffectiveFormat, rounded);
                     lastDisplayedAirspeed = rounded;
                 }
+                ApplyReadoutColor();
             }
+        }
+
+        /// <summary>
+        /// Runtime readout format (editor setup scripts author the field). Airspeed carries no leading zero; leading zeros
+        /// are reserved for directional values, so zero padding is removed here as well.
+        /// </summary>
+        public void SetDisplayFormat(string format)
+        {
+            if (string.IsNullOrEmpty(format)) return;
+            format = WithoutLeadingZeros(format);
+            if (format == displayFormat) return;
+            try { string.Format(format, 0); }
+            catch (System.FormatException) { return; }
+            displayFormat = format;
+            lastDisplayedAirspeed = -1f;
+            if (HasExternalData) UpdateReadout();
+        }
+
+        public string DisplayFormat => displayFormat;
+
+        /// <summary>
+        /// The format actually used. A serialized zero-padded format (for example '{0:000}' written by an older setup script) still
+        /// renders 17 kt as "17", never "017": a zero-padded speed reads like a heading.
+        /// </summary>
+        public string EffectiveFormat
+        {
+            get
+            {
+                if (!ReferenceEquals(resolvedSource, displayFormat)) { resolvedSource = displayFormat; resolvedFormat = WithoutLeadingZeros(displayFormat); }
+                return resolvedFormat;
+            }
+        }
+
+        /// <summary>Replaces zero-padded integer specifiers ('{0:000}', '{0:00}', '{0:D3}') with '{0:0}'; rich-text wrappers are kept.</summary>
+        public static string WithoutLeadingZeros(string format)
+        {
+            if (string.IsNullOrEmpty(format)) return "{0:0}";
+            string result = System.Text.RegularExpressions.Regex.Replace(format, @"\{0:(?:0{2,}|[Dd][0-9]+)\}", "{0:0}");
+            try { string.Format(result, 0); return result; }
+            catch (System.FormatException) { return "{0:0}"; }
+        }
+
+        /// <summary>The TMP text this element writes (used to bind presentation to the element that drives the visible digits).</summary>
+        public TMP_Text Readout => airspeedReadout;
+
+        /// <summary>
+        /// Above the DEMONSTRATOR Vne (<see cref="FaaRotorcraftLimits.VneKnots"/>, not RFM data), held until the airspeed is
+        /// <see cref="VneHysteresisKnots"/> below it. Drives the red digits here and the red box in FaaPrimaryFlightReadout.
+        /// </summary>
+        public bool VneExceeded => HasExternalData && vneExceeded;
+
+        public static bool ClassifyVne(float knots, bool wasExceeded)
+        {
+            if (float.IsNaN(knots) || float.IsInfinity(knots)) return false;
+            knots = Mathf.Max(0f, knots);
+            return FaaRotorcraftLimits.Airspeed(wasExceeded ? knots + VneHysteresisKnots : knots, true) == FaaExceedance.Warning;
         }
         
         /// <summary>
@@ -158,6 +222,7 @@ namespace HUDControl.Elements
         {
             hasExternalAirspeed = false;
             externalDataUnavailable = true;
+            vneExceeded = false;
             targetAirspeed = 0f;
             displayedAirspeed = 0f;
             SetTapeAvailable(false);
@@ -176,13 +241,26 @@ namespace HUDControl.Elements
             }
 
             int rounded = Mathf.RoundToInt(displayedAirspeed);
-            if (rounded != Mathf.RoundToInt(lastDisplayedAirspeed) || airspeedReadout.text == "---")
+            if (rounded != Mathf.RoundToInt(lastDisplayedAirspeed) || airspeedReadout.text == FaaDigitalColumnStyle.Invalid)
             {
-                airspeedReadout.text = string.Format(displayFormat, rounded);
+                airspeedReadout.text = string.Format(EffectiveFormat, rounded);
                 lastDisplayedAirspeed = rounded;
             }
 
-            airspeedReadout.color = new Color(0.2f, 1f, 0.2f, 1f);
+            ApplyReadoutColor();
+        }
+
+        /// <summary>
+        /// Pilot symbology colour in the normal range; red above the DEMONSTRATOR Vne in FaaRotorcraftLimits (not RFM data).
+        /// The readout frame adds the red box (flashing, then steady).
+        /// </summary>
+        private void ApplyReadoutColor()
+        {
+            if (!HasExternalData) return;
+            vneExceeded = ClassifyVne(displayedAirspeed, vneExceeded);
+            if (airspeedReadout == null) return;
+            Color color = vneExceeded ? FaaHudStyle.Red : FaaHudStyle.WithAlpha(FaaDigitalColumnStyle.Normal, 1f);
+            if (airspeedReadout.color != color) airspeedReadout.color = color;
         }
 
         private void SetReadoutUnavailable()
@@ -192,8 +270,9 @@ namespace HUDControl.Elements
                 return;
             }
 
-            airspeedReadout.text = "---";
-            airspeedReadout.color = new Color(0.2f, 1f, 0.2f, 0.46f);
+            // Dashes, never a frozen zero; still legible (MinTextAlpha) so the loss of data is noticed.
+            airspeedReadout.text = FaaDigitalColumnStyle.Invalid;
+            airspeedReadout.color = FaaHudStyle.WithAlpha(FaaDigitalColumnStyle.Normal, FaaHudStyle.MinTextAlpha);
         }
 
         private static void SetTapeAvailable(RectTransform tape, bool available)

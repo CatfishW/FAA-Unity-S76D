@@ -53,6 +53,36 @@ namespace FAA.Customization.Tests
             Assert.That(PolicyType.GetMethod("SecondsRemaining").Invoke(policy, new object[] { now }), Is.EqualTo(1d));
         }
 
+        [Test]
+        public void LocalDiscovery_SubscribesTheSelectedHeadingAndBaroAltimeter()
+        {
+            Type discovery = Type.GetType("FAA.XPlaneIntegration.Runtime.XPlaneDiscoveryData, Assembly-CSharp", true);
+            var subscriptions = (string[])discovery.GetField("Subscriptions").GetValue(null);
+            foreach (string path in new[] { "sim/cockpit2/autopilot/heading_dial_deg_mag_pilot", "sim/cockpit/autopilot/heading_mag",
+                         "sim/cockpit2/gauges/indicators/altitude_ft_pilot" })
+                Assert.That(Array.IndexOf(subscriptions, path), Is.GreaterThanOrEqualTo(0), path);
+            Assert.That(subscriptions.Length, Is.EqualTo(new System.Collections.Generic.HashSet<string>(subscriptions).Count), "No duplicate subscriptions.");
+        }
+
+        [Test]
+        public void IndicatedAltitude_AppliesTheBaroOffsetToTheGeometricAltitudeAndNeverInventsIt()
+        {
+            MethodInfo method = null;
+            foreach (MethodInfo m in BridgeType.GetMethods(BindingFlags.Public | BindingFlags.Static))
+                if (m.Name == "TryGetIndicatedAltitudeFeet" && m.GetParameters().Length == 4) method = m;
+            Assert.That(method, Is.Not.Null);
+            var aircraft = new System.Collections.Generic.Dictionary<string, float> { ["sim/flightmodel/position/elevation"] = 1000f };
+            var systems = new System.Collections.Generic.Dictionary<string, float> { ["sim/cockpit2/gauges/indicators/altitude_ft_pilot"] = 3400f };
+            object[] args = { aircraft, systems, 3290f, 0f };
+            Assert.That((bool)method.Invoke(null, args), Is.True);
+            // Offset 3400 - 1000 m (3280.84 ft) = 119.16 ft, applied to the smoothed geometric altitude.
+            Assert.That((float)args[3], Is.EqualTo(3290f + 3400f - 1000f * 3.28084f).Within(.05f));
+            object[] missing = { aircraft, new System.Collections.Generic.Dictionary<string, float>(), 3290f, 0f };
+            Assert.That((bool)method.Invoke(null, missing), Is.False, "Absent baro dataref: no indicated altitude, never a guess.");
+            systems["sim/cockpit2/gauges/indicators/altitude_ft_pilot"] = 30000f;
+            Assert.That((bool)method.Invoke(null, args), Is.False, "An implausible baro offset is a source fault, not altitude.");
+        }
+
         [UnityTest]
         public IEnumerator ServerFailure_DoesNotFanOutOrRetryImmediately()
         {

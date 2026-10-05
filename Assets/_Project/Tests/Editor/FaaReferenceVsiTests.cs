@@ -117,5 +117,26 @@ namespace FAA.Customization.Tests
             }
             finally{UnityEngine.Object.DestroyImmediate(go);}
         }
+
+        [TestCase(-664f)] [TestCase(1352f)] [TestCase(12f)] [TestCase(-2600f)]
+        public void CaptionAndReadoutUseTheDigitalFormat(float fpm)
+        {
+            Type type=Type.GetType("FAA.Customization.FaaClassicDeviationGraphic, Assembly-CSharp",true);
+            Type digital=Type.GetType("FAA.Customization.FaaEngineInstrumentGraphic, Assembly-CSharp",true);
+            var go=new GameObject("Reference VSI format test",typeof(RectTransform));
+            try
+            {
+                var graphic=go.AddComponent(type);var kind=Enum.Parse(type.GetNestedType("Scale"),"VerticalSpeed");
+                type.GetMethod("Configure").Invoke(graphic,new object[]{kind,Color.green});
+                type.GetMethod("Present").Invoke(graphic,new object[]{fpm,true,Color.green,null});
+                Assert.That(go.transform.Find("Signal").GetComponent<TMP_Text>().text,Is.EqualTo("VS FPM"),"Same caption as Digital");
+                string expected=(string)digital.GetMethod("FormatVerticalSpeed").Invoke(null,new object[]{fpm,true});
+                string text=go.transform.Find("Value").GetComponent<TMP_Text>().text;
+                Assert.That(text.EndsWith(expected,StringComparison.Ordinal),Is.True,$"'{text}' ends with Digital's '{expected}' (50 FPM, true minus, unsigned zero)");
+                Assert.That(text.Contains("-"),Is.False,"True minus sign, never an ASCII hyphen");
+                Assert.That(text.Contains("OFF SCALE"),Is.EqualTo(Mathf.Abs(fpm)>2000f));
+            }
+            finally{UnityEngine.Object.DestroyImmediate(go);}
+        }
     }
 }

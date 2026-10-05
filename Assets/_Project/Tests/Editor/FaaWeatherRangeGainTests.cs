@@ -52,7 +52,7 @@ namespace FAA.Customization.Tests
                 Color32 near = twenty[(32 + dy * 2) * 512 + 256 + dx * 2];
                 Color32 far = forty[(32 + dy) * 512 + 256 + dx];
                 Assert.That(near, Is.EqualTo(far), "The same physical cell changed while zooming");
-                if (far.g > 60) echoPairs++;
+                if (ReturnLevel(far) > 0) echoPairs++;
             }
             for (int i = 0; i < twenty.Length; i++) if (!twenty[i].Equals(forty[i])) differences++;
             Assert.That(echoPairs, Is.GreaterThan(20), "A blank frame must not pass the zoom test");
@@ -69,11 +69,14 @@ namespace FAA.Customization.Tests
             long lowEnergy = 0, normalEnergy = 0, highEnergy = 0;
             for (int i = 0; i < low.Length; i++)
             {
-                if (low[i].g > 60) lowCount++;
-                if (normal[i].g > 60) normalCount++;
-                if (high[i].g > 60) highCount++;
-                lowEnergy += low[i].g; normalEnergy += normal[i].g; highEnergy += high[i].g;
-                if (low[i].g > 60) Assert.That(high[i].g, Is.GreaterThan(60), "Gain must not move an existing return");
+                int l = ReturnLevel(low[i]), n = ReturnLevel(normal[i]), h = ReturnLevel(high[i]);
+                if (l > 0) lowCount++;
+                if (n > 0) normalCount++;
+                if (h > 0) highCount++;
+                // Energy is the palette level (green 1 < yellow 2 < red 3 < magenta 4), not one channel:
+                // a heavier return is red, which has LESS green than a light one.
+                lowEnergy += l; normalEnergy += n; highEnergy += h;
+                if (l > 0) Assert.That(h, Is.GreaterThanOrEqualTo(l), "Gain must not move or weaken an existing return");
             }
             Assert.That(normalCount, Is.GreaterThan(lowCount));
             Assert.That(highCount, Is.GreaterThan(normalCount));
@@ -95,6 +98,29 @@ namespace FAA.Customization.Tests
             Render(80f, 8f, .8f);
             var last = Render(20f, 0f, .8f);
             CollectionAssert.AreEqual(first, last);
+        }
+
+        /// <summary>
+        /// Palette level of a rendered pixel: 0 for the near-black 'no return' backdrop (max channel 31), otherwise any
+        /// discrete return level whatever its hue (WeatherRadarPalette: green 1, yellow 2, red 3, magenta 4).
+        /// </summary>
+        private static int ReturnLevel(Color32 p)
+        {
+            if (Mathf.Max(p.r, Mathf.Max(p.g, p.b)) <= 60) return 0;
+            if (p.r < 128) return 1;
+            if (p.g >= 128) return 2;
+            return p.b >= 128 ? 4 : 3;
+        }
+
+        [Test]
+        public void ReturnLevel_ClassifiesEveryPaletteLevelAgainstTheBackdrop()
+        {
+            Assert.That(ReturnLevel(new Color32(8, 22, 31, 200)), Is.EqualTo(0));
+            Assert.That(ReturnLevel(new Color32(4, 10, 14, 240)), Is.EqualTo(0));
+            var palette = Type.GetType("WeatherRadar.WeatherRadarPalette, WeatherRadar", true);
+            for (int level = 1; level <= 4; level++)
+                Assert.That(ReturnLevel((Color32)palette.GetField("Level" + level + "Color32").GetValue(null)), Is.EqualTo(level));
+            Assert.That(ReturnLevel((Color32)palette.GetField("NoReturn").GetValue(null)), Is.EqualTo(0));
         }
 
         private static Color32[] Render(float range, float gain, float rain)

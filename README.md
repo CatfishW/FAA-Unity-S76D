@@ -472,13 +472,24 @@ source changes. Review the Hierarchy and Inspector, then save deliberately.
 Weather and traffic configuration bars are hidden by default. Tap either radar
 to reveal its controls; tap it again to close them. The traffic menu remains
 open after an action and retains its open/closed state across FULL/REST.
-Advanced controls are available on demand. The engine readouts use explicit
-labels (for example TORQUE, NR/N2, and left/right identifiers) instead of
-unexplained fixed scale numbers.
+Advanced controls are available on demand. The engine readouts are TQ % and
+NR % blocks (rotor NR headline, engine N2 rails, N2 digits only on a split),
+engines 1/2, with demo caution/warning limits: TQ rails carry a green normal
+band, an amber 100-110 % band and a haloed red line; the NR block uses an
+expanded 60-120 % scale with one limit strip drawn like the Classic NR dial
+(red 91 and 110 %, amber 91-95 and 107-110 %, green 95-107 %). The limits are
+demonstrator values in `FaaRotorcraftLimits`, not S-76D flight manual data.
 
-IAS/KT and ALT/FT use restrained brackets, clear unit captions, and grouped
-altitude digits. The heading tape is centered below the flight/navigation
-scales, with a limited heading sweep and a numeric current-heading readout.
+IAS KT / ALT FT readouts sit level with the waterline on dark plates that
+cover the digits and the caption; IAS has no leading zero and turns red with a
+flashing-then-steady red box above the demo Vne; AGL is shown below 1,000 ft;
+VS FPM (signed, 50 fpm steps) sits right of ALT. Captions, ids and scale
+numerals are at least 18 reference px at the smallest module size, with a
+halo. While a side panel is inspected the IAS/ALT/TQ/NR/VS digits stay at the
+awareness intensity and only captions, scales and rails dim; in an unusual
+attitude the VS numerals and the N2 split digits declutter. The heading tape
+is centered below the flight/navigation scales, with a limited heading sweep
+and a numeric current-heading readout.
 The wheel menu separates category selection from a column of touch-sized
 commands; hovering does not change the selected category.
 

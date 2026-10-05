@@ -24,7 +24,7 @@ def main():
   saved=True
   for panel_id in ['settings','weather','traffic','camera-controls']:
    evaluate('var w=FAA.Customization.FaaSpatialWorkspace.Current;w.ProcessRightDrag(false,Vector2.zero,true);w.RecallPanels();w.InspectPanel("'+panel_id+'");return "inspect";')
-   time.sleep(.9)
+   time.sleep(.9) # the inspection turn (<=0.5 s) and desktop zoom (~0.42 s) settle before the pointer is placed
    setup=evaluate('var w=FAA.Customization.FaaSpatialWorkspace.Current;var p=w.GetPanel("'+panel_id+'");var pos=w.View.WorldToScreenPoint(p.WorldCenter);'
     'var state=(object[])AppDomain.CurrentDomain.GetData("'+KEY+'");var mouse=(UnityEngine.InputSystem.Mouse)state[6];mouse.MakeCurrent();'
     'UnityEngine.InputSystem.InputSystem.QueueStateEvent(mouse,new UnityEngine.InputSystem.LowLevel.MouseState{position=pos});'
@@ -46,7 +46,7 @@ def main():
   assert all(r['passed'] for r in reports),'Right-button drag integration failed'
  finally:
   if saved:evaluate('var d=(object[])AppDomain.CurrentDomain.GetData("'+KEY+'");var w=FAA.Customization.FaaSpatialWorkspace.Current;'
-   'w.CancelManipulation();w.ReturnToForwardView();var mouse=d[6] as UnityEngine.InputSystem.Mouse;if(mouse!=null)UnityEngine.InputSystem.InputSystem.RemoveDevice(mouse);'
+   'w.CancelManipulation();w.ReturnToForwardView();w.View.GetComponent<AircraftControl.Camera.AircraftCameraController>()?.ResetViewImmediate();var mouse=d[6] as UnityEngine.InputSystem.Mouse;if(mouse!=null)UnityEngine.InputSystem.InputSystem.RemoveDevice(mouse);'
    'var original=d[5] as UnityEngine.InputSystem.Mouse;if(original!=null&&original.added)original.MakeCurrent();'
    'var poses=(System.Collections.Generic.Dictionary<string,FAA.Customization.FaaSpatialLayoutEntry>)d[7];'
    'foreach(var p in w.InteractivePanels){var s=poses[p.Id];p.Layout.yaw=s.yaw;p.Layout.elevation=s.elevation;p.Layout.distance=s.distance;p.Layout.scale=s.scale;}'

@@ -125,7 +125,7 @@ namespace HUDControl.Core
             // Find controller if needed
             if (aircraftController == null && autoFindController)
             {
-                aircraftController = FindObjectOfType<AircraftController>();
+                aircraftController = FindAnyObjectByType<AircraftController>();
                 
                 if (aircraftController == null)
                 {
@@ -394,7 +394,7 @@ namespace HUDControl.Core
         [ContextMenu("Find Aircraft Controller")]
         private void FindAircraftController()
         {
-            aircraftController = FindObjectOfType<AircraftController>();
+            aircraftController = FindAnyObjectByType<AircraftController>();
             if (aircraftController != null)
             {
                 UnityEditor.EditorUtility.SetDirty(this);

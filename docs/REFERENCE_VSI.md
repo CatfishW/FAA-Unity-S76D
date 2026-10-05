@@ -4,7 +4,7 @@ The current Classic Analog vertical-speed indicator follows the supplied visual 
 
 ## Layout
 
-The tall outline has a straight left rail, square outer end corners, and curved shoulders on the right rail that taper toward the left rail at the zero-rate notch. The four `1` and `2` numerals sit **inside** the outline, between the tick ends and right rail. Positive rates are above the notch and negative rates below it. Each numbered unit is 1,000 feet per minute; intermediate ticks are 500 feet per minute. The numeric readout below the scale retains the signed FPM value.
+The tall outline has a straight left rail, square outer end corners, and curved shoulders on the right rail that taper toward the left rail at the zero-rate notch. The four `1` and `2` numerals (18 reference units, the Secondary floor) sit **inside** the outline, between the tick ends and right rail. Positive rates are above the notch and negative rates below it. Each numbered unit is 1,000 feet per minute; intermediate ticks are 500 feet per minute. The caption **VS FPM** sits above the scale and the signed readout (24 units) below it, the same caption and number format as the Digital VS column.
 
 The pointer is a detached left-pointing triangle plus a filled rounded rectangular body. At zero it sits in the notch like the reference. Away from zero, its horizontal location follows the outside contour so that its body and arrow do not pass over the interior numerals. The contour and its slope are continuous at the rounded shoulders; the indicator does not step sideways at those transitions.
 
@@ -18,7 +18,7 @@ These close-ups are **actual Unity renders of an isolated test instrument** at 0
 
 ## Behavior retained
 
-The flight-data mapping is unchanged. A 1,000-FPM rate maps to 60 local units and the pointer range remains ±2,000 FPM. Beyond that range, only the pointer position is clamped; the numeric text still shows the actual rate and `OFF SCALE`. Missing, stale or non-finite data removes the live pointer and shows `NO DATA` rather than implying level flight.
+The flight-data mapping is unchanged. A 1,000-FPM rate maps to 60 local units and the pointer range remains ±2,000 FPM. Beyond that range, only the pointer position is clamped; the numeric text still shows the actual rate and `OFF SCALE`. The readout uses the Digital rule (`FaaEngineInstrumentGraphic.FormatVerticalSpeed`): 50 FPM resolution so it does not flicker, a true minus sign (U+2212) and an unsigned zero, for example `+1350`, `−650`, `0`; off scale it still shows the actual rate (for example a slightly smaller `OFF SCALE` line above `+3000`). While a side panel is inspected the readout keeps the awareness intensity and the scale dims with the forward HUD. Missing, stale or non-finite data removes the live pointer, dims the scale and shows an amber `NO DATA` rather than implying level flight. Geometry, numerals and pointer are unchanged.
 
 The existing frame-time-based needle animation, reduced-motion option, per-version size preferences, manual size controls and multi-finger group resizing remain in place. This revision does not scale conformal scene cues or move the radar/settings panels.
 

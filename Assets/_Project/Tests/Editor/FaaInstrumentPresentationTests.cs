@@ -100,17 +100,23 @@ namespace FAA.Customization.Tests
         public void EngineValues_RequireBothFreshFeedAndFieldValidity(bool healthy, bool valid, float value, bool expected) =>
             Assert.That(Call(Engine, "IsUsable", healthy, valid, value), Is.EqualTo(expected));
 
-        [TestCase(89.24f, true, "89.2")]
-        [TestCase(0f, true, "0.0")]
-        [TestCase(0f, false, "—")]
+        // Integer TQ/NR/N2 (rotorcraft EICAS resolution) and one column-wide invalid glyph; values above the scale stay true.
+        [TestCase(89.24f, true, "89")]
+        [TestCase(0f, true, "0")]
+        [TestCase(0f, false, "---")]
+        [TestCase(float.NaN, true, "---")]
+        [TestCase(135.4f, true, "135")]
         public void EngineDigits_DoNotTurnMissingDataIntoZero(float value, bool valid, string expected) =>
             Assert.That(Call(Engine, "FormatPercent", value, valid), Is.EqualTo(expected));
 
-        [TestCase(-126f, true, "-130")]
+        // 50 fpm resolution, true minus sign (U+2212), unsigned zero, never clamped to the scale.
+        [TestCase(-126f, true, "−150")]
         [TestCase(0f, true, "0")]
-        [TestCase(1234f, true, "+1230")]
+        [TestCase(-20f, true, "0")]
+        [TestCase(1234f, true, "+1250")]
         [TestCase(3200f, true, "+3200")]
-        [TestCase(0f, false, "—")]
+        [TestCase(0f, false, "---")]
+        [TestCase(float.PositiveInfinity, true, "---")]
         public void VerticalSpeed_IsSignedAndDoesNotClampTheNumericValue(float value, bool valid, string expected) =>
             Assert.That(Call(Engine, "FormatVerticalSpeed", value, valid), Is.EqualTo(expected));
 

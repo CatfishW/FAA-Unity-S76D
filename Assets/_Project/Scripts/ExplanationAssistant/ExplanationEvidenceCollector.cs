@@ -30,6 +30,9 @@ namespace FAA.Explanations
             // Use the controller wired to the displayed radar, never a dormant duplicate feed.
             var traffic = radar != null ? radar.TrafficController : null;
             var weather = Find<XPlaneOriginalWeatherRadarDisplay>();
+            var weatherProvider = Find<XPlaneOriginalWeatherRadarProvider>();
+            // Synthetic training cells (simulator fallback) are never described as X-Plane weather.
+            bool trainingWeather = IsTrainingWeather(weather != null && weather.IsTrainingTexture, weatherProvider != null && weatherProvider.LastPublishWasSimulatorFallback);
             var weatherSettings = Find<WeatherRadarDataProvider>()?.RadarData;
             var chart = radar != null ? radar.ChartProvider : null;
             bool live = Application.isPlaying && bridge != null && bridge.IsFeedHealthy;
@@ -155,8 +158,9 @@ namespace FAA.Explanations
                     ["explanation"] = TurbulenceEvidence.Explanation(raw?.Weather, live),
                     ["limitations"] = "This integration supplies no measured spatial turbulence scan. Regional simulator settings do not locate turbulence; precipitation is not turbulence. Missing samples are not zero or clear air."
                 },
-                ["weather_spatial_source"] = weather == null ? "unavailable" : weather.IsProceduralTexture ? "SIM WX · illustrative synthesized spatial returns" : "provider image · measurement provenance not independently verified",
-                ["limitations"] = "Display and marker switches control local visibility only; they do not command simulator power. Unknown power stays null. SIM WX is not measured storm geometry."
+                ["weather_spatial_source"] = WeatherSourceDescription(weather != null, trainingWeather, weather != null && weather.IsProceduralTexture),
+                ["weather_is_synthetic_training"] = trainingWeather,
+                ["limitations"] = "Display and marker switches control local visibility only; they do not command simulator power. Unknown power stays null. SIM WX is not measured storm geometry. Synthetic training cells are generated locally when no X-Plane weather picture is available; they are not X-Plane weather and say nothing about real or simulated storms."
             };
             snapshot.Add("read_display_status", "Displays & screen cues", "FaaRadarPresentation · indicator controller · weather display", "LOCAL STATE AT CAPTURE", status, 0);
 
@@ -187,10 +191,22 @@ namespace FAA.Explanations
                 chart != null && chart.IsUsingProceduralFallback ? "PROCEDURAL FALLBACK" : "RASTER / UNVERIFIED CONTENT",
                 "North-up source crop at captured UV extent. Does not include traffic symbols, rotation, circular mask or HUD. Effective chart date unknown. Image interpretation/OCR is not authoritative.", chart != null ? chart.SecondsSinceLastSuccess : (double?)null);
             CaptureImage(snapshot, "inspect_weather_image", "Weather image", weather != null ? weather.CurrentTexture : null, new Rect(0, 0, 1, 1),
-                weather != null && weather.IsProceduralTexture ? "ILLUSTRATIVE SIM WX" : "PROVIDER IMAGE / PROVENANCE UNVERIFIED",
-                "Source texture, not a whole-screen screenshot. SIM WX spatial returns are synthesized, not detected storm locations; do not infer real hazards or clear sectors.", weather != null && weather.HasUsableTexture ? Math.Max(0, Time.realtimeSinceStartup - weather.LastTextureRealtime) : (double?)null);
+                trainingWeather ? "SYNTHETIC TRAINING CELLS · NOT X-PLANE WEATHER" : weather != null && weather.IsProceduralTexture ? "ILLUSTRATIVE SIM WX" : "PROVIDER IMAGE / PROVENANCE UNVERIFIED",
+                trainingWeather
+                    ? "Source texture, not a whole-screen screenshot. These are synthetic training cells generated locally because no X-Plane weather picture is available. They are not X-Plane weather; describe them only as synthetic training cells and never as storms, hazards or clear sectors."
+                    : "Source texture, not a whole-screen screenshot. SIM WX spatial returns are synthesized, not detected storm locations; do not infer real hazards or clear sectors.", weather != null && weather.HasUsableTexture ? Math.Max(0, Time.realtimeSinceStartup - weather.LastTextureRealtime) : (double?)null);
             return snapshot;
         }
+
+        /// <summary>The weather picture is synthetic training cells when either the display texture or the provider says so.</summary>
+        public static bool IsTrainingWeather(bool displayTrainingTexture, bool providerSimulatorFallback) => displayTrainingTexture || providerSimulatorFallback;
+
+        /// <summary>Provenance text for the weather picture handed to the model (synthetic training cells are named as such).</summary>
+        public static string WeatherSourceDescription(bool displayPresent, bool training, bool procedural) =>
+            !displayPresent ? "unavailable" :
+            training ? "synthetic training cells · local simulator fallback, not X-Plane weather" :
+            procedural ? "SIM WX · illustrative synthesized spatial returns" :
+            "provider image · measurement provenance not independently verified";
 
         private static void AddValue(JObject data, IDictionary<string, float> source, string label, string dataref, double multiplier = 1)
         {

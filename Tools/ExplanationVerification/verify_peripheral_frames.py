@@ -39,6 +39,13 @@ def main():
                 assert all(m['box'] for m in samples)
                 spans=[max(m['box'][i] for m in samples)-min(m['box'][i] for m in samples) for i in range(4)]
                 reports.append({'phase':phase,'module':name,'xywh_peak_to_peak_pixels':spans,'passed':max(spans)<.25})
+        # Desktop inspection zoom (phase 4 inspects Hand Studio): the view narrows while inspecting and the exact base FOV is
+        # restored after FORWARD (phase 5). Native XR never zooms, so the check only applies when the FOV changed at all.
+        p4=[r for r in rows if r['phase']==4];p5=[r for r in rows if r['phase']==5]
+        zoomed=bool(p4) and p4[-1].get('fov',0)<p4[-1].get('baseFov',0)-.5
+        restored=bool(p5) and abs(p5[-1].get('fov',0)-p5[-1].get('baseFov',-1))<1e-4
+        reports.append({'phase':4,'module':'inspection-zoom','zoomed':zoomed,'restored':restored,'passed':restored,
+                        'xywh_peak_to_peak_pixels':[0,0,0,0]})
         states={tuple((c['name'],c['mode'],c['planeDistance']) for c in r['canvases']) for r in rows}
         clearance=min(p['minCornerAngle'] for r in rows for p in r['panels'])
         report={'measured_render_samples':len(rows),'observed_frames':480,'phases':6,

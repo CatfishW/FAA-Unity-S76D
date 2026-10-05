@@ -14,6 +14,10 @@ Shader "TrafficRadar/CircularRadarMask"
         _MaskCenter ("Mask Center (UV)", Vector) = (0.5, 0.5, 0, 0)
         _MaskRadius ("Mask Radius (UV)", Vector) = (0.5, 0.5, 0, 0)
         _UseFixedMask ("Use Fixed Mask", Float) = 0
+        // Chart presentation (traffic-first scope): 1/1 leaves the texture unchanged (radar overlay, backdrop disc).
+        // The sectional chart uses low saturation and brightness so it reads as grey context under cyan traffic.
+        _Saturation ("Saturation", Range(0, 1)) = 1
+        _Brightness ("Brightness", Range(0, 1)) = 1
 
         _StencilComp ("Stencil Comparison", Float) = 8
         _Stencil ("Stencil ID", Float) = 0
@@ -90,6 +94,8 @@ Shader "TrafficRadar/CircularRadarMask"
             float4 _MaskCenter;
             float4 _MaskRadius;
             float _UseFixedMask;
+            float _Saturation;
+            float _Brightness;
             
             v2f vert(appdata_t v)
             {
@@ -122,6 +128,8 @@ Shader "TrafficRadar/CircularRadarMask"
                 
                 // Sample texture
                 half4 color = (tex2D(_MainTex, IN.texcoord) + _TextureSampleAdd) * IN.color;
+                half luminance = dot(color.rgb, half3(0.2126, 0.7152, 0.0722));
+                color.rgb = lerp(half3(luminance, luminance, luminance), color.rgb, _Saturation) * _Brightness;
                 // Never stretch the last tile's edge into uncharted territory
                 // while a wider range or new mosaic is loading.
                 float coverage = step(0.0, IN.texcoord.x) * step(IN.texcoord.x, 1.0)

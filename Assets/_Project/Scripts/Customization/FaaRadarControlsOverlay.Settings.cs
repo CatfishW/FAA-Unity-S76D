@@ -9,19 +9,26 @@ namespace FAA.Customization
     public partial class FaaRadarControlsOverlay
     {
         public const float SettingsPanelWidth = 476f;
-        public const float SettingsPanelHeight = 276f;
+        public const float SettingsPanelHeight = 288f;
+        /// <summary>Every settings text is at least the FAA minimum (15 reference units, about 16 arcmin).</summary>
+        private const float CaptionFont = FaaRadarVisualStyle.MinimumFont, ButtonFont = FaaRadarVisualStyle.MinimumFont,
+            ValueFont = 17f, HelpFont = FaaRadarVisualStyle.MinimumFont, TitleFont = 16f;
         private const float ReadableFocusWidth = 796f;
         private const float ReadableFocusHeight = 110f;
         private const float SettingWidth = 222f;
-        private const string SettingsHint = "Choose a setting. Changes apply immediately; tap the radar again to close.";
+        private const string SettingsHint = "Changes apply immediately. Close or tap the radar to hide these settings.";
+        /// <summary>The traffic tag legend lives here, not as a permanent box on the scope (RDR-05).</summary>
+        private const string TrafficTagLegend = "Tags: hundreds of feet above (+) or below (−). Arrow: climbing or descending 500 fpm or more.";
         private const string FocusHint = "Drag to browse; release to return to your aircraft. Use Restore HUD to leave the map.";
         private int _weatherSettingsPage, _trafficSettingsPage;
         private readonly System.Collections.Generic.Dictionary<RectTransform, int> _builtSettingsPages = new();
         private TMP_Text _weatherHelp, _trafficHelp, _trafficSourceText;
-        private TMP_Text _weatherPowerCaption, _trafficChartCaption, _trafficBackgroundCaption;
+        private TMP_Text _weatherPowerCaption, _trafficChartCaption, _trafficBackgroundCaption, _trafficBandText;
+        private string _pageHint = SettingsHint;
 
+        /// <summary>2-D overlay dock: directly left of the traffic scope (one tap opens only this drawer).</summary>
         public static Vector2 CalculateTrafficSettingsDock(Vector2 rootPosition, float rootWidth) =>
-            new Vector2(rootPosition.x - rootWidth - 284f - 32f, Mathf.Max(16f, rootPosition.y));
+            new Vector2(rootPosition.x - rootWidth - 24f, Mathf.Max(16f, rootPosition.y));
 
         public void SelectSettingsPage(FaaRadarKind kind, int page)
         {
@@ -47,16 +54,23 @@ namespace FAA.Customization
                 _builtSettingsPages[root] = page;
             }
 
+            // Instructions are not repeated on screen: an explicit Close control replaces "tap radar again".
+            var closeHint = root.Find("Close Hint");
+            if (closeHint != null) closeHint.gameObject.SetActive(false);
+            _pageHint = focused ? FocusHint : title.StartsWith("TRAFFIC") && page == 0 ? TrafficTagLegend : SettingsHint;
+            var existing = root.Find("Help")?.GetComponent<TMP_Text>();
+            string message = !changed && existing != null && !string.IsNullOrWhiteSpace(existing.text) ? existing.text : _pageHint;
+            help = SettingsText(root, "Help", message, HelpFont, new Vector2(14, focused ? 74 : 238),
+                new Vector2(strip.sizeDelta.x - 28, focused ? 34 : 46), SecondaryTextColor);
+            help.textWrappingMode = TextWrappingModes.Normal;
+            help.overflowMode = TextOverflowModes.Overflow;
             if (!focused)
             {
-                SettingsText(root, "Panel Title", title, 14f, new Vector2(14, 10), new Vector2(230, 22), PrimaryTextColor, true);
-                SettingsText(root, "Close Hint", "Tap radar again to close", 10.5f, new Vector2(260, 10), new Vector2(202, 22), SecondaryTextColor);
+                SettingsText(root, "Panel Title", title, TitleFont, new Vector2(14, 8), new Vector2(260, 26), PrimaryTextColor, true);
+                FaaRadarKind kind = title.StartsWith("WEATHER") ? FaaRadarKind.Weather : FaaRadarKind.Traffic;
+                SettingButtonAt(root, (kind == FaaRadarKind.Weather ? "WX" : "TCAS") + "SettingsClose", "Close",
+                    () => SetRadarConfigurationVisible(kind, false), SettingsPanelWidth - 86f, 4f, 72f, 32f, help, "Close these settings.");
             }
-            var existing = root.Find("Help")?.GetComponent<TMP_Text>();
-            string message = !changed && existing != null && !string.IsNullOrWhiteSpace(existing.text) ? existing.text : focused ? FocusHint : SettingsHint;
-            help = SettingsText(root, "Help", message, 11f, new Vector2(14, focused ? 79 : 242),
-                new Vector2(strip.sizeDelta.x - 28, 28), SecondaryTextColor);
-            help.textWrappingMode = TextWrappingModes.Normal;
             return root;
         }
 
@@ -83,10 +97,10 @@ namespace FAA.Customization
         private RectTransform SettingCard(RectTransform parent, string name, int slot, string caption, out TMP_Text captionText)
         {
             var card = SettingsRect(parent, name);
-            Place(card, new Vector2(12 + slot % 2 * 230, 82 + slot / 2 * 78), new Vector2(SettingWidth, 72));
+            Place(card, new Vector2(12 + slot % 2 * 230, 80 + slot / 2 * 78), new Vector2(SettingWidth, 72));
             FaaRadarVisualStyle.ApplyRounded(Component<Image>(card.gameObject), new Color(.025f, .075f, .09f, 1f), 9);
             card.GetComponent<Image>().raycastTarget = false;
-            captionText = SettingsText(card, "Setting Name", caption, 12f, new Vector2(10, 5), new Vector2(202, 20), SecondaryTextColor);
+            captionText = SettingsText(card, "Setting Name", caption, CaptionFont, new Vector2(10, 4), new Vector2(202, 22), SecondaryTextColor);
             return card;
         }
 
@@ -95,7 +109,7 @@ namespace FAA.Customization
         {
             var card = SettingCard(root, prefix + "Group", slot, caption, out _);
             SettingButtonAt(card, prefix + "Down", minus, down, 10, 29, 42, 34, help, decreaseHint);
-            var value = SettingsText(card, prefix + "Value", "—", 16f, new Vector2(56, 29), new Vector2(110, 34), PrimaryTextColor, true);
+            var value = SettingsText(card, prefix + "Value", "—", ValueFont, new Vector2(56, 29), new Vector2(110, 34), PrimaryTextColor, true);
             value.alignment = TextAlignmentOptions.Center;
             SettingButtonAt(card, prefix + "Up", plus, up, 170, 29, 42, 34, help, increaseHint);
             return value;
@@ -116,7 +130,7 @@ namespace FAA.Customization
             {
                 _weatherRangeText = StepSetting(root, "WXRange", 0, "Range · nautical miles", WeatherRangeDown, WeatherRangeUp, _weatherHelp,
                     "Reduce the displayed weather range, in nautical miles.", "Increase the displayed weather range, in nautical miles.");
-                _weatherModeText = ChoiceSetting(root, "WXModeGroup", "WXModeCycle", 1, "Radar mode · tap to change", "Weather", CycleWeatherMode,
+                _weatherModeText = ChoiceSetting(root, "WXModeGroup", "WXModeCycle", 1, "Radar mode", "Weather", CycleWeatherMode,
                     _weatherHelp, "Cycle weather, weather + turbulence, turbulence, ground map and standby modes.", out _);
                 _weatherTiltText = StepSetting(root, "WXTilt", 2, "Antenna tilt · degrees", WeatherTiltDown, WeatherTiltUp, _weatherHelp,
                     "Lower antenna tilt by 0.5°. Negative tilt points below the horizon.", "Raise antenna tilt by 0.5°. Positive tilt points above the horizon.", "−", "+");
@@ -130,11 +144,22 @@ namespace FAA.Customization
                 _weatherSizeText = StepSetting(root, "WXSize", 1, "Instrument size · pixels", WeatherSizeDown, WeatherSizeUp, _weatherHelp,
                     "Make the weather instrument smaller. This does not change its range.", "Make the weather instrument larger. This does not zoom the weather.");
                 ChoiceSetting(root, "WXRefreshGroup", "WXRefresh", 2, "Weather data", "Refresh picture", RefreshWeatherTexture,
-                    _weatherHelp, "Request a fresh weather picture from the current data source.", out _);
-                var info = SettingCard(root, "WXDisplayInfo", 3, "Display is not transmitter power", out _);
-                var note = SettingsText(info, "Note", "The simulator connection stays active\nwhen the local picture is hidden.", 11f,
-                    new Vector2(10, 29), new Vector2(202, 35), SecondaryTextColor);
-                note.textWrappingMode = TextWrappingModes.Normal;
+                    _weatherHelp, "Request a fresh picture from the current source. Training cells are never swapped in while X-Plane data is live.", out _);
+                // The colour key lives here, off the instrument face (RDR-14).
+                var info = root.Find("WXDisplayInfo");
+                if (info != null) info.gameObject.SetActive(false);
+                var key = SettingCard(root, "WXColorKey", 3, "Color key · intensity", out _);
+                for (int level = 1; level <= WeatherRadarPalette.MaxLevel; level++)
+                {
+                    float x = 10f + (level - 1) % 2 * 100f, y = 27f + (level - 1) / 2 * 20f;
+                    var swatch = SettingsRect(key, "Swatch " + level);
+                    Place(swatch, new Vector2(x, y + 3f), new Vector2(14f, 14f));
+                    var image = Component<Image>(swatch.gameObject);
+                    image.color = WeatherRadarPalette.ForLevel(level);
+                    image.raycastTarget = false;
+                    SettingsText(key, "Level " + level, WeatherRadarPalette.LevelName(level), CaptionFont,
+                        new Vector2(x + 19f, y), new Vector2(78f, 20f), PrimaryTextColor);
+                }
             }
         }
 
@@ -152,35 +177,42 @@ namespace FAA.Customization
             {
                 _trafficRangeText = StepSetting(root, "TCASRange", 0, "Range · nautical miles", TrafficRangeDown, TrafficRangeUp, _trafficHelp,
                     "Reduce radar range. A manual range adjustment turns auto range off.", "Increase radar range. A manual range adjustment turns auto range off.");
-                _trafficAutoText = ChoiceSetting(root, "TCASAutoGroup", "TCASAutoToggle", 1, "Range mode · tap to switch", "Automatic",
-                    ToggleTrafficAutoRange, _trafficHelp, "Automatic fits nearby traffic; Manual keeps the range you select.", out _);
-                _trafficMaxText = StepSetting(root, "TCASMax", 2, "Traffic symbol limit · aircraft", TrafficMaxTargetsDown, TrafficMaxTargetsUp,
-                    _trafficHelp, "Show up to five fewer aircraft symbols. This limits the displayed list; it does not remove source traffic.",
-                    "Show up to five more aircraft symbols. This is a display limit, not the detected traffic count.");
+                _trafficAutoText = ChoiceSetting(root, "TCASAutoGroup", "TCASAutoToggle", 1, "Range mode", "Automatic",
+                    ToggleTrafficAutoRange, _trafficHelp, "Automatic frames the nearest traffic (5 to 40 NM); Manual keeps the range you select.", out _);
+                var oldMax = root.Find("TCASMaxGroup");
+                if (oldMax != null && _trafficSettingsPage == 0) oldMax.gameObject.SetActive(false);
+                _trafficBandText = ChoiceSetting(root, "TCASBandGroup", "TCASBandCycle", 2, "Altitude band · feet", "Normal ±2700",
+                    CycleTrafficAltitudeBand, _trafficHelp,
+                    "Normal shows ±2700 ft; Above and Below extend one side to 9900 ft. Advisory traffic is always shown.", out _);
                 _trafficFullscreenText = ChoiceSetting(root, "TCASViewGroup", "TCASFullscreenToggle", 3, "Map workspace", "Open full map",
                     ToggleTrafficFullscreen, _trafficHelp, "Maximize the map for browsing and confirmed navigation-target setup.", out _);
             }
             else if (_trafficSettingsPage == 1)
             {
-                _trafficSourceText = ChoiceSetting(root, "TCASSourceGroup", "TCASSourceCycle", 0, "Map source · tap to change", "Sectional chart",
+                _trafficSourceText = ChoiceSetting(root, "TCASSourceGroup", "TCASSourceCycle", 0, "Map source", "Sectional chart",
                     CycleTrafficMapSource, _trafficHelp, "Cycle the available chart and street-map sources. The current map stays visible while loading.", out _);
-                _trafficModeText = ChoiceSetting(root, "TCASOrientationGroup", "TCASTrackToggle", 1, "Orientation · tap to switch", "Track up",
+                _trafficModeText = ChoiceSetting(root, "TCASOrientationGroup", "TCASTrackToggle", 1, "Orientation", "Track up",
                     ToggleTrafficTrackMode, _trafficHelp, "Track up keeps your flight direction at the top. North up keeps north at the top.", out _);
                 _trafficOpacityText = StepSetting(root, "TCASOpacity", 2, "Chart opacity · percent", TrafficOpacityDown, TrafficOpacityUp, _trafficHelp,
-                    "Make the chart more transparent by 10 percentage points.", "Make the chart more opaque by 10 percentage points.");
+                    "Make the chart more transparent by 10 percentage points.",
+                    "Make the chart more opaque by 10 percentage points, up to 25% so traffic stays dominant.");
                 _trafficChartText = ChoiceSetting(root, "TCASChartGroup", "TCASChartToggle", 3, "Chart layer · visible", "Hide chart", ToggleTrafficChart,
-                    _trafficHelp, "Hide or restore the chart layer without hiding traffic symbols.", out _trafficChartCaption);
+                    _trafficHelp, "Hide or restore the chart layer without hiding traffic. The chart is shown out to 40 NM only.", out _trafficChartCaption);
             }
             else
             {
-                _trafficRingsText = StepSetting(root, "TCASRings", 0, "Range guides · ring count", TrafficRingsDown, TrafficRingsUp, _trafficHelp,
+                _trafficRingsText = StepSetting(root, "TCASRings", 0, "Range rings · count", TrafficRingsDown, TrafficRingsUp, _trafficHelp,
                     "Remove one range ring. This does not change radar range.", "Add one range ring. This does not change radar range.");
                 _trafficBackgroundText = ChoiceSetting(root, "TCASBackgroundGroup", "TCASBackgroundToggle", 1, "Dark backdrop · visible", "Hide backdrop",
                     ToggleTrafficBackground, _trafficHelp, "Toggle the dark contrast plate behind the radar. The chart has a separate visibility control.", out _trafficBackgroundCaption);
                 _trafficSizeText = StepSetting(root, "TCASSize", 2, "Instrument size · pixels", TrafficSizeDown, TrafficSizeUp, _trafficHelp,
                     "Make the compact traffic instrument smaller; map range stays unchanged.", "Make the compact traffic instrument larger; map range stays unchanged.");
-                ChoiceSetting(root, "TCASRefreshGroup", "TCASRefresh", 3, "Traffic data", "Refresh traffic", RefreshTraffic,
-                    _trafficHelp, "Request an updated traffic list from the connected provider.", out _);
+                // Traffic refreshes automatically; the declutter limit takes this slot (advisories are never dropped).
+                var oldRefresh = root.Find("TCASRefreshGroup");
+                if (oldRefresh != null) oldRefresh.gameObject.SetActive(false);
+                _trafficMaxText = StepSetting(root, "TCASMax", 3, "Symbol limit · aircraft", TrafficMaxTargetsDown, TrafficMaxTargetsUp,
+                    _trafficHelp, "Show up to five fewer non-threat symbols. Advisory and proximate traffic is always shown.",
+                    "Show up to five more aircraft symbols. Advisory and proximate traffic is always shown.");
             }
         }
 
@@ -190,7 +222,7 @@ namespace FAA.Customization
             _trafficFocusSourceText = FocusChoice(root, "TCASFocusSource", 12, 200, "Map source · change", "Sectional chart", CycleTrafficMapSource,
                 "Switch the active chart or street-map source.");
             _trafficFocusOpacityText = FocusStep(root, "TCASFocusOpacity", 220, 154, "Chart opacity", TrafficOpacityDown, TrafficOpacityUp,
-                "Make the chart more transparent.", "Make the chart more opaque.");
+                "Make the chart more transparent.", "Make the chart more opaque (25% maximum).");
             _trafficFocusRangeText = FocusStep(root, "TCASFocusZoom", 382, 154, "Map range · NM", TrafficSizeUp, TrafficSizeDown,
                 "Decrease range: zoom in for more chart detail.", "Increase range: zoom out to show a wider area.");
             FocusChoice(root, "TCASFocusRecenter", 544, 114, "Map position", "Center aircraft", RecenterTrafficMap, "Return the map center to your aircraft.");
@@ -199,13 +231,13 @@ namespace FAA.Customization
 
         private TMP_Text FocusChoice(RectTransform root, string name, float x, float width, string caption, string text, UnityAction action, string explanation)
         {
-            SettingsText(root, name + "Caption", caption, 11f, new Vector2(x, 10), new Vector2(width, 22), SecondaryTextColor);
+            SettingsText(root, name + "Caption", caption, CaptionFont, new Vector2(x, 8), new Vector2(width, 24), SecondaryTextColor);
             return GetButtonLabel(SettingButtonAt(root, name, text, action, x, 34, width, 36, _trafficHelp, explanation));
         }
 
         private TMP_Text FocusStep(RectTransform root, string name, float x, float width, string caption, UnityAction down, UnityAction up, string downHint, string upHint)
         {
-            SettingsText(root, name + "Caption", caption, 11f, new Vector2(x, 10), new Vector2(width, 22), SecondaryTextColor);
+            SettingsText(root, name + "Caption", caption, CaptionFont, new Vector2(x, 8), new Vector2(width, 24), SecondaryTextColor);
             SettingButtonAt(root, name + "Down", "−", down, x, 34, 34, 36, _trafficHelp, downHint);
             var value = SettingsText(root, name + "Value", "—", 15f, new Vector2(x + 37, 34), new Vector2(width - 74, 36), PrimaryTextColor, true);
             value.alignment = TextAlignmentOptions.Center;
@@ -231,7 +263,7 @@ namespace FAA.Customization
             var element = button.GetComponent<LayoutElement>();
             element.preferredHeight = element.minHeight = height;
             var label = GetButtonLabel(button);
-            label.fontSize = 14f;
+            label.fontSize = ButtonFont;
             label.fontStyle = FontStyles.Normal;
             label.overflowMode = TextOverflowModes.Ellipsis;
             label.faceColor = Color.white;
@@ -239,7 +271,7 @@ namespace FAA.Customization
             var motion = button.GetComponent<FaaRadarButtonMotion>();
             motion.Configure(reducedMotion, 1.015f);
             bool focusedHelp = help == _trafficHelp && _trafficDisplay != null && _trafficDisplay.IsFullscreen;
-            Component<FaaRadarControlHint>(button.gameObject).Configure(help, explanation, focusedHelp ? FocusHint : SettingsHint);
+            Component<FaaRadarControlHint>(button.gameObject).Configure(help, explanation, focusedHelp ? FocusHint : _pageHint);
             return button;
         }
 
@@ -318,6 +350,7 @@ namespace FAA.Customization
             SetText(_weatherPowerCaption, weatherOn ? "Local display · on" : "Local display · off");
             if (_trafficController != null)
             {
+                SetText(_trafficBandText, TrafficRadar.TrafficAltitudeBands.ReadableLabel(_trafficController.AltitudeBand));
                 SetText(_trafficRangeText, $"{_trafficController.RangeNM:0.#} NM");
                 SetText(_trafficMaxText, $"{_trafficController.MaxTargets} aircraft");
                 SetText(_trafficAutoText, _trafficController.AutoRangeEnabled ? "Automatic" : "Manual");
@@ -327,7 +360,9 @@ namespace FAA.Customization
             {
                 SetText(_trafficModeText, _trafficDisplay.TrackUpModeEnabled ? "Track up" : "North up");
                 SetText(_trafficChartText, _trafficDisplay.ChartBackgroundVisible ? "Hide chart" : "Show chart");
-                SetText(_trafficChartCaption, _trafficDisplay.ChartBackgroundVisible ? "Chart layer · visible" : "Chart layer · hidden");
+                SetText(_trafficChartCaption, !_trafficDisplay.ChartBackgroundVisible ? "Chart layer · hidden"
+                    : _trafficDisplay.ChartAvailable ? "Chart layer · visible"
+                    : _trafficDisplay.RangeNM > TrafficRadar.TrafficRadarDisplay.ChartMaxRangeNM ? "Chart layer · max 40 NM" : "Chart layer · no coverage");
                 SetText(_trafficBackgroundText, _trafficDisplay.ShowRadarBackground ? "Hide backdrop" : "Show backdrop");
                 SetText(_trafficBackgroundCaption, _trafficDisplay.ShowRadarBackground ? "Dark backdrop · visible" : "Dark backdrop · hidden");
                 SetText(_trafficRingsText, $"{_trafficDisplay.RangeRingCount} rings");

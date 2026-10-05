@@ -203,12 +203,12 @@ namespace FAA.Customization.Tests
                 Assert.That(torqueLeft.gameObject.layer, Is.EqualTo(31),
                     "Authored readouts must inherit the headset HUD capture layer when configured.");
                 Assert.That(torqueRight.gameObject.layer, Is.EqualTo(31));
-                Assert.That(GetTmpTextValue(torqueLeft), Is.EqualTo("060"));
-                Assert.That(GetTmpTextValue(torqueRight), Is.EqualTo("091"));
+                Assert.That(GetTmpTextValue(torqueLeft), Is.EqualTo("60"), "Engine percentages carry no leading zero.");
+                Assert.That(GetTmpTextValue(torqueRight), Is.EqualTo("91"));
 
                 torqueType.GetMethod("SetTorqueData")?.Invoke(
                     torque, new object[] { 100f, true, 30f, true });
-                Assert.That(GetTmpTextValue(torqueLeft), Is.EqualTo("060"),
+                Assert.That(GetTmpTextValue(torqueLeft), Is.EqualTo("60"),
                     "The number must use the same smoothed value as the pointer, not jump to a new API sample.");
                 torqueType.GetMethod("SetEngineCount")?.Invoke(torque, new object[] { 1 });
                 Assert.That(torqueLeft.gameObject.activeSelf, Is.True);
@@ -235,7 +235,7 @@ namespace FAA.Customization.Tests
                 Assert.That(rpmLeft.gameObject.layer, Is.EqualTo(31));
                 Assert.That(rpmRight.gameObject.layer, Is.EqualTo(31));
                 Assert.That(GetTmpTextValue(rpmCenter), Is.EqualTo("100"));
-                Assert.That(GetTmpTextValue(rpmLeft), Is.EqualTo("088"));
+                Assert.That(GetTmpTextValue(rpmLeft), Is.EqualTo("88"));
                 Assert.That(GetTmpTextValue(rpmRight), Is.EqualTo("---"),
                     "Unavailable X-Plane channels must not present a false zero.");
 

@@ -14,6 +14,12 @@ namespace FAA.Customization
         public bool Engine1Valid, Engine2Valid;
         public float Engine1Torque, Engine2Torque;
         public string RollMode, PitchMode, RollArmed, PitchArmed, Coupling;
+        /// <summary>Autopilot heading bug (degrees magnetic) when the simulator publishes it.</summary>
+        public bool SelectedHeadingValid, CouplingValid;
+        public float SelectedHeadingMag, MagneticVariation;
+        /// <summary>Height above ground (feet) when the source publishes it; used only for the airborne estimate of low-rotor alerting.</summary>
+        public bool HeightAboveGroundValid;
+        public float HeightAboveGround;
 
         public static bool Finite(float value) => !float.IsNaN(value) && !float.IsInfinity(value);
         public static bool Try(IDictionary<string,float> source, string key, out float value)
@@ -56,16 +62,22 @@ namespace FAA.Customization
             if(Try(systems,"sim/cockpit/autopilot/autopilot_state",out float raw)&&raw>=0&&raw<16777216)
                 DecodeModes((int)raw,out s.RollMode,out s.PitchMode,out s.RollArmed,out s.PitchArmed);
             if(First(systems,out float mode,"sim/cockpit2/autopilot/flight_director_mode","sim/cockpit/autopilot/autopilot_mode"))
-                s.Coupling=mode>=2?"CPL":mode>=1?"FD":"AP OFF";
+            {s.Coupling=mode>=2?"CPL":mode>=1?"FD":"AP OFF";s.CouplingValid=true;}
+            s.SelectedHeadingValid=First(systems,out s.SelectedHeadingMag,"sim/cockpit2/autopilot/heading_dial_deg_mag_pilot","sim/cockpit/autopilot/heading_mag")
+                &&s.SelectedHeadingMag>=-360f&&s.SelectedHeadingMag<=720f;
+            if(s.SelectedHeadingValid)s.SelectedHeadingMag=Mathf.Repeat(s.SelectedHeadingMag,360f);
+            s.MagneticVariation=Finite(data.magneticVariation)?data.magneticVariation:0f;
+            s.HeightAboveGroundValid=data.altitudeAGLValid&&Finite(data.altitudeAGL);s.HeightAboveGround=s.HeightAboveGroundValid?data.altitudeAGL:0f;
             return s;
         }
         // X-Plane documented autopilot_state bit field (read only). Collective modes are NOT inferred from pitch/throttle modes.
+        // An armed mode is reported only when it differs from the active mode (AC 25.1329-1C: never "NAV / NAV ARM").
         public static void DecodeModes(int bits,out string roll,out string pitch,out string rollArmed,out string pitchArmed)
         {
             roll=(bits&524288)!=0?"GPSS":(bits&4194304)!=0?"TRK":(bits&1048576)!=0?"HDG HLD":(bits&512)!=0?"NAV":(bits&2)!=0?"HDG":(bits&4)!=0?"ROLL":(bits&32768)!=0?"TO/GA":"--";
             pitch=(bits&2048)!=0?"G/S":(bits&16384)!=0?"ALT":(bits&16)!=0?"VS":(bits&8388608)!=0?"FPA":(bits&262144)!=0?"VNAV":(bits&64)!=0?"FLC":(bits&8)!=0?"IAS":(bits&128)!=0?"PITCH":(bits&65536)!=0?"TO/GA":"--";
-            rollArmed=(bits&256)!=0?"NAV ARM":"";
-            pitchArmed=(bits&1024)!=0?"G/S ARM":(bits&32)!=0?"ALT ARM":(bits&131072)!=0?"VNAV ARM":"";
+            rollArmed=(bits&256)!=0&&roll!="NAV"?"NAV ARM":"";
+            pitchArmed=(bits&1024)!=0&&pitch!="G/S"?"G/S ARM":(bits&32)!=0&&pitch!="ALT"?"ALT ARM":(bits&131072)!=0&&pitch!="VNAV"?"VNAV ARM":"";
         }
     }
 
@@ -74,6 +86,8 @@ namespace FAA.Customization
         private bool initialized;
         private FaaAnalogFlightSample previous;
         public FaaAnalogFlightSample Display {get;private set;}
+        /// <summary>Filter rate (1/s) for attitude, torque and NR: tau = 40 ms.</summary>
+        public const float ControlResponse=25f;
         public static float Damp(float current,float target,float dt,float response=14f)
         {
             if(!FaaAnalogFlightSample.Finite(target))return current;
@@ -89,13 +103,19 @@ namespace FAA.Customization
             if(!initialized||!target.Fresh||!previous.Fresh||reducedMotion)
             { Display=target;previous=target;initialized=true;return; }
             var old=Display;
+            // Attitude, torque and NR are used for manual control: first-order filter with tau of about 40 ms keeps the total
+            // display lag inside the AC 25-11B 100 ms budget. Readouts that only need jitter removal keep the softer default.
             if(target.AttitudeValid&&previous.AttitudeValid)
-            {d.Pitch=Damp(old.Pitch,target.Pitch,dt,20);d.Roll=DampAngle(old.Roll,target.Roll,dt);d.Heading=DampAngle(old.Heading,target.Heading,dt);}
+            {
+                d.Pitch=Damp(old.Pitch,target.Pitch,dt,ControlResponse);
+                d.Roll=old.Roll+Damp(0,Mathf.DeltaAngle(old.Roll,target.Roll),dt,ControlResponse);
+                d.Heading=old.Heading+Damp(0,Mathf.DeltaAngle(old.Heading,target.Heading),dt,ControlResponse);
+            }
             if(target.SpeedValid&&previous.SpeedValid)d.Speed=Mathf.Abs(target.Speed-old.Speed)>80?target.Speed:Damp(old.Speed,target.Speed,dt);
             if(target.AltitudeValid&&previous.AltitudeValid)d.Altitude=Mathf.Abs(target.Altitude-old.Altitude)>2000?target.Altitude:Damp(old.Altitude,target.Altitude,dt);
             if(target.VerticalSpeedValid&&previous.VerticalSpeedValid)d.VerticalSpeed=Damp(old.VerticalSpeed,target.VerticalSpeed,dt);
-            if(target.TorqueValid&&previous.TorqueValid)d.Torque=Damp(old.Torque,target.Torque,dt);
-            if(target.RpmValid&&previous.RpmValid)d.Rpm=Damp(old.Rpm,target.Rpm,dt);
+            if(target.TorqueValid&&previous.TorqueValid)d.Torque=Damp(old.Torque,target.Torque,dt,ControlResponse);
+            if(target.RpmValid&&previous.RpmValid)d.Rpm=Damp(old.Rpm,target.Rpm,dt,ControlResponse);
             if(target.LocValid&&previous.LocValid)d.Localizer=Damp(old.Localizer,target.Localizer,dt);
             if(target.GsValid&&previous.GsValid)d.Glideslope=Damp(old.Glideslope,target.Glideslope,dt);
             if(target.SlipValid&&previous.SlipValid)d.Slip=Damp(old.Slip,target.Slip,dt);

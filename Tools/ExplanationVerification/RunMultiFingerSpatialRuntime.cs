@@ -50,7 +50,8 @@ try
     float width=settings.Radar.rect.width*settings.Radar.lossyScale.x;w.ResizeUtility("settings",.1f);w.RefreshTransforms();
     check("Settings physical size adjustable independently",settings.Radar.rect.width*settings.Radar.lossyScale.x>width);
     var camera=w.GetPanel("camera-controls");float yaw=camera.Layout.yaw;w.Select("settings");w.PlaceSelected(160,-40);w.RefreshTransforms();
-    check("Settings can be placed behind and below the pilot",settings.Layout.yaw==160&&settings.Layout.elevation==-40&&camera.Layout.yaw==yaw);
+    // Utility panels keep a comfortable elevation (FaaPeripheralPanelLayout.ProtectUtility: -30..+15 deg), so -40 is clamped to -30.
+    check("Settings can be placed behind and below the pilot (comfort-clamped)",settings.Layout.yaw==160&&Mathf.Abs(settings.Layout.elevation+30f)<.01f&&camera.Layout.yaw==yaw);
     w.SetSettingsPage(true);check("Spatial tab hides instrument-size controls",!bigger.gameObject.activeInHierarchy);
     w.SetSettingsPage(false);check("Instrument controls return on its tab",bigger.gameObject.activeInHierarchy);
     var camButtons=w.LaptopCamera.CameraCanvas.GetComponentsInChildren<UnityEngine.UI.Button>(true);
@@ -58,7 +59,10 @@ try
     check("Open-palms recognition mode selectable without opening camera",w.LaptopCamera.GestureMode==FAA.Customization.FaaMultiFingerResize.GestureMode.OpenPalms&&!w.LaptopCamera.CameraActive);
     camButtons.Single(b=>b.name=="Multi Finger Mode").onClick.Invoke();
     check("Any-finger pinch recognition selectable",w.LaptopCamera.GestureMode==FAA.Customization.FaaMultiFingerResize.GestureMode.MultiFingerPinch);
-    check("Native permission and stop controls retained",camButtons.Any(b=>b.name=="Request Camera Permission")&&camButtons.Any(b=>b.name=="Webcam Start Stop"));
+    // START CAMERA also asks macOS for access; the separate permission button is kept (hidden) for older tools, and
+    // OPEN CAMERA SETTINGS appears only when access is denied or restricted.
+    check("One START CAMERA control; no separate permission button in the normal state",camButtons.Any(b=>b.name=="Webcam Start Stop")&&
+        camButtons.Any(b=>b.name=="Camera Privacy Settings")&&!camButtons.Single(b=>b.name=="Request Camera Permission").gameObject.activeSelf);
     var geometry=UnityEngine.Object.FindFirstObjectByType<FAA.Customization.FaaRotorcraftConformalLayer>();var scale=geometry.transform.localScale;var fpa=geometry.SelectedFpaDegrees;
     w.BeginWebcamSizing();w.ApplyWebcamSizing(1.1f);w.RefreshTransforms();w.EndWebcamSizing();
     check("Gesture group resize leaves calibrated conformal geometry unchanged",scale==geometry.transform.localScale&&fpa==geometry.SelectedFpaDegrees);

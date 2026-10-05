@@ -25,7 +25,7 @@ def main():
                  'w.PersistChanges=false;w.SetEditMode(false);w.SetSymbologyVersion(FAA.Customization.FaaSymbologyVersion.Digital);'
                  'w.InspectUtility("settings");w.OpenSymbologySettings();return "Saved test context";')
         started=True
-        time.sleep(.9)
+        time.sleep(.9) # inspection turn (<=0.5 s) and desktop zoom (~0.42 s) settle before clicking
         evaluate('var c=(object[])AppDomain.CurrentDomain.GetData("'+KEY+'");var mouse=UnityEngine.InputSystem.InputSystem.AddDevice<UnityEngine.InputSystem.Mouse>("FAA Symbology Test Mouse");c[7]=mouse;mouse.MakeCurrent();return "Temporary mouse ready";')
         for name,expected in [('Classic Analog Symbology','ClassicAnalog'),('Digital Symbology','Digital')]:
             setup=evaluate('var w=FAA.Customization.FaaSpatialWorkspace.Current;var b=w.SettingsCanvas.GetComponentsInChildren<UnityEngine.UI.Button>().Single(b=>b.name=="'+name+'");'
@@ -45,7 +45,7 @@ def main():
             evaluate('var c=(object[])AppDomain.CurrentDomain.GetData("'+KEY+'");var m=c[7] as UnityEngine.InputSystem.Mouse;if(m!=null)UnityEngine.InputSystem.InputSystem.RemoveDevice(m);'
                      'var original=c[6] as UnityEngine.InputSystem.Mouse;if(original!=null&&original.added)original.MakeCurrent();'
                      'var w=FAA.Customization.FaaSpatialWorkspace.Current;w.SetSymbologyVersion((FAA.Customization.FaaSymbologyVersion)c[4]);w.SetEditMode((bool)c[1]);w.Select((string)c[3]);'
-                     'w.SetSettingsPage(false);if(w.MenuOpen!=(bool)c[2])w.ToggleMenu();w.ReturnToForwardView();'
+                     'w.SetSettingsPage(false);if(w.MenuOpen!=(bool)c[2])w.ToggleMenu();w.ReturnToForwardView();w.View.GetComponent<AircraftControl.Camera.AircraftCameraController>()?.ResetViewImmediate();'
                      'typeof(FAA.Customization.FaaSpatialWorkspace).GetField("dirty",System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Instance).SetValue(w,c[5]);w.PersistChanges=(bool)c[0];'
                      'UnityEngine.InputSystem.InputSystem.settings.editorInputBehaviorInPlayMode=(UnityEngine.InputSystem.InputSettings.EditorInputBehaviorInPlayMode)c[8];'
                      'UnityEngine.InputSystem.InputSystem.settings.backgroundBehavior=(UnityEngine.InputSystem.InputSettings.BackgroundBehavior)c[9];'

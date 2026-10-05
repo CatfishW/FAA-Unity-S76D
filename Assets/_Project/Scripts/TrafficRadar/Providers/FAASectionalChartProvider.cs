@@ -177,6 +177,12 @@ namespace TrafficRadar
             return true;
         }
 
+        /// <summary>True when a UV crop lies inside the 3x3 mosaic. Anything outside would sample clamped
+        /// edge pixels (false straight-line artwork), so the chart must be hidden instead.</summary>
+        public static bool CoversUv(Rect uv) =>
+            !float.IsNaN(uv.xMin) && !float.IsNaN(uv.yMin) && !float.IsNaN(uv.width) && !float.IsNaN(uv.height) &&
+            uv.xMin >= -0.001f && uv.yMin >= -0.001f && uv.xMax <= 1.001f && uv.yMax <= 1.001f;
+
         public static Rect CalculateChartUvRect(float latitude, float longitude, float radiusNM,
             int zoom, int centerTileX, int centerTileY)
         {

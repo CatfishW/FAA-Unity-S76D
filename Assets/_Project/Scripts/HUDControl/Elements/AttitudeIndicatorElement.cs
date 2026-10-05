@@ -86,6 +86,7 @@ namespace HUDControl.Elements
         private float displayedFPVPitch;
         private Vector2 pitchLadderBasePos;
         private Vector2 fpvBasePos;
+        private Vector3 fpvBaseScale = Vector3.one;
         private float calculatedUnitsPerDegree;
         private float ladderHeight;
         private float maskHeight;
@@ -134,6 +135,7 @@ namespace HUDControl.Elements
             if (fpvMarker != null)
             {
                 fpvBasePos = fpvMarker.anchoredPosition;
+                if (fpvMarker.localScale != Vector3.zero) fpvBaseScale = fpvMarker.localScale;
             }
         }
         
@@ -179,7 +181,11 @@ namespace HUDControl.Elements
             // FPV animation
             if (enableFPV && fpvMarker != null)
             {
-                float fpa = CalculateFPA(state);
+                // No computable flight path (low speed / invalid): hide the marker instead of showing a frozen 0 deg FPA.
+                bool available = TryCalculateFPA(state, out float fpa);
+                Vector3 visibleScale = available ? fpvBaseScale : Vector3.zero;
+                if (fpvMarker.localScale != visibleScale) fpvMarker.localScale = visibleScale;
+                if (!available) return;
                 displayedFPVPitch = Core.HUDAnimator.SmoothValue(displayedFPVPitch, fpa, smoothing);
                 
                 float fpvScale = fpvMatchesPitchScale ? effectiveUnitsPerDegree : fpvUnitsPerDegree;
@@ -198,11 +204,14 @@ namespace HUDControl.Elements
             }
         }
         
-        private float CalculateFPA(AircraftState state)
+        private static bool TryCalculateFPA(AircraftState state, out float fpa)
         {
-            if (state.GroundSpeedKnots < 10f) return 0f;
+            fpa = 0f;
+            if (state == null || float.IsNaN(state.GroundSpeedKnots) || float.IsInfinity(state.GroundSpeedKnots) ||
+                float.IsNaN(state.VerticalSpeedFpm) || float.IsInfinity(state.VerticalSpeedFpm) || state.GroundSpeedKnots < 10f) return false;
             float vsKnots = state.VerticalSpeedFpm / 101.269f;
-            return Mathf.Clamp(Mathf.Atan2(vsKnots, state.GroundSpeedKnots) * Mathf.Rad2Deg, -30f, 30f);
+            fpa = Mathf.Clamp(Mathf.Atan2(vsKnots, state.GroundSpeedKnots) * Mathf.Rad2Deg, -30f, 30f);
+            return true;
         }
 
         private RectTransform FindMaskContainerFor(RectTransform child)

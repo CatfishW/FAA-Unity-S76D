@@ -29,7 +29,7 @@ def main():
             'AppDomain.CurrentDomain.SetData("'+KEY+'",data);w.PersistChanges=false;w.SetEditMode(false);w.OpenMenu();w.StowUtility("settings");w.InspectUtility("settings");w.SetSettingsPage(false);w.Select("altitude");w.SetScale("altitude",.72f);'
             'return "Context saved";')
         started = True
-        time.sleep(1.0)
+        time.sleep(1.0) # inspection turn (<=0.5 s) and desktop zoom (~0.42 s) settle before clicking
         setup = evaluate('var w=FAA.Customization.FaaSpatialWorkspace.Current;'
             'var context=(object[])AppDomain.CurrentDomain.GetData("'+KEY+'");'
             'var mouse=UnityEngine.InputSystem.InputSystem.AddDevice<UnityEngine.InputSystem.Mouse>("FAA Resize Verification Mouse");'
@@ -58,7 +58,7 @@ def main():
             evaluate('var context=(object[])AppDomain.CurrentDomain.GetData("'+KEY+'");'
                 'var mouse=context[7] as UnityEngine.InputSystem.Mouse;if(mouse!=null)UnityEngine.InputSystem.InputSystem.RemoveDevice(mouse);'
                 'var original=context[6] as UnityEngine.InputSystem.Mouse;if(original!=null&&original.added)original.MakeCurrent();'
-                'var w=FAA.Customization.FaaSpatialWorkspace.Current;w.ReturnToForwardView();w.SetScale("altitude",(float)context[4]);'
+                'var w=FAA.Customization.FaaSpatialWorkspace.Current;w.ReturnToForwardView();w.View.GetComponent<AircraftControl.Camera.AircraftCameraController>()?.ResetViewImmediate();w.SetScale("altitude",(float)context[4]);'
                 'w.SetEditMode((bool)context[1]);w.Select((string)context[3]);if(w.MenuOpen!=(bool)context[2])w.ToggleMenu();'
                 'typeof(FAA.Customization.FaaSpatialWorkspace).GetField("dirty",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic).SetValue(w,context[5]);'
                 'var pose=(FAA.Customization.FaaSpatialLayoutEntry)context[8];var p=w.GetPanel("settings").Layout;p.yaw=pose.yaw;p.elevation=pose.elevation;p.distance=pose.distance;p.scale=pose.scale;w.RefreshTransforms();w.PersistChanges=(bool)context[0];AppDomain.CurrentDomain.SetData("'+KEY+'",null);return "Original input and layout restored";')

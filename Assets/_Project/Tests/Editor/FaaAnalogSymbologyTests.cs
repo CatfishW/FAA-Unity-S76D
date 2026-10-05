@@ -95,7 +95,8 @@ namespace FAA.Customization.Tests
             Set(d,"ilsValid",false);s=Adapt(d,null,channels);Assert.That(Field<bool>(s,"LocValid"),Is.False);
         }
         [TestCase(18,"HDG","VS","","")][TestCase(34,"HDG","--","","ALT ARM")]
-        [TestCase(768,"NAV","--","NAV ARM","")][TestCase(2050,"HDG","G/S","","")]
+        [TestCase(768,"NAV","--","","")][TestCase(2050,"HDG","G/S","","")]
+        [TestCase(1280,"--","--","NAV ARM","G/S ARM")][TestCase(3072,"--","G/S","","")][TestCase(16416,"--","ALT","","")]
         public void ModeLabelsUseDocumentedReadOnlyBits(int mask,string roll,string pitch,string armedRoll,string armedPitch)
         {
             object[] args={mask,null,null,null,null};Call("FaaAnalogFlightSample","DecodeModes",args);

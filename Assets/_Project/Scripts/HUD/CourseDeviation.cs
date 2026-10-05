@@ -19,9 +19,14 @@ public class CourseDeviation : MonoBehaviour
 
     }
     //UpdateDeviation((int)navsourceseleced,(float)nav1course, (float)nav2course, (float)gpscourse)
+    /// <summary>Non-finite deviation means no course guidance: the bar is removed, never drawn on-course.</summary>
     public void UpdateDeviation(int navsourceselected, float nav1deviation, float nav2deviation, float gpsdeviation)
     {
-        //Debug.Log(navsourceselected);
+        if (localizerDeviation == null) return;
+        float selected = navsourceselected == 1 ? nav2deviation : navsourceselected == 2 ? gpsdeviation : nav1deviation;
+        bool valid = !float.IsNaN(selected) && !float.IsInfinity(selected);
+        if (localizerDeviation.activeSelf != valid) localizerDeviation.SetActive(valid);
+        if (!valid) return;
         switch (navsourceselected)
         {
             case 0:

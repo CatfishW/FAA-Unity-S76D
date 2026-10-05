@@ -36,5 +36,35 @@ namespace FAA.Customization
                 for(int i=0;i<8;i++)Line(vh,c+Bearing(q*90+i*11.25f,radius),c+Bearing(q*90+(i+1)*11.25f,radius),1.8f,tint);
             }
         }
+        /// <summary>Arc between two bearings (degrees clockwise from up).</summary>
+        public static void Arc(VertexHelper vh,Vector2 center,float radius,float fromDegrees,float toDegrees,float width,Color tint,float stepDegrees=3f)
+        {
+            int n=Mathf.Max(1,Mathf.CeilToInt(Mathf.Abs(toDegrees-fromDegrees)/Mathf.Max(.5f,stepDegrees)));
+            for(int i=0;i<n;i++)Line(vh,center+Bearing(Mathf.Lerp(fromDegrees,toDegrees,(float)i/n),radius),center+Bearing(Mathf.Lerp(fromDegrees,toDegrees,(float)(i+1)/n),radius),width,tint);
+        }
+        public static void HollowTriangle(VertexHelper vh,Vector2 a,Vector2 b,Vector2 c,float width,Color tint)
+        {Line(vh,a,b,width,tint);Line(vh,b,c,width,tint);Line(vh,c,a,width,tint);}
+        /// <summary>Parameter interval [t0,t1] of segment a-b that lies inside <paramref name="r"/> (Liang-Barsky). False when it misses.</summary>
+        public static bool InsideInterval(Rect r,Vector2 a,Vector2 b,out float t0,out float t1)
+        {
+            t0=0;t1=1;Vector2 d=b-a;
+            return Clip(-d.x,a.x-r.xMin,ref t0,ref t1)&&Clip(d.x,r.xMax-a.x,ref t0,ref t1)&&Clip(-d.y,a.y-r.yMin,ref t0,ref t1)&&Clip(d.y,r.yMax-a.y,ref t0,ref t1)&&t1>t0;
+        }
+        private static bool Clip(float p,float q,ref float t0,ref float t1)
+        {
+            if(Mathf.Abs(p)<1e-6f)return q>=0;
+            float r=q/p;
+            if(p<0){if(r>t1)return false;if(r>t0)t0=r;}else{if(r<t0)return false;if(r<t1)t1=r;}
+            return true;
+        }
+        /// <summary>Draws only the parts of segment a-b outside <paramref name="exclude"/>, so a needle never strokes through a readout window.</summary>
+        public static void LineOutside(VertexHelper vh,Vector2 a,Vector2 b,Rect exclude,float width,Color tint)
+        {
+            float pad=width*.5f;Rect r=Rect.MinMaxRect(exclude.xMin-pad,exclude.yMin-pad,exclude.xMax+pad,exclude.yMax+pad);
+            if(!InsideInterval(r,a,b,out float t0,out float t1)){Line(vh,a,b,width,tint);return;}
+            Vector2 d=b-a;
+            if(t0>0)Line(vh,a,a+d*t0,width,tint);
+            if(t1<1)Line(vh,a+d*t1,b,width,tint);
+        }
     }
 }

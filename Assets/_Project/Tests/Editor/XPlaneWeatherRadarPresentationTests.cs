@@ -336,7 +336,8 @@ namespace FAA.Customization.Tests
                 stripType.GetMethod("SetExpanded")?.Invoke(strip, new object[] { true, false });
                 Assert.That(stripType.GetProperty("IsExpanded")?.GetValue(strip), Is.True);
                 Assert.That((float)stripType.GetProperty("DisclosureProgress")?.GetValue(strip), Is.EqualTo(1f));
-                Assert.That(root.GetComponent<RectTransform>().sizeDelta.y, Is.EqualTo(300f));
+                Assert.That(root.GetComponent<RectTransform>().sizeDelta.y,
+                    Is.EqualTo((float)stripType.GetField("ExpandedHeight").GetRawConstantValue()));
                 Assert.That(rootGroup.alpha, Is.EqualTo(1f));
                 Assert.That(rootGroup.blocksRaycasts, Is.True);
                 Assert.That(detailsGroup.alpha, Is.EqualTo(1f));
@@ -564,7 +565,11 @@ namespace FAA.Customization.Tests
                 Component traffic = trafficRoot.AddComponent(trafficType);
                 trafficType.GetMethod("ConfigureHudPresentation")?.Invoke(traffic, new object[] { 0.34f, 0.28f });
                 Color background = ReadField<Color>(trafficType, traffic, "backgroundColor");
-                Assert.That(background.a, Is.LessThanOrEqualTo(0.35f));
+                // Traffic-first scope (AC 25-11B contrast, review m6): a near-black, near-opaque disc under the chart so cyan
+                // traffic dominates over bright terrain; the radar is a peripheral panel, so it never hides the forward view.
+                Assert.That(background.a, Is.InRange(0.88f, 0.95f));
+                Assert.That(Mathf.Max(background.r, Mathf.Max(background.g, background.b)), Is.LessThan(0.05f));
+                Assert.That(ReadField<float>(trafficType, traffic, "chartOpacity"), Is.LessThanOrEqualTo(0.25f));
                 Assert.That(ReadField<bool>(trafficType, traffic, "enforceReadablePanelBackground"), Is.False);
                 Color ownship = ReadField<Color>(trafficType, traffic, "ownAircraftColor");
                 Assert.That(ownship.g, Is.GreaterThan(ownship.r));
@@ -577,6 +582,95 @@ namespace FAA.Customization.Tests
                 UnityEngine.Object.DestroyImmediate(weatherRoot);
                 UnityEngine.Object.DestroyImmediate(trafficRoot);
             }
+        }
+
+        [Test]
+        public void TrafficChart_IsADesaturatedUnderlayCappedAtAQuarter()
+        {
+            Type displayType = Type.GetType("TrafficRadar.TrafficRadarDisplay, TrafficRadar");
+            Assert.That(displayType, Is.Not.Null);
+            float max = (float)displayType.GetField("MaxChartOpacity").GetRawConstantValue();
+            float saturation = (float)displayType.GetField("ChartSaturation").GetRawConstantValue();
+            float brightness = (float)displayType.GetField("ChartBrightness").GetRawConstantValue();
+            Assert.That(max, Is.LessThanOrEqualTo(0.25f));
+            Assert.That(saturation, Is.LessThanOrEqualTo(0.25f), "Amber/red chart tints must not compete with advisory colours.");
+            Assert.That(brightness, Is.LessThan(0.75f));
+            GameObject root = new GameObject("Traffic Chart Cap Test", typeof(RectTransform));
+            try
+            {
+                Component display = root.AddComponent(displayType);
+                PropertyInfo opacity = displayType.GetProperty("ChartOpacity");
+                opacity.SetValue(display, 0.9f);
+                Assert.That((float)opacity.GetValue(display), Is.LessThanOrEqualTo(max));
+                displayType.GetMethod("IncreaseChartOpacity").Invoke(display, new object[] { 0.5f });
+                Assert.That((float)opacity.GetValue(display), Is.LessThanOrEqualTo(max));
+                displayType.GetMethod("ConfigureHudPresentation").Invoke(display, new object[] { 0.62f, 0.5f });
+                Assert.That((float)opacity.GetValue(display), Is.LessThanOrEqualTo(max));
+                opacity.SetValue(display, 0.1f);
+                Assert.That((float)opacity.GetValue(display), Is.EqualTo(0.1f).Within(.0001f), "Lower settings remain the pilot's choice.");
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(root);
+            }
+        }
+
+        [Test]
+        public void TrafficScope_DrawsANearBlackBackdropBelowTheChart()
+        {
+            Type displayType = Type.GetType("TrafficRadar.TrafficRadarDisplay, TrafficRadar");
+            Assert.That(displayType, Is.Not.Null);
+            if (Shader.Find("TrafficRadar/CircularRadarMask") == null) Assert.Inconclusive("Shader not imported in this editor session.");
+            GameObject root = new GameObject("Traffic Backdrop Test", typeof(RectTransform));
+            try
+            {
+                var chart = new GameObject("Chart Background", typeof(RectTransform), typeof(CanvasRenderer), typeof(UnityEngine.UI.RawImage));
+                var radar = new GameObject("Radar Image", typeof(RectTransform), typeof(CanvasRenderer), typeof(UnityEngine.UI.RawImage));
+                chart.transform.SetParent(root.transform, false);
+                radar.transform.SetParent(root.transform, false);
+                radar.GetComponent<RectTransform>().sizeDelta = new Vector2(220f, 220f);
+                Component display = root.AddComponent(displayType);
+                displayType.GetField("chartBackgroundImage", BindingFlags.Instance | BindingFlags.NonPublic)
+                    .SetValue(display, chart.GetComponent<UnityEngine.UI.RawImage>());
+                displayType.GetField("radarImage", BindingFlags.Instance | BindingFlags.NonPublic)
+                    .SetValue(display, radar.GetComponent<UnityEngine.UI.RawImage>());
+                displayType.GetMethod("ConfigureHudPresentation").Invoke(display, new object[] { 0.62f, 0.22f });
+                MethodInfo sync = displayType.GetMethod("SyncScopeBackdrop", BindingFlags.Instance | BindingFlags.NonPublic);
+                Assert.That(sync, Is.Not.Null);
+                Assert.That(sync.Invoke(display, null), Is.True);
+                Transform backdrop = root.transform.Find("Scope Backdrop");
+                Assert.That(backdrop, Is.Not.Null);
+                Assert.That(backdrop.GetSiblingIndex(), Is.EqualTo(chart.transform.GetSiblingIndex() - 1),
+                    "The chart sits ON the dark scope, not under a translucent backdrop.");
+                var image = backdrop.GetComponent<UnityEngine.UI.RawImage>();
+                Assert.That(image.color.a, Is.GreaterThanOrEqualTo(0.88f));
+                Assert.That(image.raycastTarget, Is.False);
+                Assert.That(backdrop.GetComponent<RectTransform>().sizeDelta, Is.EqualTo(new Vector2(220f, 220f)));
+                Assert.That((bool)displayType.GetProperty("ScopeBackdropActive").GetValue(display), Is.True);
+                // BKG/CLR stays a pilot control.
+                displayType.GetProperty("ShowRadarBackground").SetValue(display, false);
+                Assert.That(sync.Invoke(display, null), Is.False);
+                Assert.That(image.enabled, Is.False);
+                var material = displayType.GetField("_scopeBackdropMaterial", BindingFlags.Instance | BindingFlags.NonPublic)
+                    .GetValue(display) as Material;
+                if (material != null) UnityEngine.Object.DestroyImmediate(material);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(root);
+            }
+        }
+
+        [Test]
+        public void RadarMaskShader_ExposesChartSaturationAndBrightness()
+        {
+            Shader shader = Shader.Find("TrafficRadar/CircularRadarMask");
+            if (shader == null) Assert.Inconclusive("Shader not imported in this editor session.");
+            Assert.That(shader.FindPropertyIndex("_Saturation"), Is.GreaterThanOrEqualTo(0));
+            Assert.That(shader.FindPropertyIndex("_Brightness"), Is.GreaterThanOrEqualTo(0));
+            // Defaults leave every other user (radar overlay, backdrop disc) unchanged.
+            Assert.That(shader.GetPropertyDefaultFloatValue(shader.FindPropertyIndex("_Saturation")), Is.EqualTo(1f));
+            Assert.That(shader.GetPropertyDefaultFloatValue(shader.FindPropertyIndex("_Brightness")), Is.EqualTo(1f));
         }
 
         [Test]

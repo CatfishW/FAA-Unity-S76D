@@ -12,26 +12,41 @@ guidance, or operational weather-avoidance equipment.
 
 ## Pilot controls
 
-The controls start as a compact **SCREEN CUES +** button. Tap it to expand;
-tap **SCREEN CUES −** to hide the controls and symbol key again. This does not
-change marker visibility or source connections. The reopen button stays
-available, and the expanded/collapsed preference is retained between runs.
+In Play Mode the controls are the flyout of the pilot chrome bar's **CUES**
+button. The button names the action only; a separate state badge inside it
+shows **ON**, **OFF**, **TFC ONLY** or **WX ONLY**, so the state is visible
+without opening anything. Clicking CUES opens the **SCREEN CUES** flyout in the
+fixed left flyout slot above the bar (440 × 214 reference units, clear of the
+IAS/TQ column). It always starts collapsed and closes with its **CLOSE [Esc]**
+button, **Esc**, the CUES button again, or by opening another flyout (brief,
+commands, key list). Opening or closing it never changes marker visibility or
+source connections. Without the chrome (edit-time hosts) the legacy
+**SCREEN CUES +/–** header button remains.
 
-The **SCREEN CUES** panel has separate **TRAFFIC MARKERS** and **WEATHER MARKERS**
-buttons. Tap a row to show or hide that source's cues. These switches do not turn
-off the radar display, its data connection, or the simulated radar's power.
-The switches also work through the existing indicator voice/wheel commands.
+The flyout has one row per marker type, **TRAFFIC CUES [ON|OFF]** and
+**WEATHER CUES [ON|OFF]**, with the live state highlighted in the segment (the
+same two-segment pattern as Settings). These switches do not turn off the radar
+display, its data connection, or the simulated radar's power. The same switches
+are in the COMMANDS flyout (Tab) under **SCREEN CUES** and work through the
+existing indicator voice commands. Visibility preferences are retained between runs.
 
-Each row reports ON/OFF, the number of visible cues, and source status. Zero
-visible cues can mean no current targets in range, stale/missing data, or
-decluttering; it does not mean the switch is broken. The panel reports how many
-cues are in view, off screen, and suppressed to prevent overlapping readouts.
-Touch visibility preferences are retained between runs.
+Under each row title is the source status and, while that type is shown, the
+number of cues drawn. Zero cues can mean no current targets in range,
+stale/missing data, or decluttering; it does not mean the switch is broken. The
+count line (in view, off screen, decluttered) is shown only while at least one
+type is on. The arrow/icon explanation lives in the **KEY** legend, which stacks
+above the flyout inside the left slot.
 
-The range button cycles **10 / 20 / 40 / 80 NM** for screen cues, independently
-of the radar's zoom. For example, zooming the radar to 5 NM no longer removes
-an aircraft 12 NM away from an 80 NM cue set. The range is a display filter,
-not a promise that the upstream source covers that distance.
+**RANGE NM [10|20|40|80]** selects the screen-cue range, independently of the
+radar's zoom. For example, zooming the radar to 5 NM no longer removes an
+aircraft 12 NM away from an 80 NM cue set. An off-preset range lights no
+segment. The range is a display filter, not a promise that the upstream source
+covers that distance.
+
+While an unusual attitude is annunciated (`FaaRotorcraftConformalLayer.UnusualAttitudeActive`)
+screen cues declutter with the rest of the display: weather and routine traffic
+cues are removed and only traffic advisories (TA/RA priority) remain. The open
+CUES flyout is hidden at the same time and returns unchanged on recovery.
 
 ## Features
 
@@ -51,7 +66,9 @@ not a promise that the upstream source covers that distance.
   Routine traffic and simulated rain do not constantly flash or glow.
 - **Decluttering**: priority/continuity/distance ordering, non-overlapping cue footprints,
   and a maximum visible count. Targets beyond that limit are actually released.
-  The controls and expanded symbol key reserve space so markers cannot hide behind them.
+  The chrome bar, open flyouts and expanded symbol key are keep-outs, so markers cannot
+  hide behind them (bottom-edge arrows are lifted above the bar). Unusual attitude keeps
+  only traffic advisories.
 - **Freshness**: individual traffic older than 10 seconds is omitted; loss of
   the X-Plane feed clears cues. Weather needs a fresh texture and respects known
   radar power-off state. A blank or dry picture does not create fallback storms.
@@ -163,7 +180,9 @@ the view projection; it must not rotate the target's world bearing with the head
 
 `FAA.Customization.Tests.FaaScreenCueTests` covers signed altitude units,
 sector inverse projection, camera sub-viewports, directly aft targets, pool
-turnover, marker/radar range independence, and wet/dry procedural weather.
+turnover, marker/radar range independence, wet/dry procedural weather, and the
+unusual-attitude declutter policy. `FaaPilotChromeTests` covers the docked CUES
+flyout (slot, CLOSE, two-segment rows, caption/badge separation, range presets).
 `FaaCueStabilityTests` covers SVG rendering dependencies, all category mappings,
 stable weather identities, stronger-return preemption, clear scans, type metadata
 propagation, and steady opacity after pool reuse.

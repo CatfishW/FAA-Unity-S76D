@@ -54,10 +54,12 @@ namespace FAA.Editor
         private static readonly Vector2 WeatherRadarSize = new Vector2(280f, 280f);
         private static readonly Vector2 TrafficRadarSize = new Vector2(296f, 296f);
         private static readonly Vector2 ScreenFlightHudAnchoredPosition = new Vector2(960f, 690f);
-        private static readonly Vector2 HeadingTapeAnchoredPosition = new Vector2(0f, -180f);
+        // Zone Z5 lane: the tape's top edge 790 ref from the top (same value as FaaHudRuntimeSanitizer; the overlay re-pins it in play mode).
+        private static readonly Vector2 HeadingTapeAnchoredPosition =
+            new Vector2(0f, 540f - FaaHeadingTapeOverlay.LaneTopFromScreenTop - FaaHeadingTapeOverlay.TopExtent);
         private static readonly Vector2 HeadingTapeSize = new Vector2(520f, 64f);
         private static readonly Color HudGreen = new Color(0.2f, 1f, 0.2f, 1f);
-        private static readonly Color HudGreenDim = new Color(0.2f, 1f, 0.2f, 0.74f);
+        private static readonly Color HudGreenDim = new Color(0.2f, 1f, 0.2f, 0.92f);
         private const int ScreenFlightHudSortingOrder = 5000;
         // These names identify the authored tape objects removed by the
         // rollback pass. Setup never recreates them or imports a raster tape.
@@ -2399,7 +2401,8 @@ namespace FAA.Editor
             SetFloat(serializedPrimary, "pixelsPerKnot", 0.0018f);
             SetFloat(serializedPrimary, "maxTapeOffsetPixels", 0.18f);
             SetFloat(serializedPrimary, "referenceAirspeed", 100f);
-            SetString(serializedPrimary, "displayFormat", "<mspace=0.62em>{0:000}</mspace>");
+            // No leading zeros on airspeed (a zero-padded speed reads like a heading); same format as the runtime readout.
+            SetString(serializedPrimary, "displayFormat", FaaPrimaryFlightReadout.AirspeedFormat);
             SetFloat(serializedPrimary, "animationSpeed", 14f);
             SetBool(serializedPrimary, "isEnabled", tape != null || readout != null);
             serializedPrimary.ApplyModifiedPropertiesWithoutUndo();

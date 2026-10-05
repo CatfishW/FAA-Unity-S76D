@@ -229,6 +229,40 @@ namespace FAA.Explanations.Tests
             Assert.That(BriefPlacement.TryPlace(900, 700, 145, 34, true, obstacles, out _), Is.False);
         }
 
+        [TestCase(1920f, 1080f)] [TestCase(1280f, 720f)] [TestCase(1663f, 1247f)]
+        public void BriefPlacement_ChromeSlotIsFixedAboveTheBarAndLeftOfTheFlightColumns(float width, float height)
+        {
+            // Pilot chrome flyout slot: x 16, bottom 70 (8 ref above the 12-62 bar), 500 wide, dock + card 286 tall.
+            Assert.That(BriefPlacement.TryDock(width, height, 500, 286, 16, 70, out var slot), Is.True);
+            Assert.That(slot.X, Is.EqualTo(16)); Assert.That(slot.Y, Is.EqualTo(70));
+            Assert.That(slot.Right, Is.LessThan(540), "Clear of the IAS/TQ column (x 540+) and the boresight column");
+            Assert.That(slot.Top, Is.LessThanOrEqualTo(height - 12));
+        }
+
+        [Test]
+        public void BriefPlacement_ChromeSlotRejectsTinyOrInvalidCanvasInsteadOfOverlapping()
+        {
+            Assert.That(BriefPlacement.TryDock(400, 300, 500, 286, 16, 70, out _), Is.False);
+            Assert.That(BriefPlacement.TryDock(float.NaN, 1080, 500, 286, 16, 70, out _), Is.False);
+            Assert.That(BriefPlacement.TryDock(1920, 1080, 0, 286, 16, 70, out _), Is.False);
+        }
+
+        [Test]
+        public void PilotActions_CaptionsSayBriefInCapsAndNeverReadLikeTheViewButtons()
+        {
+            Assert.That(ExplanationPilotActions.Labels, Is.EqualTo(new[] { "TFC BRIEF", "WX BRIEF", "CHART BRIEF", "STATUS BRIEF" }));
+            Assert.That(ExplanationPilotActions.Labels.Count, Is.EqualTo(ExplanationPilotActions.Names.Count));
+            foreach (string label in ExplanationPilotActions.Labels.Concat(ExplanationPilotActions.ShortLabels))
+                Assert.That(label, Is.EqualTo(label.ToUpperInvariant()), "ALL CAPS like every chrome control");
+            foreach (string label in ExplanationPilotActions.Labels)
+            {
+                Assert.That(label, Does.EndWith(" BRIEF"));
+                Assert.That(label, Is.Not.EqualTo("TRAFFIC").And.Not.EqualTo("WEATHER"), "The bar's view buttons own TRAFFIC / WEATHER");
+            }
+            Assert.That(ExplanationPilotActions.LabelFor("Weather"), Is.EqualTo("WX BRIEF"));
+            Assert.That(ExplanationPilotActions.LabelFor("Execute"), Is.Null);
+        }
+
         [Test]
         public void Policy_PreservesCriticalDataAndOperationalBoundaries()
         {

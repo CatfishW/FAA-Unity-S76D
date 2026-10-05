@@ -31,7 +31,7 @@ namespace FAA.Explanations.Tests
         [Test]
         public void DefaultDock_IsClickOnlyAndDoesNotSendData()
         {
-            Assert.That((bool)Value("IsOpen"), Is.True);
+            Assert.That((bool)Value("IsOpen"), Is.False, "The brief starts collapsed until the pilot asks for it");
             Assert.That((bool)Value("IsResultVisible"), Is.False);
             Assert.That(owner.GetComponentsInChildren<TMP_InputField>(true), Is.Empty);
             Assert.That(owner.GetComponentsInChildren<Component>(true).Any(c => c != null && c.GetType().Name == "InputField"), Is.False);
@@ -97,6 +97,20 @@ namespace FAA.Explanations.Tests
             Assert.That((bool)Value("IsResultVisible"), Is.False);
             var controller = Value("Controller");
             Assert.That(controller.GetType().GetProperty("State").GetValue(controller).ToString(), Is.EqualTo("Ready"));
+        }
+
+        [TestCase(true, false, true, "synthetic training cells")]
+        [TestCase(false, true, true, "synthetic training cells")]
+        [TestCase(false, false, true, "SIM WX")]
+        [TestCase(false, false, false, "provider image")]
+        public void WeatherEvidence_NamesSyntheticTrainingCellsAsSynthetic(bool trainingTexture, bool providerFallback, bool procedural, string expected)
+        {
+            var collector = Type.GetType("FAA.Explanations.ExplanationEvidenceCollector, Assembly-CSharp", true);
+            bool training = (bool)collector.GetMethod("IsTrainingWeather").Invoke(null, new object[] { trainingTexture, providerFallback });
+            var text = (string)collector.GetMethod("WeatherSourceDescription").Invoke(null, new object[] { true, training, procedural });
+            Assert.That(text, Does.StartWith(expected));
+            if (training) Assert.That(text, Does.Contain("not X-Plane weather"));
+            Assert.That(collector.GetMethod("WeatherSourceDescription").Invoke(null, new object[] { false, training, procedural }), Is.EqualTo("unavailable"));
         }
 
         [Test]

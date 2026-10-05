@@ -66,6 +66,11 @@ namespace WeatherRadar
         public bool HasUsableTexture => _currentTexture != null && _lastTextureRealtime >= 0f;
         public bool IsProceduralTexture => _currentTexture != null &&
             _currentTexture.name.StartsWith("FAAProceduralWeatherRadar", System.StringComparison.Ordinal);
+        /// <summary>The picture is synthetic training cells (simulator fallback), not X-Plane weather.</summary>
+        public bool IsTrainingTexture => _currentTexture != null &&
+            _currentTexture.name.EndsWith(XPlaneOriginalWeatherRadarProvider.TrainingTextureSuffix, System.StringComparison.Ordinal);
+        /// <summary>Bounds of the aspect-fitted weather picture (sector) for chrome docking and focus framing.</summary>
+        public RectTransform PictureRect => targetImage != null ? targetImage.rectTransform : null;
         public bool HasRadarPowerState => _hasRadarPowerState;
         public bool IsRadarPowered => _isRadarPowered;
         public int RadarMode => _radarMode;

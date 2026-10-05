@@ -145,5 +145,16 @@ namespace FAA.Customization.Tests
             if (rain > 0) Assert.That(returns, Is.GreaterThan(20), "Rain must be visible, not just a live-data status");
             else Assert.That(returns, Is.Zero, "Dry overcast must not fabricate precipitation");
         }
+
+        [TestCase("Traffic", 3, true)]   // resolution advisory
+        [TestCase("Traffic", 2, true)]   // traffic advisory
+        [TestCase("Traffic", 1, false)]  // proximate traffic declutters
+        [TestCase("Traffic", 0, false)]
+        [TestCase("Weather", 3, false)]  // weather cues always declutter
+        public void UnusualAttitude_DecluttersScreenCuesExceptTrafficAdvisories(string type, int priority, bool kept)
+        {
+            object cueType = Enum.Parse(Runtime("IndicatorSystem.Core.IndicatorType"), type);
+            Assert.That(Call(Runtime("IndicatorSystem.Controller.IndicatorSystemController"), null, "KeepDuringUnusualAttitude", cueType, priority), Is.EqualTo(kept));
+        }
     }
 }

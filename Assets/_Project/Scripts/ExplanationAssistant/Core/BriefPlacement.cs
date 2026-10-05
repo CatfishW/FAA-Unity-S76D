@@ -40,6 +40,20 @@ namespace FAA.Explanations
             placement = default;
             return false; // Caller collapses to a launcher instead of covering the map.
         }
+        /// <summary>
+        /// Fixed flyout slot of the pilot chrome bar: bottom-left anchored at (<paramref name="left"/>, <paramref name="bottom"/>).
+        /// The slot is reserved chrome space, so it never moves to dodge other content (no hunting between slots after
+        /// head-look or side-panel inspection). Returns false when the canvas is too small to hold the panel inside its margins;
+        /// the caller then keeps the brief collapsed instead of covering instruments.
+        /// </summary>
+        public static bool TryDock(float width, float height, float panelWidth, float panelHeight, float left, float bottom, out Box placement)
+        {
+            placement = new Box(left, bottom, panelWidth, panelHeight);
+            if (!Finite(width) || !Finite(height) || !Finite(panelWidth) || !Finite(panelHeight) || !Finite(left) || !Finite(bottom)) return false;
+            return panelWidth > 0 && panelHeight > 0 && left >= 0 && bottom >= 0 &&
+                placement.Right <= width - left && placement.Top <= height - 12;
+        }
+        private static bool Finite(float v) => !float.IsNaN(v) && !float.IsInfinity(v);
         public static bool IsAvailable(Box box, float width, float height, IReadOnlyList<Box> obstacles)
         {
             if (float.IsNaN(box.X) || float.IsNaN(box.Y) || float.IsNaN(box.W) || float.IsNaN(box.H) ||

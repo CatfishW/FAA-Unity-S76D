@@ -85,8 +85,11 @@ namespace FAA.Customization
             "FAAHeadingTapeCanvas",
             "IndicatorCanvas",
             "XR Interaction Simulator UI(Clone)",
+            "XR Interaction Simulator UI",
             "Second Interation GUI"
         };
+        // Names that must always be in the hide list even when an older serialized scene copy omits them.
+        private static readonly string[] RequiredTrafficFocusHideNames = { "XR Interaction Simulator UI", "XR Interaction Simulator UI(Clone)" };
 
         private Transform _weatherRoot;
         private Transform _trafficRoot;
@@ -146,6 +149,8 @@ namespace FAA.Customization
         private bool _controlsVisible;
         private bool _visibilityInitialized;
         private float _nextRefreshTime;
+        private float _nextStructureTime;
+        private float _nextSceneSweepTime;
         private Transform _weatherSizedRoot;
         private Transform _trafficSizedRoot;
         private TrafficRadarDisplay _subscribedTrafficDisplay;
@@ -179,6 +184,7 @@ namespace FAA.Customization
 
         private void Awake()
         {
+            EnsureRequiredHideNames();
             _weatherExpanded = startExpanded;
             _trafficExpanded = startExpanded;
             _weatherConfigurationVisible = showConfigurationButtonsOnStart;
@@ -194,6 +200,22 @@ namespace FAA.Customization
                 // presentation without requiring another FULL press.
                 ApplyTrafficFocusPresentation(true);
             }
+        }
+
+        /// <summary>
+        /// The live XRI simulator root is named without "(Clone)"; a scene serialized before that entry
+        /// existed would otherwise keep pilot-focus mode from hiding it (CHROME-14).
+        /// </summary>
+        private void EnsureRequiredHideNames()
+        {
+            var names = new List<string>(trafficFullscreenHideObjectNames ?? System.Array.Empty<string>());
+            bool changed = false;
+            foreach (string required in RequiredTrafficFocusHideNames)
+            {
+                if (names.Exists(n => string.Equals(n, required, System.StringComparison.OrdinalIgnoreCase))) continue;
+                names.Add(required); changed = true;
+            }
+            if (changed) trafficFullscreenHideObjectNames = names.ToArray();
         }
 
         private void OnEnable()
@@ -253,7 +275,12 @@ namespace FAA.Customization
                 _nextRefreshTime = Time.unscaledTime + 0.25f;
                 RefreshReferences();
                 EnsureRadarSizesInitialized();
-                EnsureControlStrips();
+                // Rebuilding the generated strips allocates; values refresh at 4 Hz, structure at 1 Hz.
+                if (Time.unscaledTime >= _nextStructureTime)
+                {
+                    _nextStructureTime = Time.unscaledTime + 1f;
+                    EnsureControlStrips();
+                }
                 UpdateLabels();
             }
         }
@@ -304,6 +331,8 @@ namespace FAA.Customization
                     _trafficExpanded = true;
                     _weatherConfigurationVisible = false;
                     _weatherConditionsStrip?.SetExpanded(false);
+                    // One tap opens one control surface (RDR-13).
+                    _trafficInteractionSurface?.CloseContextMenu();
                 }
             }
 
@@ -472,8 +501,22 @@ namespace FAA.Customization
                 return;
             }
 
+            // While X-Plane data flows, "Refresh" must request the bridge's dataref picture and never
+            // swap in synthetic training cells under the same label (RDR-08).
+            SyncWeatherSourcePreference();
+            if (_weatherProvider.PreferBridgePicture)
+            {
+                return;
+            }
+
             _weatherProvider.Activate();
             _weatherProvider.RefreshData();
+        }
+
+        private void SyncWeatherSourcePreference()
+        {
+            if (_weatherProvider != null)
+                _weatherProvider.PreferBridgePicture = _xPlaneBridge != null && _xPlaneBridge.IsFeedHealthy;
         }
 
         public void ToggleWeatherProvider()
@@ -493,6 +536,12 @@ namespace FAA.Customization
         {
             _trafficController?.SetAutoRangeEnabled(false);
             _trafficController?.IncreaseRange();
+        }
+
+        /// <summary>Cycle the TCAS relative-altitude band: Normal ±2700, Above +9900, Below −9900, All.</summary>
+        public void CycleTrafficAltitudeBand()
+        {
+            _trafficController?.CycleAltitudeBand();
         }
 
         public void TrafficMaxTargetsDown()
@@ -793,6 +842,7 @@ namespace FAA.Customization
             {
                 _xPlaneBridge = FindAnyObjectByType<XPlane12ApiHudBridge>(FindObjectsInactive.Include);
             }
+            SyncWeatherSourcePreference();
 
             if (_trafficRoot != null)
             {
@@ -829,9 +879,11 @@ namespace FAA.Customization
             bool focused = _trafficDisplay != null && _trafficDisplay.IsFullscreen;
             if (focused)
             {
-                // Preserve the pilot's open/closed choice across FULL/REST.
-                // Only the advanced content collapses in pilot-focus mode.
+                // Only the advanced content collapses in pilot-focus mode. The full-map toolbar
+                // (Restore HUD, source, range, recentre) stays docked: it is the map's single
+                // control surface and the guaranteed exit.
                 _showTrafficAdvancedControls = false;
+                _trafficConfigurationVisible = true;
             }
 
             ApplyTrafficFocusPresentation(focused);
@@ -1103,8 +1155,13 @@ namespace FAA.Customization
 
         private void EnsureControlStrips()
         {
-            EnsureEventSystem();
-            SuppressLegacyRadarControlPanels();
+            // Scene-wide sweeps (FindObjectsByType) are expensive; legacy panels only appear on (re)load.
+            if (!Application.isPlaying || Time.unscaledTime >= _nextSceneSweepTime)
+            {
+                _nextSceneSweepTime = Time.unscaledTime + 2f;
+                EnsureEventSystem();
+                SuppressLegacyRadarControlPanels();
+            }
 
             if (enableWeatherControls && _weatherRoot != null)
             {
@@ -1117,6 +1174,7 @@ namespace FAA.Customization
                 _weatherStrip = EnsureStrip(_weatherRoot, "WeatherControlStrip", GetWeatherStripSize());
                 EnsureReadableWeatherControls(_weatherStrip);
                 _weatherDrawer = EnsureDrawer(_weatherStrip);
+                ApplyReadabilityScale(_weatherDrawer, _weatherRoot);
                 _weatherInteractionSurface = EnsureInteractionSurface(_weatherRoot, FaaRadarKind.Weather);
                 _weatherConditionsStrip = EnsureWeatherConditionsStrip(_weatherRoot, _weatherStrip);
             }
@@ -1131,10 +1189,18 @@ namespace FAA.Customization
                 _trafficStrip = EnsureStrip(_trafficRoot, "TrafficControlStrip", GetTrafficStripSize());
                 EnsureReadableTrafficControls(_trafficStrip);
                 _trafficDrawer = EnsureDrawer(_trafficStrip);
+                ApplyReadabilityScale(_trafficDrawer, _trafficRoot);
                 _trafficInteractionSurface = EnsureInteractionSurface(_trafficRoot, FaaRadarKind.Traffic);
             }
 
             ApplyRadarConfigurationVisibility();
+        }
+
+        /// <summary>Settings text keeps the FAA minimum on small world-space panels, like the radar chrome.</summary>
+        private static void ApplyReadabilityScale(FaaRadarConfigurationDrawer drawer, Transform root)
+        {
+            var presentation = root != null ? root.GetComponent<FaaRadarPresentation>() : null;
+            if (drawer != null) drawer.BaseScale = presentation != null ? presentation.ChromeScale : 1f;
         }
 
         private void EnsurePresentation(Transform root, FaaRadarKind kind)
@@ -2055,7 +2121,7 @@ namespace FAA.Customization
                 strip.anchoredPosition = new Vector2(
                     rootRect.anchoredPosition.x,
                     rootRect.anchoredPosition.y + focusedRootHeight * 0.5f +
-                    Mathf.Max(8f, stripOffset.y) + stripHeight + FaaRadarPresentation.HeaderClearance);
+                    Mathf.Max(8f, stripOffset.y) + stripHeight * StripBaseScale(strip) + HeaderClearanceFor(rootRect));
                 return;
             }
 
@@ -2065,15 +2131,29 @@ namespace FAA.Customization
             float rootHeight = rootRect.rect.height > 1f ? rootRect.rect.height : rootRect.sizeDelta.y;
             bool rightAnchored = rootRect.anchorMin.x > 0.5f || rootRect.pivot.x > 0.5f;
 
+            if (IsSpatialPanel(rootRect))
+            {
+                // World panel (SP-07): the drawer docks centred directly above its own radar, so it is
+                // inspected together with it and adds the least to the (symmetric) protected footprint.
+                strip.pivot = new Vector2(0.5f, 0f);
+                float rootCenterX = rootRect.anchoredPosition.x + rootWidth * (0.5f - rootRect.pivot.x);
+                float rootTop = rootRect.anchoredPosition.y + rootHeight * (1f - rootRect.pivot.y);
+                strip.anchoredPosition = new Vector2(rootCenterX, rootTop + stripOffset.y + HeaderClearanceFor(rootRect));
+                return;
+            }
+
             if (rightAnchored)
             {
                 strip.pivot = new Vector2(1f, 0f);
+                // In the 2-D overlay, traffic settings dock beside the scope in the lower, unused HUD area.
+                // (World panels returned above: the screen formula would put the drawer ~35 deg away inside
+                // the Settings panel sector and double the protected footprint.)
                 if (root == _trafficRoot)
                 {
-                    // Keep the primary flight instruments clear. The quick
-                    // action menu sits beside the scope; detailed settings
-                    // dock beside that menu in the lower, unused HUD area.
-                    strip.anchoredPosition = CalculateTrafficSettingsDock(rootRect.anchoredPosition, rootWidth);
+                    // Clear the header/footer plates too, which can be wider than a small scope.
+                    var chrome = rootRect.GetComponent<FaaRadarPresentation>();
+                    strip.anchoredPosition = CalculateTrafficSettingsDock(rootRect.anchoredPosition,
+                        rootWidth + (chrome != null ? chrome.ChromeOverhang : 0f));
                     return;
                 }
                 float rootRightEdge = rootRect.anchoredPosition.x + (rootWidth * (1f - rootRect.pivot.x));
@@ -2090,13 +2170,33 @@ namespace FAA.Customization
                     desiredRightAnchorOffset = Mathf.Min(desiredRightAnchorOffset, safeRightAnchorOffset);
                 }
 
-                strip.anchoredPosition = new Vector2(desiredRightAnchorOffset, rootRect.anchoredPosition.y + rootHeight + stripOffset.y + FaaRadarPresentation.HeaderClearance);
+                strip.anchoredPosition = new Vector2(desiredRightAnchorOffset, rootRect.anchoredPosition.y + rootHeight + stripOffset.y + HeaderClearanceFor(rootRect));
                 return;
             }
 
             strip.pivot = new Vector2(0f, 0f);
             float rootLeftEdge = rootRect.anchoredPosition.x - (rootWidth * rootRect.pivot.x);
-            strip.anchoredPosition = new Vector2(rootLeftEdge + stripOffset.x, rootRect.anchoredPosition.y + rootHeight + stripOffset.y + FaaRadarPresentation.HeaderClearance);
+            strip.anchoredPosition = new Vector2(rootLeftEdge + stripOffset.x, rootRect.anchoredPosition.y + rootHeight + stripOffset.y + HeaderClearanceFor(rootRect));
+        }
+
+        private static float StripBaseScale(RectTransform strip)
+        {
+            var drawer = strip != null ? strip.GetComponent<FaaRadarConfigurationDrawer>() : null;
+            return drawer != null ? drawer.BaseScale : 1f;
+        }
+
+        private static bool IsSpatialPanel(RectTransform rootRect)
+        {
+            Canvas canvas = rootRect != null ? rootRect.GetComponentInParent<Canvas>() : null;
+            return canvas != null && FaaSpatialWorkspace.OwnsCanvas(canvas.rootCanvas);
+        }
+
+        /// <summary>Header height above the root, including its readability scale.</summary>
+        private static float HeaderClearanceFor(RectTransform rootRect)
+        {
+            var presentation = rootRect != null ? rootRect.GetComponent<FaaRadarPresentation>() : null;
+            return presentation != null ? Mathf.Max(FaaRadarPresentation.HeaderClearance, presentation.HeaderExtent + 4f)
+                : FaaRadarPresentation.HeaderClearance;
         }
 
         private static float GetSafeRightAnchorOffset(RectTransform strip)

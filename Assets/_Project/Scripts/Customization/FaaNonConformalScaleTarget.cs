@@ -7,29 +7,51 @@ namespace FAA.Customization
     /// <summary>Explicit non-conformal module only; never register a whole attitude/conformal ancestor.</summary>
     public sealed class FaaNonConformalScaleTarget
     {
+        /// <summary>
+        /// Text-bearing flight modules. Their scale never goes below <see cref="FaaHudStyle.MinModuleScale"/>, so a sizing preset,
+        /// pinch or old saved profile cannot push flight text below the FAA minimum character size.
+        /// </summary>
+        public static readonly HashSet<string> LegibleTextModules = new(System.StringComparer.Ordinal)
+            { "airspeed", "altitude", "torque", "nr", "vertical-speed", "glideslope", "localizer", "heading", "fma", "bank" };
+
         public readonly string Id, Caption;
         public readonly Transform Target;
         public readonly FaaSpatialLayoutEntry Layout;
         public readonly float DefaultScale;
+        /// <summary>Smallest scale this module renders at (text-bearing flight modules: at least <see cref="FaaHudStyle.MinModuleScale"/>).</summary>
+        public readonly float MinimumLegibleScale;
         public Vector3 BaseScale { get; }
         private readonly Vector3 basePosition;
-        private readonly Graphic[] graphics;
+        private Graphic[] graphics;
+        private int graphicsHierarchyCount;
         private readonly CanvasGroup[] visibility;
         private readonly Vector3[] corners = new Vector3[4];
 
-        public FaaNonConformalScaleTarget(string id, string caption, Transform target, float defaultScale)
+        public FaaNonConformalScaleTarget(string id, string caption, Transform target, float defaultScale, float minimumLegibleScale = 0f)
         {
-            Id = id; Caption = caption; Target = target; DefaultScale = defaultScale;
+            Id = id; Caption = caption; Target = target;
+            MinimumLegibleScale = Mathf.Max(FaaSpatialLayoutMath.Finite(minimumLegibleScale) ? minimumLegibleScale : 0f, DefaultMinimumScale(id));
+            DefaultScale = Mathf.Max(defaultScale, MinimumLegibleScale);
             BaseScale = target.localScale;
             basePosition = target.localPosition;
-            Layout = new FaaSpatialLayoutEntry { id = id, scale = defaultScale };
+            Layout = new FaaSpatialLayoutEntry { id = id, scale = DefaultScale };
             graphics = target.GetComponentsInChildren<Graphic>(true);
+            graphicsHierarchyCount = target.hierarchyCount;
             visibility = target.GetComponentsInParent<CanvasGroup>(true);
         }
+
+        public static float DefaultMinimumScale(string id) =>
+            id != null && LegibleTextModules.Contains(id) ? FaaHudStyle.MinModuleScale : FaaSpatialLayoutMath.MinScale;
+
+        /// <summary>The scale actually applied: the stored layout scale bounded by the legibility floor.</summary>
+        public float EffectiveScale => FaaSpatialLayoutMath.LegibleScale(Layout.scale, MinimumLegibleScale);
+
         public void Apply()
         {
             if (Target == null) return;
-            Vector3 scale = BaseScale * FaaSpatialLayoutMath.Scale(Layout.scale);
+            // Repair stored values below the floor (including existing saved profiles) so the size controls show what is drawn.
+            if (FaaSpatialLayoutMath.Finite(Layout.scale) && Layout.scale < MinimumLegibleScale) Layout.scale = MinimumLegibleScale;
+            Vector3 scale = BaseScale * EffectiveScale;
             if (Target.localScale != scale) Target.localScale = scale;
         }
         public void Restore()
@@ -54,6 +76,7 @@ namespace FAA.Customization
         {
             bounds = default;
             if (Target == null || root == null || !Target.gameObject.activeInHierarchy) return false;
+            RefreshGraphicsIfHierarchyChanged();
             bool any = false;
             Vector2 minimum = new Vector2(float.PositiveInfinity,float.PositiveInfinity), maximum = -minimum;
             foreach (var graphic in graphics)
@@ -67,6 +90,15 @@ namespace FAA.Customization
             if (!any) return false;
             bounds = Rect.MinMaxRect(minimum.x-4,minimum.y-4,maximum.x+4,maximum.y+4);
             return true;
+        }
+
+        /// <summary>Instruments create their labels at runtime; include them once the hierarchy changes (rare, so no per-frame allocation).</summary>
+        private void RefreshGraphicsIfHierarchyChanged()
+        {
+            int count = Target.hierarchyCount;
+            if (count == graphicsHierarchyCount) return;
+            graphicsHierarchyCount = count;
+            graphics = Target.GetComponentsInChildren<Graphic>(true);
         }
 
         public bool PlaceLayoutCenter(RectTransform root, Vector2 centre)
@@ -100,6 +132,7 @@ namespace FAA.Customization
         {
             bounds = default;
             if (Target == null || !Target.gameObject.activeInHierarchy || view == null) return false;
+            RefreshGraphicsIfHierarchyChanged();
             foreach (var group in visibility)
                 if (group != null && group.isActiveAndEnabled && group.alpha <= .001f) return false;
             bool any = false;

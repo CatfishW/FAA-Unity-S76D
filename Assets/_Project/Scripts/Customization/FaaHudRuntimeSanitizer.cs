@@ -31,12 +31,17 @@ namespace FAA.Customization
         private const string HeadingTapeCanvasName = "FAAHeadingTapeCanvas";
         private const string HeadingTapeOverlayName = "FAA Heading Tape Overlay";
         private static readonly Color HudGreen = new Color(0.2f, 1f, 0.2f, 1f);
-        private static readonly Color HudGreenDim = new Color(0.2f, 1f, 0.2f, 0.74f);
+        private static readonly Color HudGreenDim = new Color(0.2f, 1f, 0.2f, 0.92f);
         private static readonly HashSet<int> BrokenSpriteImageInstanceIds = new HashSet<int>();
         private static readonly Vector2 LegacyScreenFlightHudAnchoredPosition = new Vector2(960f, 740f);
         private static readonly Vector2 DefaultScreenFlightHudAnchoredPosition = new Vector2(960f, 690f);
-        private static readonly Vector2 HeadingTapeAnchoredPosition = new Vector2(0f, -180f);
+        // Zone Z5: the tape's top edge sits at 790 ref from the top (the overlay re-pins this lane in play mode).
+        private static readonly Vector2 HeadingTapeAnchoredPosition = new Vector2(0f, 540f - FaaHeadingTapeOverlay.LaneTopFromScreenTop - FaaHeadingTapeOverlay.TopExtent);
         private static readonly Vector2 HeadingTapeSize = new Vector2(520f, 64f);
+        private const string OnlineMapTilesetPath = "FAA_Scene/_Environment/_Maps/OnlineMap/Map";
+        private const string OnlineMapCameraName = "Map Camera";
+        private const float MapLayerRecheckSeconds = 2f;
+        private const float MapLayerRecheckWindowSeconds = 60f;
 
         [Header("Duplicate HUD Protection")]
         [SerializeField] private bool disableWorldSpaceSymbologyCanvas = true;
@@ -89,6 +94,8 @@ namespace FAA.Customization
 
         private int _remainingInitialScans;
         private float _nextScanTime;
+        private float _nextMapLayerCheck;
+        private float _mapLayerCheckUntil;
         private Material _sourceSkyboxMaterial;
         private Material _hudSkyboxMaterial;
 
@@ -149,6 +156,14 @@ namespace FAA.Customization
 
         private void LateUpdate()
         {
+            // Cameras created after start-up (XR rig, simulator) must not see the OnlineMaps render source either.
+            // Idempotent and cheap: a short re-check window, not a per-frame scan.
+            if (Application.isPlaying && Time.unscaledTime >= _nextMapLayerCheck && Time.unscaledTime <= _mapLayerCheckUntil)
+            {
+                _nextMapLayerCheck = Time.unscaledTime + MapLayerRecheckSeconds;
+                IsolateOnlineMapRenderLayer();
+            }
+
             if (!continuousRuntimeRescan)
             {
                 return;
@@ -220,6 +235,87 @@ namespace FAA.Customization
 #endif
                 HideLargeBlankHudImages();
             }
+
+            if (Application.isPlaying)
+            {
+                if (_mapLayerCheckUntil <= 0f)
+                {
+                    _mapLayerCheckUntil = Time.unscaledTime + MapLayerRecheckWindowSeconds;
+                }
+
+                IsolateOnlineMapRenderLayer();
+            }
+        }
+
+        /// <summary>
+        /// The OnlineMaps tileset is a 1 km world-space plane that exists only as the render source of 'Map Camera' (the radar chart).
+        /// Restrict that layer to 'Map Camera' and remove it from every other camera, so the sectional chart never floats in the pilot's
+        /// outside view. Idempotent. Shared layers (Default, UI) are never culled. Returns the isolated layer, or -1.
+        /// </summary>
+        internal static int IsolateOnlineMapRenderLayer()
+        {
+            GameObject map = FindOnlineMapTileset();
+            if (map == null)
+            {
+                return -1;
+            }
+
+            int layer = map.layer;
+            return ApplyOnlineMapLayerIsolation(layer, FindObjectsByType<Camera>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+                ? layer : -1;
+        }
+
+        /// <summary>Pure core of the map-layer isolation: 'Map Camera' renders only <paramref name="layer"/>; every other camera excludes it.</summary>
+        internal static bool ApplyOnlineMapLayerIsolation(int layer, IEnumerable<Camera> cameras)
+        {
+            if (layer == 0 || layer == 5 || layer < 0 || layer > 31 || cameras == null)
+            {
+                return false;
+            }
+
+            int bit = 1 << layer;
+            foreach (Camera camera in cameras)
+            {
+                if (camera == null)
+                {
+                    continue;
+                }
+
+                if (camera.gameObject.name == OnlineMapCameraName)
+                {
+                    if (camera.cullingMask != bit)
+                    {
+                        camera.cullingMask = bit;
+                    }
+                }
+                else if ((camera.cullingMask & bit) != 0)
+                {
+                    camera.cullingMask &= ~bit;
+                }
+            }
+
+            return true;
+        }
+
+        private static GameObject FindOnlineMapTileset()
+        {
+            GameObject map = GameObject.Find(OnlineMapTilesetPath);
+            if (map != null)
+            {
+                return map;
+            }
+
+            foreach (Transform transform in FindObjectsByType<Transform>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+            {
+                if (transform != null && transform.gameObject.name == "Map" && transform.parent != null &&
+                    transform.parent.gameObject.name == "OnlineMap" && transform.GetComponent<Renderer>() != null &&
+                    IsLoadedSceneObject(transform.gameObject))
+                {
+                    return transform.gameObject;
+                }
+            }
+
+            return null;
         }
 
         private void ApplyHudFriendlySkybox()
@@ -982,7 +1078,8 @@ namespace FAA.Customization
             foreach (TrafficRadar.TrafficRadarDisplay display in radarDisplay.GetComponentsInChildren<TrafficRadar.TrafficRadarDisplay>(true))
             {
                 display.enabled = true;
-                display.ConfigureHudPresentation(0.34f, 0.28f);
+                // Readable, near-opaque scope (no terrain through 'no return'); subdued chart underlay (radar audit RDR-06/09).
+                display.ConfigureHudPresentation(0.62f, 0.22f);
                 display.PreferXPlaneTrafficTexture = false;
                 // The sectional chart is a low-opacity, circular context cue
                 // in the XR-3 presentation.  Keep it enabled by policy so a
@@ -1045,7 +1142,8 @@ namespace FAA.Customization
                     // presentation; the procedural display owns its own
                     // modern grid and return styling.
                     display.ShowReferenceOverlay = false;
-                    display.ConfigureHudPresentation(0.82f);
+                    // Near-opaque face so 'no return' reads black, not terrain (ARINC 708A / DO-220 convention).
+                    display.ConfigureHudPresentation(0.95f);
                 }
             }
 
@@ -1778,6 +1876,14 @@ namespace FAA.Customization
                 return;
             }
 
+            if (Application.isPlaying)
+            {
+                // The authored FMA is a static mock-up bitmap (fixed, axis-wrong modes). Replace it with live annunciation.
+                RetireStaticFlightModeArtwork(legacyHudRoot);
+                FaaFlightModeAnnunciator.Ensure(legacyHudRoot.transform);
+                ConfigureMeasuredBankSlip(legacyHudRoot);
+            }
+
             Transform generatedCompass = legacyHudRoot.transform.Find("Heading Panel/Compass Bar Generated");
             if (generatedCompass != null)
             {
@@ -1827,6 +1933,46 @@ namespace FAA.Customization
                 }
 
                 text.raycastTarget = false;
+            }
+        }
+
+        /// <summary>Hides the static 'Bank Scale/CRP' FMA sprite so it can never show fabricated modes. Returns true when found.</summary>
+        internal static bool RetireStaticFlightModeArtwork(GameObject legacyHudRoot)
+        {
+            Transform artwork = legacyHudRoot != null ? legacyHudRoot.transform.Find("Bank Scale/CRP") : null;
+            if (artwork == null)
+            {
+                return false;
+            }
+
+            foreach (Graphic graphic in artwork.GetComponentsInChildren<Graphic>(true))
+            {
+                graphic.enabled = false;
+                graphic.raycastTarget = false;
+            }
+
+            if (artwork.gameObject.activeSelf)
+            {
+                artwork.gameObject.SetActive(false);
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// The bank scale shows measured slip from the bridge, never a simulated or frozen centre brick, and is drawn by the procedural
+        /// Digital scale (arc, sky pointer and brick on one centre, standard ticks). The bitmap arc is hidden at runtime only; the scene
+        /// asset is never edited.
+        /// </summary>
+        private static void ConfigureMeasuredBankSlip(GameObject legacyHudRoot)
+        {
+            foreach (HUDControl.Elements.BankScaleElement bank in legacyHudRoot.GetComponentsInChildren<HUDControl.Elements.BankScaleElement>(true))
+            {
+                if (bank != null)
+                {
+                    bank.ConfigureMeasuredSlip();
+                    bank.EnsureProceduralScale();
+                }
             }
         }
 

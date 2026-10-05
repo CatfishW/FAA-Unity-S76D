@@ -21,12 +21,15 @@ namespace FAA.Customization
     [AddComponentMenu("FAA/Customization/Traffic Radar Context Menu")]
     public sealed class TrafficRadarContextMenu : MonoBehaviour
     {
-        private const float CompactPanelWidth = 284f;
+        private const float CompactPanelWidth = 300f;
         private const float FocusPanelWidth = 386f;
         private const float CompactRowHeight = 44f;
         private const float FocusRowHeight = 58f;
         private const float RowGap = 8f;
-        private const float HeaderHeight = 52f;
+        private const float HeaderHeight = 58f;
+        /// <summary>FAA minimum legible size for every menu text (reference units).</summary>
+        private const float MinimumFont = FaaRadarVisualStyle.MinimumFont;
+        private const string CloseHint = "TAP THE MAP AGAIN TO CLOSE";
         private const float PanelPadding = 14f;
         private const float RadarGap = 20f;
         private const float CompactTopSafeInset = 86f;
@@ -82,6 +85,8 @@ namespace FAA.Customization
         private bool _interactionLocked;
         private float _progress;
         private Vector2 _panelRestPosition;
+        private FaaRadarPresentation _chrome;
+        private float _menuScale = 1f;
         private Coroutine _actionRoutine;
         private ActionKind? _selectedAction;
         private ActionKind? _focusedAction;
@@ -115,6 +120,10 @@ namespace FAA.Customization
         private readonly List<GameObject> _simulatorInputPanels = new List<GameObject>();
         private readonly List<bool> _simulatorInputPanelStates = new List<bool>();
         private bool _simulatorInputPanelStateCaptured;
+        private float _nextLabelRefresh;
+        private bool _hasDialogPreview;
+        private double _dialogPreviewLat, _dialogPreviewLon;
+        private bool _dialogPreviewValid;
 
         public bool IsOpen => _targetOpen || _progress > 0.01f;
         // Requested state is separate from the outgoing animation. Companion
@@ -262,7 +271,12 @@ namespace FAA.Customization
                     }
                     LayoutForCurrentRadar(Vector2.zero);
                 }
-                RefreshActionLabels();
+                // Labels change at data rate, not frame rate: avoid per-frame string rebuilds.
+                if (Time.unscaledTime >= _nextLabelRefresh)
+                {
+                    _nextLabelRefresh = Time.unscaledTime + .25f;
+                    RefreshActionLabels();
+                }
                 UpdateLeaderGeometry();
             }
 
@@ -346,8 +360,8 @@ namespace FAA.Customization
             titleRect.pivot = new Vector2(0.5f, 1f);
             titleRect.offsetMin = new Vector2(PanelPadding, -HeaderHeight + 8f);
             titleRect.offsetMax = new Vector2(-PanelPadding, -8f);
-            title.text = "TRAFFIC CONTROLS";
-            title.fontSize = 15f;
+            title.text = "MAP ACTIONS";
+            title.fontSize = 16f;
             title.fontStyle = FontStyles.Bold;
             title.alignment = TextAlignmentOptions.TopLeft;
             title.color = TextColor;
@@ -358,9 +372,9 @@ namespace FAA.Customization
             hintRect.anchorMax = new Vector2(1f, 1f);
             hintRect.pivot = new Vector2(0.5f, 1f);
             hintRect.offsetMin = new Vector2(PanelPadding, -HeaderHeight + 8f);
-            hintRect.offsetMax = new Vector2(-PanelPadding, -30f);
-            hint.text = "TAP TO APPLY  ·  TAP RADAR TO CLOSE";
-            hint.fontSize = 10f;
+            hintRect.offsetMax = new Vector2(-PanelPadding, -32f);
+            hint.text = CloseHint;
+            hint.fontSize = MinimumFont;
             hint.fontStyle = FontStyles.Normal;
             hint.alignment = TextAlignmentOptions.BottomLeft;
             hint.color = StateColor;
@@ -448,7 +462,7 @@ namespace FAA.Customization
             titleRect.anchorMax = new Vector2(0.68f, 1f);
             titleRect.offsetMin = new Vector2(51f, 0f);
             titleRect.offsetMax = new Vector2(-4f, 0f);
-            title.fontSize = 13f;
+            title.fontSize = MinimumFont;
             title.fontStyle = FontStyles.Bold;
             title.alignment = TextAlignmentOptions.MidlineLeft;
             title.color = TextColor;
@@ -458,7 +472,7 @@ namespace FAA.Customization
             stateRect.anchorMax = new Vector2(1f, 1f);
             stateRect.offsetMin = new Vector2(3f, 0f);
             stateRect.offsetMax = new Vector2(-12f, 0f);
-            state.fontSize = 10.5f;
+            state.fontSize = MinimumFont;
             state.fontStyle = FontStyles.Bold;
             state.alignment = TextAlignmentOptions.MidlineRight;
             state.color = StateColor;
@@ -478,8 +492,20 @@ namespace FAA.Customization
             });
         }
 
+        /// <summary>
+        /// Readability scale of the host radar's chrome (FaaRadarPresentation.ChromeScale). The full map keeps its units per metre
+        /// on a world panel, so without it the 15-unit menu text would render below the FAA floor; the menu and the target dialog
+        /// are enlarged by the same factor as the header and footer.
+        /// </summary>
+        private float MenuReadabilityScale()
+        {
+            if (_chrome == null && _hostRect != null) _chrome = _hostRect.GetComponentInParent<FaaRadarPresentation>();
+            return _chrome != null ? Mathf.Clamp(_chrome.ChromeScale, 1f, FaaRadarVisualStyle.MaximumReadabilityScale) : 1f;
+        }
+
         private void LayoutForCurrentRadar(Vector2 localPoint)
         {
+            _menuScale = MenuReadabilityScale();
             bool focused = _display != null && _display.IsFullscreen;
             _layoutFocused = focused;
             if (_leaders != null)
@@ -488,7 +514,8 @@ namespace FAA.Customization
             }
             float panelWidth = focused ? FocusPanelWidth : CompactPanelWidth;
             float rowHeight = focused ? FocusRowHeight : CompactRowHeight;
-            int visibleCount = focused ? 6 : 5;
+            int visibleCount = 0;
+            foreach (ActionView candidate in _actions) if (IsActionVisible(candidate.Kind, focused)) visibleCount++;
             float panelHeight = HeaderHeight + PanelPadding +
                                 visibleCount * rowHeight +
                                 Mathf.Max(0, visibleCount - 1) * RowGap +
@@ -498,7 +525,7 @@ namespace FAA.Customization
             int visibleIndex = 0;
             foreach (ActionView action in _actions)
             {
-                bool visible = action.Kind != ActionKind.Center || focused;
+                bool visible = IsActionVisible(action.Kind, focused);
                 action.GameObject.SetActive(visible);
                 if (!visible)
                 {
@@ -506,8 +533,12 @@ namespace FAA.Customization
                 }
 
                 action.Rect.sizeDelta = new Vector2(panelWidth - PanelPadding * 2f, rowHeight);
-                action.Title.fontSize = focused ? 14.5f : 12.5f;
-                action.State.fontSize = focused ? 11f : 9.5f;
+                action.Title.fontSize = focused ? 16f : MinimumFont;
+                action.State.fontSize = MinimumFont;
+                // Wider state column in the full map for bearing/distance; never ellipsis-truncate.
+                float split = focused ? .55f : .62f;
+                action.Title.rectTransform.anchorMax = new Vector2(split, 1f);
+                action.State.rectTransform.anchorMin = new Vector2(split, 0f);
                 if (action.IconPlate != null)
                 {
                     float iconSize = focused ? 36f : 31f;
@@ -525,19 +556,19 @@ namespace FAA.Customization
 
             if (_headerTitle != null)
             {
-                _headerTitle.fontSize = focused ? 18f : 15.5f;
+                _headerTitle.fontSize = focused ? 18f : 16f;
+                _headerTitle.text = focused ? "MAP ACTIONS" : "TRAFFIC MAP";
             }
 
             if (_headerHint != null)
             {
-                _headerHint.fontSize = focused ? 10.5f : 9.5f;
-                _headerHint.text = _targetSetupOpen
-                    ? "MAP PREVIEW  ·  CONFIRM OR CANCEL"
-                    : focused
-                        ? "TAP ACTION TO APPLY  ·  TAP RADAR TO CLOSE"
-                        : "FULL MAP TO SET TARGET  ·  TAP RADAR TO CLOSE";
+                _headerHint.fontSize = MinimumFont;
+                _headerHint.text = _targetSetupOpen ? "CONFIRM OR CANCEL" : CloseHint;
             }
 
+            // Placement uses the rendered (readability-scaled) panel size.
+            panelWidth *= _menuScale;
+            panelHeight *= _menuScale;
             Rect radarRect = _hostRect.rect;
             GetCanvasBoundsInHostSpace(out Vector2 canvasMin, out Vector2 canvasMax);
             float leftSpace = radarRect.xMin - canvasMin.x;
@@ -618,6 +649,15 @@ namespace FAA.Customization
             _panel.anchoredPosition = _panelRestPosition;
             UpdateLeaderGeometry();
         }
+
+        /// <summary>
+        /// The full map's persistent toolbar already owns map source, range, recentre and Restore HUD, so
+        /// this tap menu offers only what the toolbar does not: target setup and range rings. The compact
+        /// radar's tap opens the settings drawer instead; this compact list exists only for XR/voice adapters.
+        /// </summary>
+        private static bool IsActionVisible(ActionKind kind, bool focused) => focused
+            ? kind == ActionKind.Target || kind == ActionKind.Linework
+            : kind == ActionKind.Linework || kind == ActionKind.Range || kind == ActionKind.View;
 
         private void UpdateLeaderGeometry()
         {
@@ -808,7 +848,7 @@ namespace FAA.Customization
         {
             if (_display == null || !_display.CommitNavigationPreview())
             {
-                SetTargetDialogStatus("SELECT A VALID MAP POINT OR COORDINATES");
+                SetTargetDialogStatus("SELECT A VALID POINT");
                 return;
             }
 
@@ -847,6 +887,7 @@ namespace FAA.Customization
         private void CloseTargetDialog(bool immediate)
         {
             _targetSetupOpen = false;
+            _hasDialogPreview = false;
             if (_targetDialogRoot != null)
             {
                 _targetDialogRoot.gameObject.SetActive(false);
@@ -880,7 +921,10 @@ namespace FAA.Customization
             // the left edge of the maximized radar when there is room and
             // falls back to centre only on unusually narrow XR viewports.
             Rect bounds = _targetDialogRoot.rect;
-            Vector2 cardSize = _targetDialogCard.rect.size;
+            float k = MenuReadabilityScale();
+            Vector3 cardScale = new Vector3(k, k, 1f);
+            if (_targetDialogCard.localScale != cardScale) _targetDialogCard.localScale = cardScale;
+            Vector2 cardSize = _targetDialogCard.rect.size * k;
             float halfWidth = Mathf.Max(1f, bounds.width * 0.5f);
             float halfHeight = Mathf.Max(1f, bounds.height * 0.5f);
             float x = -halfWidth + cardSize.x * 0.5f + 14f;
@@ -1037,7 +1081,7 @@ namespace FAA.Customization
             title.rectTransform.pivot = new Vector2(0.5f, 1f);
             title.rectTransform.offsetMin = new Vector2(22f, -42f);
             title.rectTransform.offsetMax = new Vector2(-22f, -14f);
-            _targetDialogHint = CreateDialogText(_targetDialogCard, "Hint", "TAP THE MAP TO PREVIEW  ·  COORDINATES STAY UNCOMMITTED", 10f, StateColor, FontStyles.Normal);
+            _targetDialogHint = CreateDialogText(_targetDialogCard, "Hint", "Tap the map to preview a point.", MinimumFont, StateColor, FontStyles.Normal);
             _targetDialogHint.alignment = TextAlignmentOptions.TopLeft;
             _targetDialogHint.rectTransform.anchorMin = new Vector2(0f, 1f);
             _targetDialogHint.rectTransform.anchorMax = new Vector2(1f, 1f);
@@ -1045,10 +1089,10 @@ namespace FAA.Customization
             _targetDialogHint.rectTransform.offsetMin = new Vector2(22f, -68f);
             _targetDialogHint.rectTransform.offsetMax = new Vector2(-22f, -46f);
 
-            CreateDialogText(_targetDialogCard, "LatitudeLabel", "LATITUDE", 10f, StateColor, FontStyles.Bold,
-                new Vector2(-194f, 92f), new Vector2(-108f, 116f));
-            CreateDialogText(_targetDialogCard, "LongitudeLabel", "LONGITUDE", 10f, StateColor, FontStyles.Bold,
-                new Vector2(-194f, 42f), new Vector2(-108f, 66f));
+            CreateDialogText(_targetDialogCard, "LatitudeLabel", "LAT", MinimumFont, StateColor, FontStyles.Bold,
+                new Vector2(-194f, 76f), new Vector2(-124f, 100f));
+            CreateDialogText(_targetDialogCard, "LongitudeLabel", "LON", MinimumFont, StateColor, FontStyles.Bold,
+                new Vector2(-194f, 26f), new Vector2(-124f, 50f));
             _latitudeInput = CreateCoordinateInput(_targetDialogCard, "LatitudeInput", "37.00000", new Vector2(-46f, 88f));
             _longitudeInput = CreateCoordinateInput(_targetDialogCard, "LongitudeInput", "-75.00000", new Vector2(-46f, 38f));
 
@@ -1057,16 +1101,16 @@ namespace FAA.Customization
             CreateDialogButton(_targetDialogCard, "LonMinus", "−", new Vector2(106f, 38f), new Vector2(34f, 34f), () => NudgeCoordinate(false, -CoordinateStep));
             CreateDialogButton(_targetDialogCard, "LonPlus", "+", new Vector2(146f, 38f), new Vector2(34f, 34f), () => NudgeCoordinate(false, CoordinateStep));
 
-            _targetDialogCoordinates = CreateDialogText(_targetDialogCard, "Coordinates", "PREVIEW  —", 12f, TextColor, FontStyles.Bold,
-                new Vector2(-194f, -4f), new Vector2(194f, 22f));
+            _targetDialogCoordinates = CreateDialogText(_targetDialogCard, "Coordinates", "PREVIEW  —", MinimumFont, TextColor, FontStyles.Bold,
+                new Vector2(-194f, -6f), new Vector2(194f, 20f));
             _targetDialogCoordinates.alignment = TextAlignmentOptions.MidlineLeft;
-            _targetDialogStatus = CreateDialogText(_targetDialogCard, "Status", "SELECT A POINT TO CONTINUE", 10f, StateColor, FontStyles.Normal,
-                new Vector2(-194f, -34f), new Vector2(194f, -10f));
+            _targetDialogStatus = CreateDialogText(_targetDialogCard, "Status", "SELECT A POINT TO CONTINUE", MinimumFont, StateColor, FontStyles.Normal,
+                new Vector2(-194f, -38f), new Vector2(194f, -12f));
             _targetDialogStatus.alignment = TextAlignmentOptions.MidlineLeft;
 
-            _targetDialogCancel = CreateDialogButton(_targetDialogCard, "Cancel", "CANCEL", new Vector2(-128f, -142f), new Vector2(102f, 42f), CancelTargetSetup);
-            _targetDialogClear = CreateDialogButton(_targetDialogCard, "Clear", "CLEAR ACTIVE", new Vector2(0f, -142f), new Vector2(122f, 42f), ClearCommittedTargetFromDialog);
-            _targetDialogConfirm = CreateDialogButton(_targetDialogCard, "Confirm", "CONFIRM TARGET", new Vector2(138f, -142f), new Vector2(144f, 42f), ConfirmTargetSetup);
+            _targetDialogCancel = CreateDialogButton(_targetDialogCard, "Cancel", "CANCEL", new Vector2(-149f, -142f), new Vector2(96f, 42f), CancelTargetSetup);
+            _targetDialogClear = CreateDialogButton(_targetDialogCard, "Clear", "CLEAR", new Vector2(-45f, -142f), new Vector2(96f, 42f), ClearCommittedTargetFromDialog);
+            _targetDialogConfirm = CreateDialogButton(_targetDialogCard, "Confirm", "CONFIRM TARGET", new Vector2(105f, -142f), new Vector2(176f, 42f), ConfirmTargetSetup);
 
             _latitudeInput.onEndEdit.AddListener(_ => OnCoordinateInputEdited());
             _longitudeInput.onEndEdit.AddListener(_ => OnCoordinateInputEdited());
@@ -1139,7 +1183,7 @@ namespace FAA.Customization
             Stretch(textRect);
             textRect.offsetMin = new Vector2(10f, 3f);
             textRect.offsetMax = new Vector2(-10f, -3f);
-            text.fontSize = 14f;
+            text.fontSize = 16f;
             text.fontStyle = FontStyles.Bold;
             text.color = TextColor;
             text.alignment = TextAlignmentOptions.MidlineLeft;
@@ -1151,7 +1195,7 @@ namespace FAA.Customization
             Stretch(placeholderRect);
             placeholderRect.offsetMin = new Vector2(10f, 3f);
             placeholderRect.offsetMax = new Vector2(-10f, -3f);
-            placeholderText.fontSize = 12f;
+            placeholderText.fontSize = MinimumFont;
             placeholderText.color = StateColor;
             placeholderText.alignment = TextAlignmentOptions.MidlineLeft;
             placeholderText.text = placeholder;
@@ -1186,10 +1230,9 @@ namespace FAA.Customization
             Button button = buttonObject.GetComponent<Button>();
             FaaRadarVisualStyle.ConfigureButton(button, image);
             button.onClick.AddListener(action);
-            TMP_Text text = CreateDialogText(rect, "Label", label, 11f, TextColor, FontStyles.Bold);
+            TMP_Text text = CreateDialogText(rect, "Label", label, MinimumFont, TextColor, FontStyles.Bold);
             Stretch(text.rectTransform);
             text.alignment = TextAlignmentOptions.Center;
-            text.fontSize = size.x > 130f ? 10.5f : 10f;
             return button;
         }
 
@@ -1201,6 +1244,19 @@ namespace FAA.Customization
             }
 
             RadarNavigationTarget preview = _display.CurrentNavigationPreview;
+            bool previewValid = preview.IsValid && preview.HasGeoPosition;
+            if (_targetDialogConfirm != null) _targetDialogConfirm.interactable = previewValid;
+            if (_targetDialogClear != null) _targetDialogClear.interactable = _display.HasNavigationTarget;
+            // Called every frame while the dialog is open: rebuild text/fields only when the preview changed.
+            if (!force && _hasDialogPreview && previewValid == _dialogPreviewValid &&
+                (!previewValid || (preview.Latitude == _dialogPreviewLat && preview.Longitude == _dialogPreviewLon)))
+            {
+                return;
+            }
+            _hasDialogPreview = true;
+            _dialogPreviewValid = previewValid;
+            _dialogPreviewLat = preview.Latitude;
+            _dialogPreviewLon = preview.Longitude;
             if (preview.HasGeoPosition)
             {
                 _updatingTargetDialog = true;
@@ -1223,7 +1279,7 @@ namespace FAA.Customization
             {
                 _targetDialogCoordinates.text = preview.IsValid && preview.HasGeoPosition
                     ? $"PREVIEW  {FormatCoordinate(preview.Latitude, true)}  {FormatCoordinate(preview.Longitude, false)}"
-                    : "PREVIEW  —  TAP THE MAP OR ENTER COORDINATES";
+                    : "PREVIEW  —";
             }
 
             if (_targetDialogStatus != null && string.IsNullOrEmpty(_targetDialogStatus.text))
@@ -1424,22 +1480,18 @@ namespace FAA.Customization
                 switch (action.Kind)
                 {
                     case ActionKind.Linework:
-                        action.Title.text = _layoutFocused ? "GUIDE LINES" : "LINES";
-                        action.State.text = _display.ReferenceLineworkVisible ? "HIDE" : "SHOW";
+                        // Same name as the settings card ("Range rings · count").
+                        SetLabel(action.Title, "RANGE RINGS");
+                        // The state column shows state (ON/OFF), never the action a tap would perform.
+                        SetLabel(action.State, _display.ReferenceLineworkVisible ? "ON" : "OFF");
                         break;
                     case ActionKind.Map:
-                        action.Title.text = _layoutFocused ? "MAP SOURCE" : "MAP";
-                        action.State.text = _layoutFocused
-                            ? $"{CompactSourceName(_display.MapSourceName)} · SWITCH"
-                            : CompactSourceName(_display.MapSourceName);
+                        SetLabel(action.Title, "MAP SOURCE");
+                        SetLabel(action.State, FaaRadarControlsOverlay.ReadableMapSource(_display.MapSourceName));
                         break;
                     case ActionKind.Range:
-                        action.Title.text = "RANGE";
-                        action.State.text = _layoutFocused
-                            ? _display.AutoRangeEnabled
-                                ? $"{_display.RangeNM:0} NM · MANUAL"
-                                : $"{_display.RangeNM:0} NM · NEXT"
-                            : $"{_display.RangeNM:0} NM";
+                        SetLabel(action.Title, "RANGE");
+                        SetLabel(action.State, FaaRadarPresentation.FormatRange(_display.SelectedRangeNM));
                         break;
                     case ActionKind.Target:
                         bool compactTarget = !_layoutFocused;
@@ -1457,8 +1509,9 @@ namespace FAA.Customization
                         action.State.text = "RECENTER";
                         break;
                     case ActionKind.View:
-                        action.Title.text = "RADAR VIEW";
-                        action.State.text = _display.IsFullscreen ? "RESTORE" : "MAXIMIZE";
+                        // Same terms as the settings ("Open full map") and toolbar ("Restore HUD").
+                        action.Title.text = "FULL MAP";
+                        action.State.text = _display.IsFullscreen ? "RESTORE HUD" : "OPEN";
                         action.Icon?.SetIcon(_display.IsFullscreen ? FaaRadarIcon.Restore : FaaRadarIcon.Expand);
                         break;
                 }
@@ -1513,12 +1566,13 @@ namespace FAA.Customization
 
             if (_headerHint != null)
             {
-                _headerHint.text = _targetSetupOpen
-                    ? "MAP PREVIEW  ·  CONFIRM OR CANCEL"
-                    : _layoutFocused
-                        ? "TAP ACTION TO APPLY  ·  TAP RADAR TO CLOSE"
-                        : "FULL MAP TO SET TARGET  ·  TAP RADAR TO CLOSE";
+                SetLabel(_headerHint, _targetSetupOpen ? "CONFIRM OR CANCEL" : CloseHint);
             }
+        }
+
+        private static void SetLabel(TMP_Text label, string text)
+        {
+            if (label != null && label.text != text) label.text = text;
         }
 
         private void BeginAction(ActionKind kind)
@@ -1589,6 +1643,7 @@ namespace FAA.Customization
                     _display.CycleMapSourceAnimated();
                     break;
                 case ActionKind.Range:
+                    // Steps through the controller's single 2-80 NM list, same as the settings +/-.
                     _display.CycleRangeManual();
                     break;
                 case ActionKind.Target:
@@ -1614,7 +1669,7 @@ namespace FAA.Customization
             _canvasGroup.alpha = eased;
             _canvasGroup.interactable = _targetOpen && !_interactionLocked && _progress >= 0.92f;
             _canvasGroup.blocksRaycasts = _targetOpen && _progress >= 0.10f;
-            float scale = reducedMotion ? 1f : Mathf.Lerp(0.94f, 1f, eased);
+            float scale = (reducedMotion ? 1f : Mathf.Lerp(0.94f, 1f, eased)) * _menuScale;
             _panel.localScale = new Vector3(scale, scale, 1f);
             float slideDirection = _panelOnLeft ? -1f : 1f;
             _panel.anchoredPosition = _panelRestPosition +
@@ -1645,22 +1700,6 @@ namespace FAA.Customization
                 minimum = Vector2.Min(minimum, local);
                 maximum = Vector2.Max(maximum, local);
             }
-        }
-
-        private static string CompactSourceName(string source)
-        {
-            if (string.IsNullOrWhiteSpace(source))
-            {
-                return "MAP";
-            }
-
-            string upper = source.Trim().ToUpperInvariant();
-            if (upper.Contains("SECTION")) return "SEC";
-            if (upper.Contains("WORLD") || upper.Contains("AERONAUT")) return "WAC";
-            if (upper.Contains("TERMINAL")) return "TAC";
-            if (upper.Contains("STREET")) return "STREET";
-            if (upper.Contains("SAT")) return "SAT";
-            return upper.Length <= 7 ? upper : upper.Substring(0, 7);
         }
 
         private static FaaRadarIcon ActionIcon(ActionKind kind)

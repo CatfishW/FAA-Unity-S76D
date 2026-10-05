@@ -104,5 +104,53 @@ namespace FAA.Customization.Tests
             }
             finally{UnityEngine.Object.DestroyImmediate(go);}
         }
+        [Test] public void DesktopInspectionZoomIsCriticallyDampedNeverWiderAndRestoresTheExactFieldOfView()
+        {
+            Type type=Type.GetType("AircraftControl.Camera.AircraftCameraController, AircraftControl",true);
+            var go=new GameObject("Inspection zoom fixture",typeof(Camera));go.SetActive(false);
+            try
+            {
+                var controller=go.AddComponent(type);go.SetActive(true);
+                var camera=go.GetComponent<Camera>();camera.fieldOfView=57.3f;
+                var set=type.GetMethod("SetInspectionFieldOfView");var begin=type.GetMethod("BeginPanelInspection");
+                var step=type.GetMethod("StepFieldOfView",BindingFlags.NonPublic|BindingFlags.Instance);
+                Assert.That((bool)set.Invoke(controller,new object[]{30f}),Is.False,"Zoom belongs to a panel inspection.");
+                Assert.That((bool)begin.Invoke(controller,new object[]{90f,-8f}),Is.True);
+                Assert.That((bool)set.Invoke(controller,new object[]{30f}),Is.True);
+                float previous=camera.fieldOfView,t=0f,settledAt=-1f;
+                for(int i=0;i<70;i++)
+                {
+                    step.Invoke(controller,new object[]{.01f});t+=.01f;float f=camera.fieldOfView;
+                    Assert.That(f,Is.LessThanOrEqualTo(previous+1e-4f),"Monotonic: critically damped, no overshoot.");
+                    Assert.That(f,Is.GreaterThanOrEqualTo(30f-1e-3f));previous=f;
+                    if(settledAt<0f&&Mathf.Abs(f-30f)<.1f)settledAt=t;
+                }
+                Assert.That(settledAt,Is.InRange(.3f,.5f),"Settles in about 0.35-0.5 s.");
+                Assert.That(camera.fieldOfView,Is.EqualTo(30f).Within(.01f));
+                Assert.That((float)type.GetProperty("BaseFieldOfView").GetValue(controller),Is.EqualTo(57.3f));
+                type.GetMethod("ResetView").Invoke(controller,null);
+                for(int i=0;i<100;i++)step.Invoke(controller,new object[]{.01f});
+                Assert.That(camera.fieldOfView,Is.EqualTo(57.3f),"FORWARD restores the exact base FOV.");
+                Assert.That((bool)type.GetProperty("IsFieldOfViewTransitioning").GetValue(controller),Is.False);
+                begin.Invoke(controller,new object[]{-90f,-8f});set.Invoke(controller,new object[]{90f});
+                Assert.That((float)type.GetProperty("FieldOfViewTarget").GetValue(controller),Is.EqualTo(57.3f),"Never wider than the base FOV.");
+                set.Invoke(controller,new object[]{25f});step.Invoke(controller,new object[]{.05f});
+                Assert.That(camera.fieldOfView,Is.LessThan(57.3f));
+                type.GetMethod("ResetViewImmediate").Invoke(controller,null);
+                Assert.That(camera.fieldOfView,Is.EqualTo(57.3f),"A mode change restores at once.");
+            }
+            finally{UnityEngine.Object.DestroyImmediate(go);}
+        }
+        [TestCase(KeyCode.R,KeyCode.F,KeyCode.PageUp,KeyCode.PageDown,true)]
+        [TestCase(KeyCode.PageUp,KeyCode.PageDown,KeyCode.PageUp,KeyCode.PageDown,false)]
+        [TestCase(KeyCode.Y,KeyCode.R,KeyCode.Y,KeyCode.PageDown,true)]
+        public void CollectiveNeverSharesTheForwardViewKey(KeyCode up,KeyCode down,KeyCode expectedUp,KeyCode expectedDown,bool changed)
+        {
+            Type type=Type.GetType("AircraftControl.Core.AircraftController, AircraftControl",true);
+            object[] args={up,down};
+            Assert.That((bool)type.GetMethod("ResolveCollectiveKeys").Invoke(null,args),Is.EqualTo(changed));
+            Assert.That((KeyCode)args[0],Is.EqualTo(expectedUp));Assert.That((KeyCode)args[1],Is.EqualTo(expectedDown));
+            Assert.That((KeyCode)type.GetField("ViewResetKey").GetValue(null),Is.EqualTo(KeyCode.R));
+        }
     }
 }

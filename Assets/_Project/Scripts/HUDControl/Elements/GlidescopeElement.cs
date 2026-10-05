@@ -55,15 +55,15 @@ namespace HUDControl.Elements
         [Tooltip("Traffic radar display that supplies the selected map target. Leave empty to auto-find the active display.")]
         [SerializeField] private TrafficRadarDisplay navigationDisplay;
 
-        [Tooltip("Show the selected map target as an amber cue on the glidescope bar.")]
-        [SerializeField] private bool showNavigationTargetCue = true;
+        [Tooltip("Retired: along-track map distance is not vertical guidance; the target is shown only on the heading tape. Kept for serialized data.")]
+        [SerializeField] private bool showNavigationTargetCue = false;
 
         [Tooltip("Fraction of the target's forward/backward radar vector represented by the full glidescope bar.")]
         [Range(0.45f, 1f)]
         [SerializeField] private float navigationTargetForwardWindow = 0.90f;
 
-        [Tooltip("Accent used for a selected map target.")]
-        [SerializeField] private Color navigationTargetColor = new Color(1f, 0.78f, 0.28f, 1f);
+        [Tooltip("Retired accent (amber is reserved for cautions).")]
+        [SerializeField] private Color navigationTargetColor = new Color(0.2f, 1f, 0.2f, 1f);
 
         [Tooltip("Pulse speed for the selected target cue.")]
         [Min(0f)]
@@ -128,9 +128,9 @@ namespace HUDControl.Elements
 
         private void EnsureNavigationTargetCue()
         {
-            // Deviation dots and the needle carry disabled/empty copies of the
-            // element. Only a root with a real needle should own a cue.
-            if (!showNavigationTargetCue || glidescopeNeedle == null)
+            // Retired: a map target positioned by along-track distance on the glideslope bar would be read as vertical
+            // guidance. Never create it; an existing one is only kept hidden.
+            if (!NavigationTargetCueAllowed || glidescopeNeedle == null)
             {
                 return;
             }
@@ -192,9 +192,18 @@ namespace HUDControl.Elements
             navigationTargetCue.transform.SetAsLastSibling();
         }
 
+        /// <summary>The glideslope bar carries glideslope deviation only.</summary>
+        private const bool NavigationTargetCueAllowed = false;
+
         private void UpdateNavigationTargetCue()
         {
-            if (!showNavigationTargetCue || glidescopeNeedle == null)
+            if (navigationTargetCue == null && glidescopeNeedle != null)
+            {
+                Transform existing = transform.Find("FAA Navigation Target Cue");
+                if (existing != null) navigationTargetCue = existing.GetComponent<NavigationTargetCueGraphic>();
+            }
+
+            if (!NavigationTargetCueAllowed || !showNavigationTargetCue || glidescopeNeedle == null)
             {
                 if (navigationTargetCue != null)
                 {
@@ -249,11 +258,18 @@ namespace HUDControl.Elements
         
         public void SetDeviation(float dots)
         {
+            bool hadData = HasDeviationData;
             HasDeviationData = !float.IsNaN(dots) && !float.IsInfinity(dots);
-            if (!HasDeviationData) return;
+            // Any call means real data drives this element: never fall back to a simulated deviation.
             simulateDeviation = false;
+            if (!HasDeviationData) return;
             targetDeviation = Mathf.Clamp(dots, -2.5f, 2.5f);
+            // Re-acquired guidance starts at the measured deviation, not sliding in from a stale value.
+            if (!hadData) displayedDeviation = targetDeviation;
         }
+
+        /// <summary>Latest measured deviation in dots (clamped to +/-2.5); meaningful only while HasDeviationData.</summary>
+        public float GetTargetDeviation() => targetDeviation;
         
         public float GetDisplayedDeviation() => displayedDeviation;
     }

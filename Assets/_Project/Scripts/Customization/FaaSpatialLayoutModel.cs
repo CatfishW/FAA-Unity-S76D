@@ -30,6 +30,8 @@ namespace FAA.Customization
         public static bool Finite(float x) => !float.IsNaN(x) && !float.IsInfinity(x);
         public static bool Finite(Vector3 p) => Finite(p.x) && Finite(p.y) && Finite(p.z);
         public static float Scale(float value) => Finite(value) ? Mathf.Clamp(value, MinScale, MaxScale) : 1f;
+        /// <summary><see cref="Scale"/> with a per-module legibility floor (text-bearing flight modules use FaaHudStyle.MinModuleScale).</summary>
+        public static float LegibleScale(float value, float minimum) => Mathf.Clamp(Mathf.Max(Scale(value), Finite(minimum) ? minimum : MinScale), MinScale, MaxScale);
 
         public static Vector3 Position(FaaSpatialLayoutEntry p)
         {

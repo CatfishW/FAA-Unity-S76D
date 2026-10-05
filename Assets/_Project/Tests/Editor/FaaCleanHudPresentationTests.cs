@@ -124,9 +124,14 @@ namespace FAA.Customization.Tests
                 Component scale = root.AddComponent(type);
                 type.GetMethod("Configure").Invoke(scale, new object[] { false, null, null, null });
                 Assert.That((bool)type.GetField("hasGuidance", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(scale), Is.False);
-                Transform detail = root.transform.Find("Detail");
-                Graphic text = detail.GetComponent<Graphic>();
-                Assert.That(text.GetType().GetProperty("text").GetValue(text), Is.EqualTo("NO TARGET"));
+                // No guidance: no permanent 'NO TARGET' scale, no labels, no mesh and no layout bounds (colour alpha 0).
+                foreach (string label in new[] { "Detail", "Mode", "Positive", "Negative" })
+                {
+                    Transform child = root.transform.Find(label);
+                    Assert.That(child == null || !child.gameObject.activeSelf, Is.True, label + " must be hidden without guidance.");
+                }
+                Assert.That(PopulatedVertexCount((Graphic)scale), Is.Zero, "No rail, dots or diamond without guidance.");
+                Assert.That(((Graphic)scale).color.a, Is.LessThanOrEqualTo(.001f), "A hidden scale must not report layout or keep-out bounds.");
                 Assert.That(((Graphic)scale).raycastTarget, Is.False);
             }
             finally { UnityEngine.Object.DestroyImmediate(root); }
@@ -141,12 +146,96 @@ namespace FAA.Customization.Tests
                 Type type = Runtime("FAA.Customization.FaaNavigationScaleGraphic");
                 Component scale = root.AddComponent(type);
                 type.GetMethod("Configure").Invoke(scale, new object[] { true, null, null, null });
-                Graphic text = root.transform.Find("Mode").GetComponent<Graphic>();
-                Assert.That(text.GetType().GetProperty("text").GetValue(text), Is.EqualTo("ALONG TRACK"));
-                Graphic ahead = root.transform.Find("Positive").GetComponent<Graphic>();
-                Assert.That(ahead.GetType().GetProperty("text").GetValue(ahead), Is.EqualTo("AHEAD"));
+                // Without real G/S deviation the vertical scale is hidden: never 'G/S', never an along-track map mode.
+                Transform mode = root.transform.Find("Mode");
+                Assert.That(mode == null || !mode.gameObject.activeSelf, Is.True);
+                if (mode != null)
+                {
+                    Graphic text = mode.GetComponent<Graphic>();
+                    Assert.That(text.GetType().GetProperty("text").GetValue(text), Is.Not.EqualTo("G/S"));
+                    Assert.That(text.GetType().GetProperty("text").GetValue(text), Is.Not.EqualTo("ALONG TRACK"));
+                }
+                Assert.That(PopulatedVertexCount((Graphic)scale), Is.Zero);
             }
             finally { UnityEngine.Object.DestroyImmediate(root); }
+        }
+
+        // ---------------- Digital FMA: same axis prefixes as Classic, unusual-attitude declutter ----------------
+
+        private static Component NewDigitalFma(out GameObject hudRoot)
+        {
+            hudRoot = new GameObject("Second Interation GUI", typeof(RectTransform));
+            hudRoot.transform.localScale = Vector3.one * 540f;
+            var fma = (Component)Runtime("FAA.Customization.FaaFlightModeAnnunciator").GetMethod("Ensure").Invoke(null, new object[] { hudRoot.transform });
+            Assert.That(fma, Is.Not.Null);
+            return fma;
+        }
+
+        private static object Fma(bool valid, bool engaged, string lateral, string vertical, string verticalArmed, string status) =>
+            Activator.CreateInstance(Runtime("FAA.Customization.FaaFma"), valid, engaged, "", "", lateral, "", vertical, verticalArmed, status);
+
+        private static object Invoke(object target, string method, params object[] args)
+        {
+            foreach (MethodInfo m in target.GetType().GetMethods(BindingFlags.Instance | BindingFlags.Public))
+                if (m.Name == method && m.GetParameters().Length == args.Length) return m.Invoke(target, args);
+            Assert.Fail(method + " not found");
+            return null;
+        }
+
+        [Test]
+        public void DigitalFma_UsesTheClassicAxisPrefixesSmallAndDimOutsideTheModeBox()
+        {
+            Component fma = NewDigitalFma(out GameObject root);
+            try
+            {
+                Invoke(fma, "Present", Fma(true, true, "HDG", "ALT", "", "CPL"), 0f);
+                var prefixes = (string[])Runtime("FAA.Customization.FaaClassicAnalogHud").GetField("FmaPrefixes").GetValue(null);
+                Assert.That(Invoke(fma, "PrefixText", 1), Is.EqualTo(prefixes[1].Trim()), "Same roll-axis prefix as Classic.");
+                Assert.That(Invoke(fma, "PrefixText", 2), Is.EqualTo(prefixes[2].Trim()), "Same pitch-axis prefix as Classic.");
+                Assert.That(Invoke(fma, "PrefixText", 0), Is.EqualTo(""), "No prefix on an empty column.");
+                Assert.That(Invoke(fma, "ActiveText", 1), Is.EqualTo("HDG"), "The mode text itself is unchanged.");
+
+                var texts = fma.GetComponentsInChildren<TMPro.TMP_Text>(true);
+                TMPro.TMP_Text prefix = Array.Find(texts, t => t.name == "R Prefix"), active = Array.Find(texts, t => t.name == "R Active");
+                Assert.That(prefix, Is.Not.Null);
+                Assert.That(prefix.fontSize, Is.LessThan(active.fontSize), "Small.");
+                Assert.That(prefix.fontSize, Is.GreaterThanOrEqualTo((float)Runtime("FAA.Customization.FaaHudStyle").GetField("MinLabel").GetRawConstantValue()));
+                Assert.That(prefix.color.a, Is.LessThan(active.color.a), "Dim.");
+                Assert.That(prefix.color.a, Is.GreaterThanOrEqualTo((float)Runtime("FAA.Customization.FaaHudStyle").GetField("MinQuietAlpha").GetRawConstantValue() - .001f));
+                float prefixRight = prefix.rectTransform.anchoredPosition.x + prefix.rectTransform.sizeDelta.x * .5f;
+                float boxLeft = active.rectTransform.anchoredPosition.x - (active.GetPreferredValues(active.text).x + 14f) * .5f;
+                Assert.That(prefixRight, Is.LessThanOrEqualTo(boxLeft + .01f), "The prefix sits outside the mode-change box.");
+            }
+            finally { UnityEngine.Object.DestroyImmediate(root); }
+        }
+
+        [Test]
+        public void DigitalFma_ArmedModesAreRemovedInAnUnusualAttitude()
+        {
+            Component fma = NewDigitalFma(out GameObject root);
+            try
+            {
+                Invoke(fma, "Present", Fma(true, true, "HDG", "ALT", "G/S ARM", "CPL"), 0f);
+                Assert.That(Invoke(fma, "ArmedText", 2), Is.EqualTo("G/S ARM"));
+                Invoke(fma, "Render", .1f, true);
+                Assert.That(Invoke(fma, "ArmedText", 2), Is.EqualTo(""), "Declutter: no armed modes in an unusual attitude.");
+                Assert.That(Invoke(fma, "ActiveText", 2), Is.EqualTo("ALT"), "Active modes stay.");
+                Invoke(fma, "Render", .2f, false);
+                Assert.That(Invoke(fma, "ArmedText", 2), Is.EqualTo("G/S ARM"), "Restored on recovery.");
+            }
+            finally { UnityEngine.Object.DestroyImmediate(root); }
+        }
+
+        private static int PopulatedVertexCount(Graphic graphic)
+        {
+            MethodInfo populate = graphic.GetType().GetMethod("OnPopulateMesh", BindingFlags.Instance | BindingFlags.NonPublic,
+                null, new[] { typeof(VertexHelper) }, null);
+            Assert.That(populate, Is.Not.Null);
+            using (var helper = new VertexHelper())
+            {
+                populate.Invoke(graphic, new object[] { helper });
+                return helper.currentVertCount;
+            }
         }
     }
 }

@@ -55,6 +55,7 @@ namespace IndicatorSystem.Controller
         private bool _isInitialized;
         private readonly List<Rect> _occupiedCueBounds = new List<Rect>();
         private IndicatorControlsPanel _controlsPanel;
+        private CanvasGroup _cueGroup;
         private int _trafficVisible, _weatherVisible, _onScreenVisible, _offScreenVisible;
         
         #endregion
@@ -480,6 +481,57 @@ namespace IndicatorSystem.Controller
         
         #region Private Methods
         
+        private System.Comparison<IndicatorData> _priorityComparison;
+        private int CompareIndicators(IndicatorData a, IndicatorData b)
+        {
+            int priorityCompare = b.Priority.CompareTo(a.Priority);
+            if (priorityCompare != 0)
+            {
+                return priorityCompare;
+            }
+
+            // Within the same urgency, keep a visible cue ahead of a competing
+            // overlapping label. Tiny range changes must not alternate winners.
+            int retained = _previousVisibleIds.Contains(b.Id).CompareTo(_previousVisibleIds.Contains(a.Id));
+            if (settings.usePilotCueStyle && retained != 0) return retained;
+            int distance = a.DistanceNM.CompareTo(b.DistanceNM);
+            return distance != 0 ? distance : string.CompareOrdinal(a.Id, b.Id);
+        }
+
+        private int _chromeRectStart, _chromeRectEnd;
+        private void LiftAboveChrome(ref IndicatorData data, ref Rect bounds)
+        {
+            float half = Screen.height * .5f;
+            for (int i = _chromeRectStart; i < _chromeRectEnd && i < _occupiedCueBounds.Count; i++)
+            {
+                Rect chrome = _occupiedCueBounds[i];
+                if (chrome.center.y > half || !chrome.Overlaps(bounds)) continue; // only the bottom-edge chrome (bar, flyouts)
+                float dy = chrome.yMax + 2f - bounds.yMin;
+                if (dy <= 0f) continue;
+                bounds.y += dy; data.ScreenPosition.y += dy;
+            }
+        }
+
+        private bool OverlapsOccupied(Rect bounds)
+        {
+            for (int i = 0; i < _occupiedCueBounds.Count; i++) if (_occupiedCueBounds[i].Overlaps(bounds)) return true;
+            return false;
+        }
+
+        /// <summary>Head-fixed cue arrows dim with the rest of the forward HUD while a side panel is inspected (FaaHudInspection).</summary>
+        private void ApplyInspectionDimming()
+        {
+            if (_pool == null || _pool.Container == null) return;
+            if (_cueGroup == null || _cueGroup.gameObject != _pool.Container.gameObject)
+            {
+                _cueGroup = _pool.Container.GetComponent<CanvasGroup>();
+                if (_cueGroup == null) _cueGroup = _pool.Container.gameObject.AddComponent<CanvasGroup>();
+                _cueGroup.interactable = false; _cueGroup.blocksRaycasts = false;
+            }
+            float alpha = FAA.Customization.FaaHudInspection.ForwardHudIntensity;
+            if (!Mathf.Approximately(_cueGroup.alpha, alpha)) _cueGroup.alpha = alpha;
+        }
+
         private void UpdateIndicators()
         {
             if (_pool == null || targetCamera == null)
@@ -490,10 +542,18 @@ namespace IndicatorSystem.Controller
             _previousVisibleIds.UnionWith(_activeIds);
             _activeIds.Clear();
             _occupiedCueBounds.Clear();
-            if (settings.usePilotCueStyle && _controlsPanel != null && _controlsPanel.isActiveAndEnabled)
+            if (settings.usePilotCueStyle && _controlsPanel != null && _controlsPanel.isActiveAndEnabled && !_controlsPanel.IsDocked)
                 _occupiedCueBounds.Add(_controlsPanel.OccupiedScreenBounds());
+            // Edge arrows never sit on the chrome bar, an open flyout (brief, cue controls, key list) or the status chip.
+            _chromeRectStart = _occupiedCueBounds.Count;
+            if (settings.usePilotCueStyle) FAA.Customization.FaaPilotChrome.CollectOccupiedScreenRects(_occupiedCueBounds);
+            _chromeRectEnd = _occupiedCueBounds.Count;
+            ApplyInspectionDimming();
             _trafficVisible = _weatherVisible = _onScreenVisible = _offScreenVisible = 0;
             _edgeConfig = settings.GetEdgeConfig();
+            // Unusual attitude (AC 25-11B 5.10.3.2, rule 2.7): secondary cues declutter with the rest of the display.
+            // Only traffic advisories (TA/RA priority) stay, because they may matter for the recovery itself.
+            bool declutter = FAA.Customization.FaaRotorcraftConformalLayer.UnusualAttitudeActive;
             float canvasScale = targetCanvas != null ? targetCanvas.scaleFactor : 1f;
             if (settings.usePilotCueStyle)
                 _edgeConfig.EdgePadding = Mathf.Max(72f, settings.edgePadding) * canvasScale;
@@ -505,6 +565,9 @@ namespace IndicatorSystem.Controller
                 
                 // Skip by type if disabled
                 if (!ShouldShowType(target.Type))
+                    continue;
+
+                if (declutter && !KeepDuringUnusualAttitude(target.Type, target.Priority))
                     continue;
                 
                 // Skip by distance
@@ -521,21 +584,8 @@ namespace IndicatorSystem.Controller
             }
             
             // Keep the display sparse by taking the most important and nearest targets first.
-            _indicatorDataList.Sort((a, b) =>
-            {
-                int priorityCompare = b.Priority.CompareTo(a.Priority);
-                if (priorityCompare != 0)
-                {
-                    return priorityCompare;
-                }
-
-                // Within the same urgency, keep a visible cue ahead of a competing
-                // overlapping label. Tiny range changes must not alternate winners.
-                int retained = _previousVisibleIds.Contains(b.Id).CompareTo(_previousVisibleIds.Contains(a.Id));
-                if (settings.usePilotCueStyle && retained != 0) return retained;
-                int distance = a.DistanceNM.CompareTo(b.DistanceNM);
-                return distance != 0 ? distance : string.CompareOrdinal(a.Id, b.Id);
-            });
+            // Cached delegate: the comparison runs every frame (twice with before-render), so never allocate a closure here.
+            _indicatorDataList.Sort(_priorityComparison ??= CompareIndicators);
             
             // Limit to max indicators
             for (int i = 0; i < _indicatorDataList.Count && _activeIds.Count < settings.maxIndicators; i++)
@@ -544,7 +594,10 @@ namespace IndicatorSystem.Controller
                 if (settings.usePilotCueStyle)
                 {
                     Rect bounds = PilotIndicatorCue.ScreenBounds(data, canvasScale * settings.globalScale);
-                    if (_occupiedCueBounds.Exists(other => other.Overlaps(bounds))) continue;
+                    // An edge-clamped (off-screen) cue only shows a direction, so lift it above the chrome instead of
+                    // dropping it; an on-screen cue marks a real position and is never moved.
+                    if (data.Visibility != IndicatorVisibility.OnScreen) LiftAboveChrome(ref data, ref bounds);
+                    if (OverlapsOccupied(bounds)) continue;
                     _occupiedCueBounds.Add(bounds);
                 }
                 
@@ -566,6 +619,10 @@ namespace IndicatorSystem.Controller
             _pool.ReleaseExcept(_activeIds);
         }
         
+        /// <summary>Cues kept while an unusual attitude is annunciated: traffic advisories only (TA priority 2, RA priority 3).</summary>
+        public static bool KeepDuringUnusualAttitude(IndicatorType type, int priority) =>
+            type == IndicatorType.Traffic && priority >= 2;
+
         private bool ShouldShowType(IndicatorType type)
         {
             switch (type)

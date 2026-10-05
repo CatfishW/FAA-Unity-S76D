@@ -51,7 +51,7 @@ try
 }
 finally
 {
- w.CancelManipulation();cc.ResetView();w.View.transform.rotation=rotation;
+ w.CancelManipulation();cc.ResetViewImmediate();w.View.transform.rotation=rotation;
  foreach(var p in w.InteractivePanels){var s=saved[p.Id];p.Layout.yaw=s.yaw;p.Layout.elevation=s.elevation;p.Layout.distance=s.distance;p.Layout.scale=s.scale;}
  brief.SetOpen(opened);w.SetEditMode(edit);w.Select(selected);w.RefreshTransforms();dirty.SetValue(w,oldDirty);w.PersistChanges=persist;
 }

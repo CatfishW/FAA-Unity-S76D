@@ -12,8 +12,12 @@ using UnityEditor;
 namespace VoiceControl.UI
 {
     /// <summary>
-    /// Advanced radial menu with hierarchical sub-menus, gesture support,
-    /// and rich visual effects using Unity UI Toolkit.
+    /// Pilot COMMANDS menu. In Play Mode (pilot chrome present) it is the COMMANDS flyout of the chrome bar: the rows built
+    /// by <see cref="BuildCommandRows"/> are drawn by FaaPilotChrome in the fixed left flyout slot above the bar, outside the
+    /// attitude field and the IAS/TQ column, with each function's live state as ON/OFF segments. It never hides, dims or
+    /// covers flight symbology (no full-screen backdrop) and closes with Tab, Esc, CLOSE or a click outside it.
+    /// The UI Toolkit radial wheel below is only the edit-time preview / no-chrome fallback; it uses the same rows, chrome
+    /// typography floors and ALL CAPS names, and also never touches flight symbology.
     /// </summary>
     [DefaultExecutionOrder(32000)]
     [RequireComponent(typeof(UIDocument))]
@@ -35,6 +39,8 @@ namespace VoiceControl.UI
         [SerializeField] private float collapsedButtonSize = 58f;
         [SerializeField] private Vector2 collapsedButtonPosition = new Vector2(34f, 34f);
         [SerializeField] private bool collapsedButtonTopRight = true;
+        [Tooltip("In Play Mode the launcher is a labelled COMMANDS button (key Tab) in the FAA pilot chrome bar instead of a floating disc in the top-right corner.")]
+        [SerializeField] private bool dockLauncherInPilotChrome = true;
         [SerializeField, Range(4, 8)] private int maxSubSegmentCount = 6;
 
         [Header("Input")]
@@ -70,15 +76,9 @@ namespace VoiceControl.UI
         [SerializeField, Range(0f, 0.65f)] private float backdropOpacity = 0.30f;
         [SerializeField] private bool closeOnBackdropClick = true;
 
-        [Header("HUD Suppression")]
-        [SerializeField] private bool hideHudWhileOpen = true;
-        [SerializeField] private string[] hudRootNamesToHide =
-        {
-            "Second Interation GUI",
-            "FAA UI Toolkit HUD",
-            "FAASymbologyCanvasWorldSpace",
-            "FAAHeadingTapeCanvas"
-        };
+        [Header("HUD Suppression (retired)")]
+        [Tooltip("Ignored and forced off at runtime: the COMMANDS menu never hides flight symbology (AC 25-11B: primary flight information is never removed by a menu).")]
+        [SerializeField] private bool hideHudWhileOpen = false;
 
         [Header("Audio Feedback")]
         [SerializeField] private AudioClip openSound;
@@ -95,11 +95,11 @@ namespace VoiceControl.UI
         private const float SubIconContainerSize = 32f;
         private const float SubIconSize = 24f;
 
-        [Header("Typography")]
+        [Header("Typography (chrome reference units, 1920x1080; never below FaaHudStyle.Chrome)")]
         [SerializeField] private float mainLabelFontSize = 16f;
-        [SerializeField] private float subLabelFontSize = 13f;
-        [SerializeField] private float centerTitleFontSize = 21f;
-        [SerializeField] private float centerSubtitleFontSize = 13f;
+        [SerializeField] private float subLabelFontSize = 16f;
+        [SerializeField] private float centerTitleFontSize = 18f;
+        [SerializeField] private float centerSubtitleFontSize = 16f;
         // FAA-inspired night-cockpit palette: dark blue-green surfaces keep
         // outside-world contrast while cyan/emerald accents make the active
         // command obvious without a distracting glow.
@@ -148,12 +148,24 @@ namespace VoiceControl.UI
         private bool _isLoadingCommands; // Prevent recursive LoadCommands calls
         private bool _uiBuilt;
 
-        private readonly List<HudVisibilityState> _hiddenHudTargets = new List<HudVisibilityState>();
-        private bool _hudSuppressed;
+        // Play Mode: the COMMANDS flyout of the pilot chrome is open (the UI Toolkit wheel stays hidden).
+        private bool _dockedOpen;
+        private MenuKeepOut _keepOut;
+        // Scene references for command state, resolved once each time the menu opens (never per frame).
+        private Canvas _weatherRadarCanvas, _trafficRadarCanvas;
+        private IndicatorSystem.Controller.IndicatorSystemController _cueController;
+        private FAA.Customization.SymbologyColorManager _symbologyColor;
+        private FAA.Customization.FaaHudOpacityController _hudOpacity;
 
 #if UNITY_EDITOR
         private bool _editorRefreshQueued;
 #endif
+
+        // Section names match the chrome bar and key list (CUES = SCREEN CUES).
+        public const string SectionRadars = "RADARS", SectionCues = "SCREEN CUES", SectionHud = "HUD", SectionImageAnalysis = "AI IMAGE ANALYSIS";
+        public const string WeatherRadarCanvasName = "XPlaneWeatherRadarCanvas", TrafficRadarCanvasName = "XPlaneTrafficRadarCanvas";
+        private static readonly int[] BrightnessPresets = { 40, 60, 80, 100 };
+        private static readonly string[] BrightnessLabels = { "40", "60", "80", "100" };
 
         // Category definitions for voice control commands - using FAA-styled icon paths
         private readonly Dictionary<string, (string iconPath, Color color)> _categoryDefs = new()
@@ -177,6 +189,10 @@ namespace VoiceControl.UI
             public Color Color;
             public bool RequiresParams;
             public Dictionary<string, object> DefaultParams;
+            /// <summary>Live state text shown after the name ("ON", "OFF", "80"); null for one-shot commands.</summary>
+            [NonSerialized] public Func<string> StateText;
+            /// <summary>Local action (toggle rows). When set, the menu stays open so the new state is visible.</summary>
+            [NonSerialized] public Action Execute;
         }
 
         [Serializable]
@@ -223,10 +239,14 @@ namespace VoiceControl.UI
             public Color Color;
         }
 
-        private class HudVisibilityState
+        /// <summary>Chrome keep-out of the fallback wheel while it is open (conformal lines and edge cues avoid it).</summary>
+        private sealed class MenuKeepOut : FAA.Customization.FaaHudKeepOut.IRegion
         {
-            public GameObject Target;
-            public bool WasActive;
+            private readonly UIToolkitRadialMenuAdvanced owner;
+            public MenuKeepOut(UIToolkitRadialMenuAdvanced menu) { owner = menu; }
+            public string Id => "chrome:commands-wheel";
+            public FAA.Customization.FaaKeepOutKind Kind => FAA.Customization.FaaKeepOutKind.Chrome;
+            public bool TryGetScreenRect(out Rect rect) { rect = default; return owner != null && owner.TryGetWheelScreenRect(out rect); }
         }
 
         private List<Ripple> _ripples = new List<Ripple>();
@@ -237,6 +257,9 @@ namespace VoiceControl.UI
             {
                 ApplyAviationHudPreset(false);
             }
+
+            // Overrides the serialized scene value (ExperimentScene still stores 1): never hide flight symbology.
+            hideHudWhileOpen = false;
 
             if (uiDocument == null)
                 uiDocument = GetComponent<UIDocument>();
@@ -445,28 +468,38 @@ namespace VoiceControl.UI
 
         private void OnEnable()
         {
+            hideHudWhileOpen = false;
             SetupUI();
             LoadCommands();
 
             var registry = VoiceCommandRegistry.Instance;
             if (registry != null)
                 registry.OnRegistryUpdated += OnRegistryUpdated;
+
+            _keepOut ??= new MenuKeepOut(this);
+            FAA.Customization.FaaHudKeepOut.Register(_keepOut);
         }
 
         private void OnDisable()
         {
-            RestoreHudAfterMenu();
-
             var registry = VoiceCommandRegistry.Instance;
             if (registry != null)
                 registry.OnRegistryUpdated -= OnRegistryUpdated;
+
+            if (_keepOut != null) FAA.Customization.FaaHudKeepOut.Unregister(_keepOut);
+            if (_dockedOpen)
+            {
+                var chrome = FAA.Customization.FaaPilotChrome.Current;
+                if (chrome != null) chrome.SetCommandsVisible(false);
+                _dockedOpen = false;
+            }
 
             _ripples.Clear();
         }
 
         private void OnDestroy()
         {
-            RestoreHudAfterMenu();
+            if (_keepOut != null) FAA.Customization.FaaHudKeepOut.Unregister(_keepOut);
         }
 
         private void Update()
@@ -483,6 +516,7 @@ namespace VoiceControl.UI
             }
 #endif
             HandleInput();
+            SyncChromeLauncher();
             UpdateAnimations();
 
             if (_isOpen)
@@ -494,14 +528,6 @@ namespace VoiceControl.UI
                 {
                     UpdatePulseEffect();
                 }
-            }
-        }
-
-        private void LateUpdate()
-        {
-            if (Application.isPlaying && hideHudWhileOpen && _hudSuppressed && (_isOpen || _isAnimating))
-            {
-                EnforceHudSuppression();
             }
         }
 
@@ -605,7 +631,7 @@ namespace VoiceControl.UI
             CreateCenterInfo();
 
             _commandHeading = new Label("COMMANDS") { name = "CommandHeading", pickingMode = PickingMode.Ignore };
-            _menuHint = new Label("SELECT A CATEGORY  ·  TAB / ESC TO CLOSE") { name = "MenuHint", pickingMode = PickingMode.Ignore };
+            _menuHint = new Label("TAB / ESC / CLICK OUTSIDE TO CLOSE") { name = "MenuHint", pickingMode = PickingMode.Ignore };
             _menuRoot.Add(_commandHeading);
             _menuRoot.Add(_menuHint);
             _centerInfo.pickingMode = PickingMode.Position;
@@ -618,12 +644,12 @@ namespace VoiceControl.UI
             _menuRoot.BringToFront();
             _collapsedButton.BringToFront();
 
-            // Start collapsed or closed based on setting
+            // Start collapsed or closed based on setting. A docked launcher lives in the chrome bar, never the corner.
             if (startCollapsed)
             {
                 _scrim.style.display = DisplayStyle.None;
                 _menuRoot.style.display = DisplayStyle.None;
-                _collapsedButton.style.display = DisplayStyle.Flex;
+                _collapsedButton.style.display = LauncherDocked ? DisplayStyle.None : DisplayStyle.Flex;
             }
             else
             {
@@ -703,6 +729,7 @@ namespace VoiceControl.UI
             }
             _collapsedIcon.style.unityBackgroundImageTintColor = new Color(0.4f, 0.8f, 1f, 1f);
             _collapsedButton.Add(_collapsedIcon);
+            EnsureCollapsedLabel();
 
             // Hover effects
             _collapsedButton.RegisterCallback<MouseEnterEvent>(evt =>
@@ -758,19 +785,28 @@ namespace VoiceControl.UI
                 _collapsedButton.Add(_collapsedIcon);
             }
 
-            // Load icon texture
-            Texture2D buttonTexture = Resources.Load<Texture2D>("VoiceControl/Textures/WheelCenter");
-            if (buttonTexture == null)
+            // Load the command-menu icon (same vector as CreateCollapsedButton); the plain disc texture is only a fallback.
+            var svgIcon = Resources.Load<VectorImage>("VoiceControl/Icons/radial_menu");
+            if (svgIcon != null)
             {
-                #if UNITY_EDITOR
-                buttonTexture = UnityEditor.AssetDatabase.LoadAssetAtPath<Texture2D>(
-                    "Assets/_Project/Textures/480px_FAA_SYMBOLOLGY_OPTIONS/Weather_Radar_Base.png");
-                #endif
+                _collapsedIcon.style.backgroundImage = new StyleBackground(Background.FromVectorImage(svgIcon));
             }
-            if (buttonTexture != null)
+            else
             {
-                _collapsedIcon.style.backgroundImage = new StyleBackground(buttonTexture);
+                Texture2D buttonTexture = Resources.Load<Texture2D>("VoiceControl/Textures/WheelCenter");
+                if (buttonTexture == null)
+                {
+                    #if UNITY_EDITOR
+                    buttonTexture = UnityEditor.AssetDatabase.LoadAssetAtPath<Texture2D>(
+                        "Assets/_Project/Textures/480px_FAA_SYMBOLOLGY_OPTIONS/Weather_Radar_Base.png");
+                    #endif
+                }
+                if (buttonTexture != null)
+                {
+                    _collapsedIcon.style.backgroundImage = new StyleBackground(buttonTexture);
+                }
             }
+            EnsureCollapsedLabel();
 
             // Hover effects
             _collapsedButton.RegisterCallback<MouseEnterEvent>(evt =>
@@ -795,6 +831,23 @@ namespace VoiceControl.UI
             });
             _collapsedButton.UnregisterCallback<KeyDownEvent>(OnCollapsedButtonKeyDown);
             _collapsedButton.RegisterCallback<KeyDownEvent>(OnCollapsedButtonKeyDown);
+        }
+
+        /// <summary>Floating launcher (edit-time preview or no chrome): never an unlabeled disc; it names its function and key.</summary>
+        private void EnsureCollapsedLabel()
+        {
+            if (_collapsedButton == null || _collapsedButton.Q<Label>("CollapsedLabel") != null) return;
+            var label = new Label("COMMANDS  " + (KeyLabel(toggleKey) ?? string.Empty).ToUpperInvariant()) { name = "CollapsedLabel", pickingMode = PickingMode.Ignore };
+            label.style.position = Position.Absolute;
+            label.style.top = new Length(100, LengthUnit.Percent);
+            label.style.marginTop = 4;
+            label.style.left = new StyleLength(new Length(50, LengthUnit.Percent));
+            label.style.translate = new Translate(new Length(-50, LengthUnit.Percent), 0);
+            label.style.unityTextAlign = TextAnchor.UpperCenter;
+            label.style.width = 180;
+            label.style.fontSize = PanelFont(FAA.Customization.FaaHudStyle.Chrome);
+            label.style.color = new Color(199f / 255f, 235f / 255f, 244f / 255f, 1f);
+            _collapsedButton.Add(label);
         }
 
         private void OnCollapsedButtonKeyDown(KeyDownEvent evt)
@@ -1009,7 +1062,7 @@ namespace VoiceControl.UI
                 seg.Container.style.width = segmentWidth;
                 seg.Container.style.height = segmentHeight;
                 seg.Container.style.backgroundColor = WithAlpha(SegmentBackgroundColor, segmentTransparency);
-                SetRadius(seg.Container, 10);
+                SetRadius(seg.Container, 2);
                 SetBorderWidth(seg.Container, 1f);
                 SetBorderColor(seg.Container, SegmentBorderColor);
                 seg.Container.style.alignItems = Align.Center;
@@ -1023,7 +1076,7 @@ namespace VoiceControl.UI
                 seg.Background.style.height = new Length(100, LengthUnit.Percent);
                 seg.Background.style.left = 0;
                 seg.Background.style.top = 0;
-                SetRadius(seg.Background, 10);
+                SetRadius(seg.Background, 2);
                 seg.Background.style.backgroundColor = new Color(0.04f, 0.18f, 0.16f, 0.10f);
 
                 // Icon container - holds the image
@@ -1042,7 +1095,7 @@ namespace VoiceControl.UI
 
                 // Name label - LARGE and sharp text
                 seg.NameLabel.style.position = Position.Relative;
-                seg.NameLabel.style.fontSize = mainLabelFontSize;
+                seg.NameLabel.style.fontSize = PanelFont(mainLabelFontSize);
                 seg.NameLabel.style.color = new Color(0.92f, 0.95f, 0.98f, 1f);
                 seg.NameLabel.style.unityTextAlign = TextAnchor.MiddleCenter;
                 seg.NameLabel.style.unityFontStyleAndWeight = FontStyle.Bold;
@@ -1060,7 +1113,7 @@ namespace VoiceControl.UI
                 seg.Container.style.width = subWidth;
                 seg.Container.style.height = subHeight;
                 seg.Container.style.backgroundColor = WithAlpha(SegmentBackgroundColor, segmentTransparency);
-                SetRadius(seg.Container, 9);
+                SetRadius(seg.Container, 2);
                 SetBorderWidth(seg.Container, 1f);
                 SetBorderColor(seg.Container, SubBorderBaseColor);
                 seg.Container.style.alignItems = Align.Center;
@@ -1085,7 +1138,7 @@ namespace VoiceControl.UI
                 seg.Background.style.height = new Length(100, LengthUnit.Percent);
                 seg.Background.style.left = 0;
                 seg.Background.style.top = 0;
-                SetRadius(seg.Background, 9);
+                SetRadius(seg.Background, 2);
 
                 seg.IconContainer.style.width = SubIconContainerSize;
                 seg.IconContainer.style.height = SubIconContainerSize;
@@ -1106,7 +1159,7 @@ namespace VoiceControl.UI
                 seg.IconImage.style.height = SubIconSize;
                 seg.IconImage.style.unityBackgroundScaleMode = ScaleMode.ScaleToFit;
 
-                seg.NameLabel.style.fontSize = subLabelFontSize;
+                seg.NameLabel.style.fontSize = PanelFont(subLabelFontSize);
                 seg.NameLabel.style.color = new Color(0.85f, 0.90f, 0.95f, 0.95f);
                 seg.NameLabel.style.unityTextAlign = TextAnchor.MiddleLeft;
                 seg.NameLabel.style.unityFontStyleAndWeight = FontStyle.Bold;
@@ -1129,14 +1182,16 @@ namespace VoiceControl.UI
             _centerInfo.style.justifyContent = Justify.Center;
 
             // Center title - LARGE sharp text
-            _centerTitle.style.fontSize = centerTitleFontSize;
+            _centerTitle.style.fontSize = PanelFont(centerTitleFontSize);
             _centerTitle.style.color = new Color(0.86f, 0.96f, 0.98f, 1f);
             _centerTitle.style.unityFontStyleAndWeight = FontStyle.Bold;
             _centerTitle.style.unityTextAlign = TextAnchor.MiddleCenter;
             _centerTitle.style.letterSpacing = 0;
 
             // Center subtitle
-            _centerSubtitle.style.fontSize = centerSubtitleFontSize;
+            _centerSubtitle.style.fontSize = PanelFont(centerSubtitleFontSize);
+            // The old "n commands" subtitle repeated what the column shows; the wheel names the category only.
+            _centerSubtitle.style.display = DisplayStyle.None;
             _centerSubtitle.style.color = new Color(0.75f, 0.82f, 0.90f, 0.95f);
             _centerSubtitle.style.unityTextAlign = TextAnchor.MiddleCenter;
             _centerSubtitle.style.marginTop = 6;
@@ -1149,15 +1204,17 @@ namespace VoiceControl.UI
                 _commandHeading.style.position = Position.Absolute;
                 _commandHeading.style.left = 274;
                 _commandHeading.style.width = SubSegmentWidth;
-                _commandHeading.style.fontSize = 14;
+                _commandHeading.style.fontSize = PanelFont(FAA.Customization.FaaHudStyle.Chrome);
                 _commandHeading.style.unityFontStyleAndWeight = FontStyle.Bold;
                 _commandHeading.style.color = new Color(0.70f, 0.87f, 0.89f, 1f);
                 _menuHint.style.position = Position.Absolute;
                 _menuHint.style.top = middleRadius + 40;
                 _menuHint.style.left = -250;
                 _menuHint.style.width = 500;
-                _menuHint.style.fontSize = 12;
-                _menuHint.style.color = new Color(0.67f, 0.78f, 0.82f, 1f);
+                _menuHint.style.fontSize = PanelFont(FAA.Customization.FaaHudStyle.Chrome);
+                _menuHint.style.color = FAA.Customization.FaaHudStyle.White;
+                _menuHint.style.backgroundColor = FAA.Customization.FaaHudStyle.ChromePlate;
+                _menuHint.style.paddingTop = _menuHint.style.paddingBottom = 4;
                 _menuHint.style.unityTextAlign = TextAnchor.MiddleCenter;
             }
         }
@@ -1171,17 +1228,9 @@ namespace VoiceControl.UI
             try
             {
                 _categories.Clear();
-
                 var registry = VoiceCommandRegistry.Instance;
-                if (registry != null)
-                {
-                    LoadCommandsFromRegistry(registry);
-                }
-                else
-                {
-                    LoadDemoCommands();
-                }
-
+                if (registry != null && registry.Targets.Count == 0) registry.DiscoverTargets();
+                CategoriesFromRows(BuildCommandRows(registry, registry == null));
                 AssignCategoriesToSegments();
             }
             finally
@@ -1190,95 +1239,155 @@ namespace VoiceControl.UI
             }
         }
 
-        private void LoadCommandsFromRegistry(VoiceCommandRegistry registry)
+        /// <summary>
+        /// The pilot command set, one row per function with its live state (no separate Show / Hide items):
+        /// RADARS (weather, traffic display), SCREEN CUES (traffic, weather markers), HUD (flight HUD, brightness) and,
+        /// when present, AI IMAGE ANALYSIS. Rows appear only for functions that exist in the scene; a state that cannot
+        /// be read is shown as unknown (no segment lit), never guessed. <paramref name="preview"/> (no registry, edit
+        /// time) lists every row with inert actions. Scene references are resolved here, once per open.
+        /// </summary>
+        public List<FAA.Customization.FaaChromeCommandRow> BuildCommandRows(VoiceCommandRegistry registry, bool preview = false)
         {
-            registry.DiscoverTargets();
-            var commands = registry.GetAllCommands();
+            var rows = new List<FAA.Customization.FaaChromeCommandRow>();
+            ResolveStateSources();
 
-            var commandLookup = new Dictionary<string, VoiceCommandInfo>();
-            foreach (var cmd in commands)
+            if (preview || HasTarget(registry, "weather_radar"))
+                rows.Add(FAA.Customization.FaaChromeCommandRow.Toggle(SectionRadars, "WEATHER RADAR",
+                    () => preview ? null : CanvasShown(_weatherRadarCanvas),
+                    on => RunRegistryCommand(registry, "weather_radar", on ? "show_panel" : "hide_panel", "WEATHER RADAR")));
+            if (preview || HasTarget(registry, "traffic_radar"))
+                rows.Add(FAA.Customization.FaaChromeCommandRow.Toggle(SectionRadars, "TRAFFIC RADAR",
+                    () => preview ? null : CanvasShown(_trafficRadarCanvas),
+                    on => RunRegistryCommand(registry, "traffic_radar", on ? "show_panel" : "hide_panel", "TRAFFIC RADAR")));
+
+            if (preview || _cueController != null)
             {
-                commandLookup[$"{cmd.TargetName}:{cmd.Name}"] = cmd;
+                rows.Add(FAA.Customization.FaaChromeCommandRow.Toggle(SectionCues, "TRAFFIC CUES",
+                    () => CueShown(IndicatorSystem.Core.IndicatorType.Traffic),
+                    on => SetCue(IndicatorSystem.Core.IndicatorType.Traffic, on)));
+                rows.Add(FAA.Customization.FaaChromeCommandRow.Toggle(SectionCues, "WEATHER CUES",
+                    () => CueShown(IndicatorSystem.Core.IndicatorType.Weather),
+                    on => SetCue(IndicatorSystem.Core.IndicatorType.Weather, on)));
             }
 
-            _categories.Clear();
+            if (preview || HasTarget(registry, "symbology"))
+                rows.Add(FAA.Customization.FaaChromeCommandRow.Toggle(SectionHud, "FLIGHT HUD",
+                    () => _symbologyColor != null ? _symbologyColor.CurrentOpacity > .01f : (bool?)null,
+                    on => RunRegistryCommand(registry, "symbology", on ? "show" : "hide", "FLIGHT HUD")));
+            if (preview || _hudOpacity != null)
+                rows.Add(new FAA.Customization.FaaChromeCommandRow(SectionHud, "BRIGHTNESS %", BrightnessLabels,
+                    () => _hudOpacity != null ? BrightnessIndex(_hudOpacity.OpacityPercent) : -1,
+                    i => { if (_hudOpacity != null && i >= 0 && i < BrightnessPresets.Length) _hudOpacity.SetOpacityPercent(BrightnessPresets[i]); }));
 
-            var radar = CreateCategory("radar", "Radar");
-            TryAddCommand(radar, commandLookup, "weather_radar", "show_panel", "Show Weather Radar");
-            TryAddCommand(radar, commandLookup, "weather_radar", "hide_panel", "Hide Weather Radar");
-            TryAddCommand(radar, commandLookup, "traffic_radar", "show_panel", "Show Traffic Radar");
-            TryAddCommand(radar, commandLookup, "traffic_radar", "hide_panel", "Hide Traffic Radar");
-            if (radar.Commands.Count > 0) _categories.Add(radar);
-
-            var indicators = CreateCategory("indicator_system", "Indicator System");
-            TryAddCommand(indicators, commandLookup, "indicator_system", "show_all_indicators", "Show Indicators");
-            TryAddCommand(indicators, commandLookup, "indicator_system", "hide_all_indicators", "Hide Indicators");
-            if (indicators.Commands.Count > 0) _categories.Add(indicators);
-
-            var hud = CreateCategory("hud", "HUD");
-            TryAddCommand(hud, commandLookup, "symbology", "show", "Show HUD");
-            TryAddCommand(hud, commandLookup, "symbology", "hide", "Hide HUD");
-            AddPilotOpacityCommands(hud);
-            if (hud.Commands.Count > 0) _categories.Add(hud);
-
-            var vision = CreateCategory("visionbriefing", "Vision Briefing");
-            if (!TryAddCommand(vision, commandLookup, "visionbriefing", "weather_briefing", "Weather Briefing"))
-            {
-                TryAddCommand(vision, commandLookup, "visionbriefing", "analyze_weather", "Weather Briefing");
-            }
-
-            if (!TryAddCommand(vision, commandLookup, "visionbriefing", "sectional_briefing", "Traffic Briefing"))
-            {
-                TryAddCommand(vision, commandLookup, "visionbriefing", "analyze_sectional", "Traffic Briefing");
-            }
-
-            TryAddCommand(vision, commandLookup, "visionbriefing", "hide_briefing", "Hide Briefing");
-            if (vision.Commands.Count > 0) _categories.Add(vision);
+            if (preview || HasTarget(registry, "visionbriefing"))
+                rows.Add(new FAA.Customization.FaaChromeCommandRow(SectionImageAnalysis, "ANALYZE", new[] { "WX RADAR", "CHART", "HIDE" }, null,
+                    i => RunRegistryCommand(registry, "visionbriefing", i == 0 ? "weather_briefing" : i == 1 ? "sectional_briefing" : "hide_briefing", "AI IMAGE ANALYSIS"),
+                    true));
+            return rows;
         }
 
-        private void LoadDemoCommands()
+        /// <summary>Index of the brightness preset within 2 % of <paramref name="percent"/>, else -1 (an off-preset value lights nothing).</summary>
+        public static int BrightnessIndex(int percent)
         {
-            _categories.Clear();
-
-            var radar = CreateCategory("radar", "Radar");
-            AddDemoCommand(radar, "weather_radar", "show_panel", "Show Weather Radar");
-            AddDemoCommand(radar, "weather_radar", "hide_panel", "Hide Weather Radar");
-            AddDemoCommand(radar, "traffic_radar", "show_panel", "Show Traffic Radar");
-            AddDemoCommand(radar, "traffic_radar", "hide_panel", "Hide Traffic Radar");
-            _categories.Add(radar);
-
-            var indicators = CreateCategory("indicator_system", "Indicator System");
-            AddDemoCommand(indicators, "indicator_system", "show_all_indicators", "Show Indicators");
-            AddDemoCommand(indicators, "indicator_system", "hide_all_indicators", "Hide Indicators");
-            _categories.Add(indicators);
-
-            var hud = CreateCategory("hud", "HUD");
-            AddDemoCommand(hud, "symbology", "show", "Show HUD");
-            AddDemoCommand(hud, "symbology", "hide", "Hide HUD");
-            AddPilotOpacityCommands(hud);
-            _categories.Add(hud);
-
-            var vision = CreateCategory("visionbriefing", "Vision Briefing");
-            AddDemoCommand(vision, "visionbriefing", "weather_briefing", "Weather Briefing");
-            AddDemoCommand(vision, "visionbriefing", "sectional_briefing", "Traffic Briefing");
-            AddDemoCommand(vision, "visionbriefing", "hide_briefing", "Hide Briefing");
-            _categories.Add(vision);
+            for (int i = 0; i < BrightnessPresets.Length; i++) if (Mathf.Abs(BrightnessPresets[i] - percent) <= 2) return i;
+            return -1;
         }
 
-        private void AddPilotOpacityCommands(MenuCategory hud)
-        {
-            if (hud == null)
-            {
-                return;
-            }
+        private static bool HasTarget(VoiceCommandRegistry registry, string id) => registry != null && registry.HasTarget(id);
 
-            // Parameter-free actions keep opacity usable from a touch wheel.
-            // Voice control still exposes continuous percentage values; the
-            // wheel deliberately uses four glanceable pilot presets.
-            AddDemoCommand(hud, "hud_opacity", "set_100", "HUD 100%");
-            AddDemoCommand(hud, "hud_opacity", "set_80", "HUD 80%");
-            AddDemoCommand(hud, "hud_opacity", "set_60", "HUD 60%");
-            AddDemoCommand(hud, "hud_opacity", "set_40", "HUD 40%");
+        private void ResolveStateSources()
+        {
+            _weatherRadarCanvas = _trafficRadarCanvas = null;
+            foreach (Canvas canvas in FindObjectsByType<Canvas>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+            {
+                if (canvas == null || !canvas.gameObject.scene.IsValid()) continue;
+                if (_weatherRadarCanvas == null && canvas.gameObject.name == WeatherRadarCanvasName) _weatherRadarCanvas = canvas;
+                else if (_trafficRadarCanvas == null && canvas.gameObject.name == TrafficRadarCanvasName) _trafficRadarCanvas = canvas;
+            }
+            _cueController = FindAnyObjectByType<IndicatorSystem.Controller.IndicatorSystemController>();
+            _symbologyColor = FindAnyObjectByType<FAA.Customization.SymbologyColorManager>();
+            _hudOpacity = FindAnyObjectByType<FAA.Customization.FaaHudOpacityController>();
+        }
+
+        /// <summary>A radar display is shown when its dedicated canvas is enabled, active and not faded out (the voice adapters hide it that way).</summary>
+        public static bool? CanvasShown(Canvas canvas)
+        {
+            if (canvas == null) return null;
+            if (!canvas.isActiveAndEnabled) return false;
+            // Polled at 5 Hz while the flyout is open: TryGetComponent never allocates.
+            return !canvas.TryGetComponent(out CanvasGroup group) || group.alpha > .01f;
+        }
+
+        private bool? CueShown(IndicatorSystem.Core.IndicatorType type) =>
+            _cueController != null ? _cueController.IsTypeVisible(type) : (bool?)null;
+
+        private void SetCue(IndicatorSystem.Core.IndicatorType type, bool on)
+        {
+            if (_cueController == null) return;
+            IndicatorSystem.Display.IndicatorControlsPanel.SetCueVisible(_cueController, type, on);
+            OnCommandExecuted?.Invoke(new MenuCommand { Id = "indicator_system_" + type, TargetId = "indicator_system", CommandName = (on ? "show_" : "hide_") + type.ToString().ToLowerInvariant(), DisplayName = type.ToString().ToUpperInvariant() + " CUES", Category = "indicator_system" });
+        }
+
+        private void RunRegistryCommand(VoiceCommandRegistry registry, string targetId, string commandName, string displayName)
+        {
+            var cmd = new MenuCommand { Id = targetId + "_" + commandName, TargetId = targetId, CommandName = commandName, DisplayName = displayName, Category = targetId };
+            OnCommandExecuted?.Invoke(cmd);
+            if (registry != null) registry.ExecuteCommand(targetId, commandName, null);
+            if (string.Equals(targetId, "hud_opacity", StringComparison.OrdinalIgnoreCase)) ExecuteHudOpacityPreset(commandName);
+        }
+
+        /// <summary>UI Toolkit fallback: one category per section, one command per row (toggles flip, selectors cycle, action rows split).</summary>
+        private void CategoriesFromRows(List<FAA.Customization.FaaChromeCommandRow> rows)
+        {
+            MenuCategory category = null;
+            foreach (var row in rows)
+            {
+                if (category == null || category.DisplayName != row.Section)
+                {
+                    category = CreateCategory(SectionCategoryId(row.Section), row.Section);
+                    _categories.Add(category);
+                }
+                var r = row;
+                if (r.Actions)
+                {
+                    for (int k = 0; k < r.Segments.Length; k++)
+                    {
+                        int index = k;
+                        AddRowCommand(category, r.Label + " " + r.Segments[k], () => r.Select?.Invoke(index), null);
+                    }
+                }
+                else if (r.Segments.Length == 2)
+                    AddRowCommand(category, r.Label, () => { int state = r.CurrentState(); r.Select?.Invoke(state == 0 ? 1 : 0); }, () => StateLabel(r));
+                else
+                    AddRowCommand(category, r.Label, () => { int state = r.CurrentState(); r.Select?.Invoke(state < 0 ? 0 : (state + 1) % r.Segments.Length); }, () => StateLabel(r));
+            }
+        }
+
+        private static string StateLabel(FAA.Customization.FaaChromeCommandRow row)
+        {
+            int state = row.CurrentState();
+            return state >= 0 ? row.Segments[state] : "--";
+        }
+
+        private static string SectionCategoryId(string section) =>
+            section == SectionRadars ? "radar" : section == SectionCues ? "indicator_system" : section == SectionHud ? "hud" : section == SectionImageAnalysis ? "visionbriefing" : section.ToLowerInvariant();
+
+        private void AddRowCommand(MenuCategory category, string displayName, Action execute, Func<string> stateText)
+        {
+            category.Commands.Add(new MenuCommand
+            {
+                Id = category.Id + "_" + displayName.Replace(' ', '_').ToLowerInvariant(),
+                TargetId = category.Id,
+                CommandName = displayName,
+                DisplayName = displayName,
+                Description = displayName,
+                Category = category.Id,
+                IconPath = GetCommandIconPath(category.Id, displayName, displayName),
+                Color = category.Color,
+                RequiresParams = false,
+                Execute = execute,
+                StateText = stateText
+            });
         }
 
         private MenuCategory CreateCategory(string id, string displayName)
@@ -1291,56 +1400,6 @@ namespace VoiceControl.UI
                 Icon = def.iconPath,
                 Color = def.color
             };
-        }
-
-        private bool TryAddCommand(
-            MenuCategory category,
-            Dictionary<string, VoiceCommandInfo> lookup,
-            string targetId,
-            string commandName,
-            string displayNameOverride = null)
-        {
-            if (!lookup.TryGetValue($"{targetId}:{commandName}", out var cmd))
-            {
-                return false;
-            }
-
-            if (cmd.Parameters?.Any(p => p.Required) ?? false)
-            {
-                return false;
-            }
-
-            var displayName = displayNameOverride ?? FormatCommandName(cmd.Name);
-            category.Commands.Add(new MenuCommand
-            {
-                Id = $"{targetId}_{commandName}",
-                TargetId = targetId,
-                CommandName = cmd.Name,
-                DisplayName = displayName,
-                Description = cmd.Description,
-                Category = category.Id,
-                IconPath = GetCommandIconPath(targetId, cmd.Name, displayName),
-                Color = category.Color,
-                RequiresParams = false
-            });
-
-            return true;
-        }
-
-        private void AddDemoCommand(MenuCategory category, string targetId, string commandName, string displayName)
-        {
-            category.Commands.Add(new MenuCommand
-            {
-                Id = $"{targetId}_{commandName}",
-                TargetId = targetId,
-                CommandName = commandName,
-                DisplayName = displayName,
-                Description = displayName,
-                Category = category.Id,
-                IconPath = GetCommandIconPath(targetId, commandName, displayName),
-                Color = category.Color,
-                RequiresParams = false
-            });
         }
 
         private void AssignCategoriesToSegments()
@@ -1462,7 +1521,11 @@ namespace VoiceControl.UI
                 ToggleMenu();
             }
 
-            if (_isOpen && Input.GetKeyDown(closeKey))
+            if (_dockedOpen && Input.GetKeyDown(closeKey))
+            {
+                SetMenuOpen(false);
+            }
+            else if (_isOpen && Input.GetKeyDown(closeKey))
             {
                 if (_subMenuOpen)
                 {
@@ -1483,6 +1546,53 @@ namespace VoiceControl.UI
                     NavigateMenu(scroll > 0 ? 1 : -1);
                 }
             }
+
+            // Fallback wheel: a click outside it closes it (there is no full-screen backdrop to catch the click).
+            if (_isOpen && closeOnBackdropClick && Input.GetMouseButtonDown(0) && !PointerOverWheel())
+            {
+                SetMenuOpen(false);
+            }
+        }
+
+        private bool PointerOverWheel()
+        {
+            if (_root?.panel == null || _menuRoot == null) return true;
+            Vector2 mouse = Input.mousePosition;
+            Vector2 panelPoint = RuntimePanelUtils.ScreenToPanel(_root.panel, new Vector2(mouse.x, Screen.height - mouse.y));
+            VisualElement picked = _root.panel.Pick(panelPoint);
+            return picked != null && (picked == _menuRoot || _menuRoot.Contains(picked));
+        }
+
+        /// <summary>Screen rectangle (pixels, bottom-left origin) of the open fallback wheel and its command column.</summary>
+        private bool TryGetWheelScreenRect(out Rect rect)
+        {
+            rect = default;
+            if (!_isOpen || _ringBackground == null || _root == null) return false;
+            Rect bounds = _ringBackground.worldBound;
+            foreach (var seg in _subSegments)
+                if (seg.IsVisible) bounds = Rect.MinMaxRect(Mathf.Min(bounds.xMin, seg.Container.worldBound.xMin), Mathf.Min(bounds.yMin, seg.Container.worldBound.yMin),
+                    Mathf.Max(bounds.xMax, seg.Container.worldBound.xMax), Mathf.Max(bounds.yMax, seg.Container.worldBound.yMax));
+            float rootWidth = _root.worldBound.width, rootHeight = _root.worldBound.height;
+            if (float.IsNaN(bounds.width) || float.IsNaN(rootWidth) || rootWidth <= 1f || rootHeight <= 1f) return false;
+            float k = Screen.width / rootWidth;
+            rect = Rect.MinMaxRect(bounds.xMin * k, (rootHeight - bounds.yMax) * k, bounds.xMax * k, (rootHeight - bounds.yMin) * k);
+            return rect.width > 0 && rect.height > 0;
+        }
+
+        /// <summary>
+        /// Converts a chrome reference size (1920x1080 canvas, match 0.5) to this document's panel units so the fallback
+        /// wheel meets the same type floor as the chrome. The scene's PanelSettings (reference 1559x2160) renders one panel
+        /// unit at about 0.78 chrome units on 16:9 screens, so a raw 14 was drawn at about 11 chrome units.
+        /// </summary>
+        private float PanelFont(float referenceSize) => Mathf.Max(referenceSize, FAA.Customization.FaaHudStyle.Chrome) * ChromeToPanelScale();
+
+        public float ChromeToPanelScale()
+        {
+            float rootWidth = _root != null ? _root.resolvedStyle.width : float.NaN;
+            if (float.IsNaN(rootWidth) || rootWidth <= 1f || Screen.width <= 0 || Screen.height <= 0) return 1.29f;
+            float panelPixelsPerUnit = Screen.width / rootWidth;
+            float chromePixelsPerUnit = Mathf.Sqrt(Screen.width / 1920f * (Screen.height / 1080f));
+            return Mathf.Max(1f, chromePixelsPerUnit / Mathf.Max(.01f, panelPixelsPerUnit));
         }
 
         private void UpdateAnimations()
@@ -1621,7 +1731,6 @@ namespace VoiceControl.UI
                         _scrim.style.display = DisplayStyle.None;
                         _scrim.style.opacity = 0f;
                     }
-                    RestoreHudAfterMenu();
                 }
             }
         }
@@ -1956,7 +2065,7 @@ namespace VoiceControl.UI
                 {
                     seg.Command = category.Commands[i];
                     TrySetIcon(seg.IconImage, seg.Command.IconPath, Color.white);
-                    seg.NameLabel.text = seg.Command.DisplayName;
+                    seg.NameLabel.text = CommandLabel(seg.Command);
                     seg.Background.style.backgroundColor = WithAlpha(category.Color, 0.10f);
                     seg.IsVisible = true;
                     SetSubSegmentHover(seg, false);
@@ -1973,6 +2082,19 @@ namespace VoiceControl.UI
             _centerSubtitle.text = category.Commands.Count > visibleCommandCount
                 ? $"{visibleCommandCount}/{category.Commands.Count} commands"
                 : $"{category.Commands.Count} commands";
+        }
+
+        private static string CommandLabel(MenuCommand cmd)
+        {
+            if (cmd == null) return string.Empty;
+            string state = cmd.StateText?.Invoke();
+            return string.IsNullOrEmpty(state) ? cmd.DisplayName : cmd.DisplayName + "   " + state;
+        }
+
+        private void RefreshSubLabels()
+        {
+            foreach (var seg in _subSegments)
+                if (seg.IsVisible && seg.Command != null) seg.NameLabel.text = CommandLabel(seg.Command);
         }
 
         private void CloseSubMenu()
@@ -2012,9 +2134,14 @@ namespace VoiceControl.UI
 
         private void ExecuteCommand(MenuCommand cmd)
         {
-            if (ShouldLetHudCommandOwnVisibility(cmd))
+            if (cmd == null) return;
+            if (cmd.Execute != null)
             {
-                RestoreHudAfterMenu();
+                // Toggle rows: run, then show the new state in place (the menu stays open until Tab / Esc / click outside).
+                cmd.Execute();
+                OnCommandExecuted?.Invoke(cmd);
+                RefreshSubLabels();
+                return;
             }
 
             OnCommandExecuted?.Invoke(cmd);
@@ -2063,7 +2190,41 @@ namespace VoiceControl.UI
 
         public void ToggleMenu()
         {
+            var chrome = Application.isPlaying ? DockedChrome : null;
+            if (chrome != null) { SetChromeFlyoutOpen(chrome, !chrome.CommandsVisible); return; }
             SetMenuOpen(!_isOpen);
+        }
+
+        private FAA.Customization.FaaPilotChrome DockedChrome => LauncherDocked ? FAA.Customization.FaaPilotChrome.Current : null;
+
+        /// <summary>
+        /// Opens or closes the COMMANDS flyout of the pilot chrome (Play Mode path; public for tests). Opening rebuilds the
+        /// rows from the live scene; flight symbology is never hidden, dimmed or covered.
+        /// </summary>
+        public void SetChromeFlyoutOpen(FAA.Customization.FaaPilotChrome chrome, bool open)
+        {
+            if (chrome == null) return;
+            if (open)
+            {
+                var registry = VoiceCommandRegistry.Instance;
+                chrome.SetCommandRows(BuildCommandRows(registry, false));
+                chrome.SetCommandsVisible(true);
+            }
+            else chrome.SetCommandsVisible(false);
+            SyncDockedState(chrome);
+        }
+
+        /// <summary>Follows the chrome flyout (it also closes on Esc, CLOSE, a click outside or another flyout opening).</summary>
+        private void SyncDockedState(FAA.Customization.FaaPilotChrome chrome)
+        {
+            bool visible = chrome != null && chrome.CommandsVisible;
+            if (_dockedOpen != visible)
+            {
+                _dockedOpen = visible;
+                if (visible) { OnMenuOpened?.Invoke(); PlaySound(openSound); }
+                else { OnMenuClosed?.Invoke(); PlaySound(closeSound); }
+            }
+            if (chrome != null) chrome.SetButtonState(ChromeCommandsId, chrome.IsButtonVisible(ChromeCommandsId), visible);
         }
 
         private void OnBackdropClick(ClickEvent evt)
@@ -2110,6 +2271,10 @@ namespace VoiceControl.UI
             }
         }
 
+        /// <summary>
+        /// Visibility commands own the state they set; the menu must never undo them when it closes. (The menu no longer
+        /// hides or restores any HUD root at all; this predicate documents and tests that policy.)
+        /// </summary>
         private static bool ShouldLetHudCommandOwnVisibility(MenuCommand cmd)
         {
             if (cmd == null ||
@@ -2145,152 +2310,11 @@ namespace VoiceControl.UI
             return false;
         }
 
-        private void SuppressHudForMenu()
-        {
-            if (!Application.isPlaying || !hideHudWhileOpen)
-            {
-                return;
-            }
-
-            _hudSuppressed = true;
-            UnityEngine.Canvas.willRenderCanvases -= EnforceHudSuppression;
-            UnityEngine.Canvas.willRenderCanvases += EnforceHudSuppression;
-            TrackHudTargets();
-            EnforceHudSuppression();
-        }
-
-        private void EnforceHudSuppression()
-        {
-            if (!Application.isPlaying || !hideHudWhileOpen)
-            {
-                return;
-            }
-
-            _hudSuppressed = true;
-            TrackHudTargets();
-
-            for (int i = _hiddenHudTargets.Count - 1; i >= 0; i--)
-            {
-                HudVisibilityState state = _hiddenHudTargets[i];
-                if (state.Target == null)
-                {
-                    _hiddenHudTargets.RemoveAt(i);
-                    continue;
-                }
-
-                if (ShouldSkipHudTarget(state.Target))
-                {
-                    continue;
-                }
-
-                if (state.Target.activeSelf)
-                {
-                    state.Target.SetActive(false);
-                }
-            }
-        }
-
-        private void RestoreHudAfterMenu()
-        {
-            UnityEngine.Canvas.willRenderCanvases -= EnforceHudSuppression;
-
-            if (!_hudSuppressed && _hiddenHudTargets.Count == 0)
-            {
-                return;
-            }
-
-            foreach (HudVisibilityState state in _hiddenHudTargets)
-            {
-                if (state.Target == null)
-                {
-                    continue;
-                }
-
-                if (ShouldSkipHudTarget(state.Target))
-                {
-                    continue;
-                }
-
-                if (state.Target.activeSelf != state.WasActive)
-                {
-                    state.Target.SetActive(state.WasActive);
-                }
-            }
-
-            _hiddenHudTargets.Clear();
-            _hudSuppressed = false;
-        }
-
-        private void TrackHudTargets()
-        {
-            foreach (GameObject target in FindHudObjectsToHide())
-            {
-                if (target == null || _hiddenHudTargets.Any(state => state.Target == target))
-                {
-                    continue;
-                }
-
-                _hiddenHudTargets.Add(new HudVisibilityState
-                {
-                    Target = target,
-                    WasActive = target.activeSelf
-                });
-            }
-        }
-
-        private IEnumerable<GameObject> FindHudObjectsToHide()
-        {
-            var results = new HashSet<GameObject>();
-
-            if (hudRootNamesToHide != null && hudRootNamesToHide.Length > 0)
-            {
-                foreach (Transform candidate in FindObjectsByType<Transform>(FindObjectsInactive.Include, FindObjectsSortMode.None))
-                {
-                    if (candidate == null || candidate.gameObject == null)
-                    {
-                        continue;
-                    }
-
-                    string objectName = candidate.gameObject.name;
-                    bool nameMatches = hudRootNamesToHide.Any(name =>
-                        !string.IsNullOrWhiteSpace(name) &&
-                        string.Equals(objectName, name, StringComparison.Ordinal));
-
-                    if (nameMatches && !ShouldSkipHudTarget(candidate.gameObject))
-                    {
-                        results.Add(candidate.gameObject);
-                    }
-                }
-            }
-
-            foreach (FAA.HUDToolkit.FaaUiToolkitHud uiHud in FindObjectsByType<FAA.HUDToolkit.FaaUiToolkitHud>(FindObjectsInactive.Include, FindObjectsSortMode.None))
-            {
-                if (uiHud != null && !ShouldSkipHudTarget(uiHud.gameObject))
-                {
-                    results.Add(uiHud.gameObject);
-                }
-            }
-
-            return results;
-        }
-
-        private bool ShouldSkipHudTarget(GameObject target)
-        {
-            if (target == null || target == gameObject)
-            {
-                return true;
-            }
-
-            Transform targetTransform = target.transform;
-            Transform menuTransform = transform;
-            return targetTransform == null ||
-                   menuTransform == null ||
-                   menuTransform.IsChildOf(targetTransform) ||
-                   targetTransform.IsChildOf(menuTransform);
-        }
-
         public void SetMenuOpen(bool open)
         {
+            var chrome = Application.isPlaying ? DockedChrome : null;
+            if (chrome != null) { SetChromeFlyoutOpen(chrome, open); return; }
+
             if (_menuRoot == null)
             {
                 SetupUI();
@@ -2322,7 +2346,6 @@ namespace VoiceControl.UI
 
             if (_isOpen)
             {
-                SuppressHudForMenu();
                 if (_scrim != null)
                 {
                     _scrim.style.display = useBackdrop ? DisplayStyle.Flex : DisplayStyle.None;
@@ -2350,8 +2373,8 @@ namespace VoiceControl.UI
                 OnMenuClosed?.Invoke();
                 PlaySound(closeSound);
 
-                // Show collapsed button when menu closes
-                if (startCollapsed && _collapsedButton != null)
+                // Show collapsed button when menu closes (not when docked in the chrome bar)
+                if (startCollapsed && !LauncherDocked && _collapsedButton != null)
                 {
                     CollapseToButton();
                 }
@@ -2360,6 +2383,12 @@ namespace VoiceControl.UI
 
         private void OnRegistryUpdated()
         {
+            if (_dockedOpen)
+            {
+                // A target registered or left while the flyout is open: rebuild its rows (never per frame).
+                var chrome = FAA.Customization.FaaPilotChrome.Current;
+                if (chrome != null) chrome.SetCommandRows(BuildCommandRows(VoiceCommandRegistry.Instance, false));
+            }
             if (_isOpen)
             {
                 LoadCommands();
@@ -2400,7 +2429,10 @@ namespace VoiceControl.UI
         }
 
         // Public API
-        public bool IsOpen => _isOpen;
+        /// <summary>True while the COMMANDS flyout (Play Mode) or the fallback wheel is open.</summary>
+        public bool IsOpen => _isOpen || _dockedOpen;
+        /// <summary>Always false at runtime: the COMMANDS menu never hides flight symbology, whatever the scene serialized.</summary>
+        public bool HideHudWhileOpen => hideHudWhileOpen;
         public bool IsSubMenuOpen => _subMenuOpen;
         public int SelectedCategory => _selectedMainIndex;
         public float MenuTransparency => menuTransparency;
@@ -2444,6 +2476,29 @@ namespace VoiceControl.UI
         public float CollapsedButtonSize => collapsedButtonSize;
         public Vector2 CollapsedButtonPosition => collapsedButtonPosition;
         public bool CollapsedButtonTopRight => collapsedButtonTopRight;
+        public bool DockLauncherInPilotChrome => dockLauncherInPilotChrome;
+        /// <summary>True when the floating launcher is replaced by the chrome bar's COMMANDS button.</summary>
+        public bool LauncherDocked => dockLauncherInPilotChrome && Application.isPlaying && FAA.Customization.FaaPilotChrome.Ensure() != null;
+        public const string ChromeCommandsId = "commands";
+        private bool _chromeLauncherRegistered;
+
+        /// <summary>Registers the COMMANDS bar button (idempotent; re-registers if the chrome was recreated).</summary>
+        private void SyncChromeLauncher()
+        {
+            if (!LauncherDocked) { _chromeLauncherRegistered = false; return; }
+            var chrome = FAA.Customization.FaaPilotChrome.Current;
+            if (!_chromeLauncherRegistered || !chrome.HasButton(ChromeCommandsId))
+            {
+                chrome.AddButton(ChromeCommandsId, FAA.Customization.FaaChromeCluster.Left, 40, "COMMANDS", KeyLabel(toggleKey), ToggleMenu, "CMD");
+                chrome.SetHelpEntry(KeyLabel(toggleKey).ToUpperInvariant(), HelpMeaning, 40);
+                _chromeLauncherRegistered = true;
+                if (_collapsedButton != null) _collapsedButton.style.display = DisplayStyle.None;
+            }
+            SyncDockedState(chrome);
+        }
+        /// <summary>Key-list line for the COMMANDS key: what the menu actually contains.</summary>
+        public const string HelpMeaning = "Commands: radars, screen cues, HUD";
+        private static string KeyLabel(KeyCode key) => key == KeyCode.Tab ? "Tab" : key == KeyCode.None ? null : key.ToString();
         public float OpenDuration => openDuration;
         public float CloseDuration => closeDuration;
         public float SubMenuExpandDuration => subMenuExpandDuration;
@@ -2538,21 +2593,20 @@ namespace VoiceControl.UI
             ringBackgroundTransparency = 0.82f;
             segmentTransparency = 0.96f;
             centerTransparency = 1f;
-            useBackdrop = true;
-            backdropOpacity = 0.42f;
+            // No full-screen backdrop: the menu plate is its only footprint, so the outside view and the HUD stay visible.
+            useBackdrop = false;
+            backdropOpacity = 0f;
             closeOnBackdropClick = true;
-            hideHudWhileOpen = true;
-            mainLabelFontSize = 14f;
-            subLabelFontSize = 14f;
+            hideHudWhileOpen = false;
+            mainLabelFontSize = 16f;
+            subLabelFontSize = 16f;
             centerTitleFontSize = 18f;
-            centerSubtitleFontSize = 12f;
+            centerSubtitleFontSize = 16f;
             usePulseAnimation = false;
             useGestures = false;
             useRippleEffect = true;
             springCurve = AnimationCurve.EaseInOut(0f, 0f, 1f, 1f);
             bounceCurve = AnimationCurve.EaseInOut(0f, 0f, 1f, 1f);
-            if (!hudRootNamesToHide.Contains("FAAHeadingTapeCanvas"))
-                hudRootNamesToHide = hudRootNamesToHide.Concat(new[] { "FAAHeadingTapeCanvas" }).ToArray();
 
             if (refresh)
             {

@@ -108,6 +108,24 @@ namespace FAA.Customization.Tests
             var frame=Frame();Set(((Array)ResultType.GetField("hands").GetValue(frame)).GetValue(0),"palmSize",.3f);
             object[] args={frame,null};Assert.That((bool)MathType.GetMethod("TryMetric").Invoke(null,args),Is.False);
         }
+        [Test] public void HandStudioShowsAccessLineOnlyWhenDeniedAndStacksRowsWithoutADeadBand()
+        {
+            Type ui=Type.GetType("FAA.Customization.FaaLaptopCameraGestures, Assembly-CSharp",true);
+            Type state=Type.GetType("FAA.Customization.FaaCameraPermissionState, Assembly-CSharp",true);
+            var line=ui.GetMethod("AccessLine");
+            Assert.That(line.Invoke(null,new[]{Enum.Parse(state,"NotRequested")}),Is.Null,"Normal first run: START CAMERA asks; no permission line.");
+            Assert.That(line.Invoke(null,new[]{Enum.Parse(state,"Authorized")}),Is.Null);
+            Assert.That(line.Invoke(null,new[]{Enum.Parse(state,"Denied")}),Is.EqualTo("CAMERA ACCESS DENIED"));
+            Assert.That(line.Invoke(null,new[]{Enum.Parse(state,"Restricted")}),Is.EqualTo("CAMERA ACCESS RESTRICTED"));
+            var height=ui.GetMethod("PanelHeightFor");
+            float off=(float)height.Invoke(null,new object[]{false,false,false,false});
+            float live=(float)height.Invoke(null,new object[]{true,true,false,false});
+            float denied=(float)height.Invoke(null,new object[]{false,true,true,true});
+            float max=(float)ui.GetField("MaxPanelHeight").GetValue(null);
+            Assert.That(off,Is.LessThan(620f),"Camera off: the panel ends below the gesture selector, with no dead band.");
+            Assert.That(live,Is.GreaterThan(off));
+            Assert.That(live,Is.LessThanOrEqualTo(max));Assert.That(denied,Is.LessThanOrEqualTo(max));
+        }
         [TestCase(0,false,"1234")] [TestCase(90,false,"2413")] [TestCase(180,false,"4321")]
         [TestCase(270,false,"3142")] [TestCase(0,true,"3412")] [TestCase(360,false,"1234")]
         public void CameraPixelOrientationAndVerticalMirror(int angle,bool mirror,string expected)

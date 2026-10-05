@@ -199,25 +199,28 @@ namespace AircraftControl.Integration
         {
             // Auto-find components if not assigned
             if (aircraftController == null)
-                aircraftController = FindObjectOfType<AircraftController>();
+                aircraftController = FindAnyObjectByType<AircraftController>();
 
             if (onlineMap == null)
-                onlineMap = FindObjectOfType<Map>();
+                onlineMap = FindAnyObjectByType<Map>();
 
             if (userLocation == null)
-                userLocation = FindObjectOfType<UserLocation>();
+                userLocation = FindAnyObjectByType<UserLocation>();
             
             // Auto-find TrafficRadarDisplay for range sync
             if (trafficRadarDisplay == null)
-                trafficRadarDisplay = FindObjectOfType<TrafficRadar.TrafficRadarDisplay>();
+                trafficRadarDisplay = FindAnyObjectByType<TrafficRadar.TrafficRadarDisplay>();
 
             // Try to find map RawImage if not assigned
             if (mapRawImage == null)
             {
-                // Look for RawImage with a RenderTexture (map display)
-                foreach (var rawImage in FindObjectsOfType<RawImage>())
+                // Look for an ACTIVE RawImage with a RenderTexture (map display). The traffic radar's
+                // legacy "MapCanvas/Map Image" is retired (single circular chart underlay), so it is
+                // never re-bound or given a mask here.
+                foreach (var rawImage in FindObjectsByType<RawImage>(FindObjectsSortMode.None))
                 {
-                    if (rawImage.texture != null && rawImage.texture is RenderTexture)
+                    if (rawImage != null && rawImage.isActiveAndEnabled && !IsRetiredRadarMapLayer(rawImage.transform) &&
+                        rawImage.texture != null && rawImage.texture is RenderTexture)
                     {
                         mapRawImage = rawImage;
                         Debug.Log($"[OnlineMapAircraftBridge] Auto-found map RawImage: {rawImage.name}");
@@ -266,6 +269,14 @@ namespace AircraftControl.Integration
             {
                 OnRadarZoomChanged(trafficRadarDisplay.RangeNM);
             }
+        }
+
+        private static bool IsRetiredRadarMapLayer(Transform t)
+        {
+            for (Transform current = t; current != null; current = current.parent)
+                if (current.name == "MapCanvas" && current.parent != null &&
+                    current.parent.GetComponent<TrafficRadar.TrafficRadarDisplay>() != null) return true;
+            return false;
         }
 
         private void SetupCircularMask()

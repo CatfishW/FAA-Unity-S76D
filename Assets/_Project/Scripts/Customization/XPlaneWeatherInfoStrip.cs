@@ -231,9 +231,10 @@ namespace FAA.Customization
         private const float StripWidth = 240f;
         private const float HeaderHeight = 42f;
         private const float CollapsedHeight = 0f;
-        private const float ExpandedHeight = 300f;
-        private const float DetailsHeight = 242f;
-        private const float MetricHeight = 46f;
+        // Every text >= FAA minimum (15 reference units); rows grew to fit 15/18 pt labels/values.
+        public const float ExpandedHeight = 340f;
+        private const float DetailsHeight = 282f;
+        private const float MetricHeight = 54f;
         private const float StripGap = 12f;
         private const float ExpandDuration = 0.22f;
         private const float CollapseDuration = 0.16f;
@@ -429,17 +430,17 @@ namespace FAA.Customization
             button.onClick.RemoveListener(ToggleExpanded);
             button.onClick.AddListener(ToggleExpanded);
 
-            TMP_Text title = EnsureText(header.transform, "Title", "WEATHER", 13f, ValueNormal, FontStyles.Bold);
+            TMP_Text title = EnsureText(header.transform, "Title", "CONDITIONS", FaaRadarVisualStyle.MinimumFont, ValueNormal, FontStyles.Bold);
             title.rectTransform.anchorMin = Vector2.zero;
             title.rectTransform.anchorMax = Vector2.one;
             title.rectTransform.offsetMin = new Vector2(13f, 0f);
-            title.rectTransform.offsetMax = new Vector2(-102f, 0f);
+            title.rectTransform.offsetMax = new Vector2(-104f, 0f);
             title.alignment = TextAlignmentOptions.MidlineLeft;
 
-            _headerStatus = EnsureText(header.transform, "Status", "WAITING", 9.5f, LabelColor, FontStyles.Bold);
+            _headerStatus = EnsureText(header.transform, "Status", "WAITING", FaaRadarVisualStyle.MinimumFont, LabelColor, FontStyles.Bold);
             _headerStatus.rectTransform.anchorMin = new Vector2(1f, 0f);
             _headerStatus.rectTransform.anchorMax = Vector2.one;
-            _headerStatus.rectTransform.offsetMin = new Vector2(-99f, 0f);
+            _headerStatus.rectTransform.offsetMin = new Vector2(-104f, 0f);
             _headerStatus.rectTransform.offsetMax = new Vector2(-31f, 0f);
             _headerStatus.alignment = TextAlignmentOptions.MidlineRight;
 
@@ -523,13 +524,13 @@ namespace FAA.Customization
             icon.color = ValueNormal;
             icon.raycastTarget = false;
 
-            TMP_Text label = EnsureText(cell.transform, "Label", labelText, 10.5f, LabelColor, FontStyles.Bold);
+            TMP_Text label = EnsureText(cell.transform, "Label", labelText, FaaRadarVisualStyle.MinimumFont, LabelColor, FontStyles.Bold);
             label.rectTransform.anchorMin = new Vector2(0f, 0.54f);
             label.rectTransform.anchorMax = Vector2.one;
             label.rectTransform.offsetMin = new Vector2(42f, 0f);
             label.rectTransform.offsetMax = new Vector2(-6f, -1f);
 
-            TMP_Text value = EnsureText(cell.transform, "Value", "--", 17f, ValueNormal, FontStyles.Bold);
+            TMP_Text value = EnsureText(cell.transform, "Value", "--", 18f, ValueNormal, FontStyles.Bold);
             value.rectTransform.anchorMin = Vector2.zero;
             value.rectTransform.anchorMax = new Vector2(1f, 0.62f);
             value.rectTransform.offsetMin = new Vector2(42f, 1f);
@@ -667,16 +668,21 @@ namespace FAA.Customization
             _rectTransform.anchorMax = radarRoot.anchorMax;
             float radarWidth = radarRoot.rect.width > 1f ? radarRoot.rect.width : radarRoot.sizeDelta.x;
             float radarHeight = radarRoot.rect.height > 1f ? radarRoot.rect.height : radarRoot.sizeDelta.y;
+            // Same readability scale as the radar chrome, so world-space text keeps the FAA minimum.
+            var presentation = radarRoot.GetComponent<FaaRadarPresentation>();
+            float scale = presentation != null ? presentation.ChromeScale : 1f;
+            // Dock beyond the radar's header/footer plates, which can be wider than a small root.
+            float overhang = presentation != null ? presentation.ChromeOverhang : 0f;
             Vector2 bottomLeft = CalculateRightSidePosition(
                 radarRoot.anchoredPosition,
                 new Vector2(radarWidth, radarHeight),
                 radarRoot.pivot,
-                new Vector2(StripWidth, ExpandedHeight),
-                StripGap);
+                new Vector2(StripWidth, ExpandedHeight) * scale,
+                StripGap + overhang);
             _rectTransform.pivot = new Vector2(0f, 1f);
-            _rectTransform.anchoredPosition = bottomLeft + Vector2.up * ExpandedHeight;
+            _rectTransform.anchoredPosition = bottomLeft + Vector2.up * ExpandedHeight * scale;
 
-            _rectTransform.localScale = Vector3.one;
+            _rectTransform.localScale = new Vector3(scale, scale, 1f);
             _rectTransform.localRotation = Quaternion.identity;
             _rectTransform.SetAsLastSibling();
         }

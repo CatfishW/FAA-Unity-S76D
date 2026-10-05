@@ -26,6 +26,8 @@ namespace FAA.Customization
 
         private static readonly HashSet<FaaRotorcraftCueAnchor> Registered = new();
         public static IEnumerable<FaaRotorcraftCueAnchor> Active => Registered;
+        /// <summary>Allocation-free iteration for per-frame renderers (a struct enumerator, unlike <see cref="Active"/>).</summary>
+        public static HashSet<FaaRotorcraftCueAnchor>.Enumerator EnumerateActive() => Registered.GetEnumerator();
         private void OnEnable() => Registered.Add(this);
         private void OnDisable() => Registered.Remove(this);
         private void OnDestroy() => Registered.Remove(this);

@@ -17,8 +17,13 @@ public class Glideslope : MonoBehaviour
 
     }
 
+    /// <summary>Non-finite deviation means no glideslope: the bar is removed, never drawn on-glidepath.</summary>
     public void UpdateGlideslope(float dots)
     {
+        if (glideslopeBar == null) return;
+        bool valid = !float.IsNaN(dots) && !float.IsInfinity(dots);
+        if (glideslopeBar.activeSelf != valid) glideslopeBar.SetActive(valid);
+        if (!valid) return;
         float dotnum = dots * 0.09f;
         glideslopeBar.transform.localPosition = new Vector3(glideslopeBar.transform.localPosition.x, dotnum, glideslopeBar.transform.localPosition.z);
     }
