@@ -53,6 +53,48 @@ or MQTT interface.
 
 ## Current pilot-system update
 
+### October 4, 2026 — FAA human-factors HUD overhaul
+
+**Windows XR-3 package:** [FAA human-factors HUD overhaul](https://github.com/CatfishW/FAA-Unity-S76D/releases/tag/xr3-20261004-hud-human-factors).
+The non-Development x64 build succeeded with **0 errors and 495 warnings**. In the editor,
+**1,074 of 1,076 EditMode tests** pass; the two failures are Cesium tests that need the
+Cesium native library, which is not installed on the build Mac. Release source: `837e33b7`
+on `releases/xr3-20261004-hud-human-factors`. Native headset and Windows runtime testing
+remain pending, so the package is a prerelease.
+
+Every HUD component and screen element was audited against FAA guidance: AC 25-11B
+(including its HUD appendix), AC 29-2C, AC 25.1322-1, AC 25.1329-1C,
+AC 20-151C / AC 20-172B and HF-STD-001B. Each was reworked so that pilots see less, read
+it faster and never see one symbol drawn over another. The screenshots are actual Unity
+Game views; flight values come from the labelled fallback feed.
+
+![Before and after: Digital, banked/unusual attitude, Classic Analog and side-panel inspection](docs/screenshots/2026-10-04/before-after.png)
+
+| Area | What now happens |
+|---|---|
+| Conformal attitude | The ladder is confined to the attitude field between the IAS and ALT columns, as labelled rung pairs. The horizon is gapped around instruments. The waterline sits on the boresight, and FOV-limited cues are ghosted. |
+| Unusual attitude | Above 60° bank or past +30°/−20° pitch, the display automatically declutters and red recovery chevrons point to the horizon. Hysteresis prevents flicker. |
+| Mode annunciator | It is live from the autopilot state, in C \| R \| P \| status columns. Armed modes are cyan and appear only when distinct. Mode changes get a 10-second box. AP OFF flashes, then holds steady, then clears. |
+| Bank scale | It is drawn procedurally with 10/20/30/45/60° indices. The pointer and slip indicator are concentric with the arc and track 1:1. |
+| Legibility | All pilot-read text meets the FAA minimum size and has a dark halo. IAS and ALT sit on plates at the waterline. IAS has no leading zeros, and VS uses one format in both styles. |
+| Engine and rotor | TQ/NR/N2/VNE caution (amber) and warning (red) boxes flash, then hold. Scale bands are subdued. Invalid data shows `---`, never a clamped value. Limits are demonstrator values, not RFM. |
+| Screen chrome | One bottom bar: a status chip, BRIEF, CUES and COMMANDS flyouts, an F1 key list, and view buttons in spatial order. Developer tooling is hidden and the top corners are empty. |
+| Side panels | While a panel is inspected, the forward HUD dims and IAS, ALT, TQ/NR, VS, the FMA and heading stay legible. The desktop view zooms the panel to readable size. |
+| Radars | Traffic uses TCAS/ADS-B symbols with no invented TA/RA, a ±2,700 ft band, auto-range hysteresis and a 2 NM ring. Weather uses ARINC 708 levels on black. |
+
+<p align="center">
+  <img src="docs/screenshots/2026-10-04/digital-banked.png" width="49%" alt="Digital HUD in a 22 degree bank with the ladder confined to the attitude field">
+  <img src="docs/screenshots/2026-10-04/digital-unusual-attitude.png" width="49%" alt="Unusual-attitude declutter with red recovery chevrons">
+  <img src="docs/screenshots/2026-10-04/classic-analog.png" width="49%" alt="Classic Analog with attitude ball and upright dial numerals">
+  <img src="docs/screenshots/2026-10-04/settings-inspection.png" width="49%" alt="Settings panel inspection with the forward HUD dimmed">
+  <img src="docs/screenshots/2026-10-04/commands-flyout.png" width="49%" alt="COMMANDS flyout above the bottom bar">
+  <img src="docs/screenshots/2026-10-04/key-list.png" width="49%" alt="F1 key list">
+</p>
+
+[Screenshot provenance](docs/screenshots/2026-10-04/README.md). The fallback feed reports torque
+in mismatched units, so TQ is shown as invalid instead of a plausible number. Glideslope,
+localizer and genuine TCAS advisories were not available from the test feed.
+
 ### September 25, 2026 — reference VSI, automatic sources and cockpit workspace
 
 **Windows XR-3 package:** [reference VSI + automatic discovery](https://github.com/CatfishW/FAA-Unity-S76D/releases/tag/xr3-20260925-vsi-autodiscovery).
