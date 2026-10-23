@@ -154,3 +154,6 @@ A Windows x64 Mono/Direct3D 11 build of ExperimentScene also completed with
 **zero build errors**. Legacy SDK/deprecation warnings remain. Temporary build
 verification scripts, player binaries, and local test logs are excluded from
 source control.
+
+The checked-in Windows player defaults match the verified profile: Mono,
+Direct3D 11 only, and Graphics Jobs disabled for native XR output.
