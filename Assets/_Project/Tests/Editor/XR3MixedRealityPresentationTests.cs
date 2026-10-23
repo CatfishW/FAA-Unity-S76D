@@ -12,6 +12,78 @@ namespace FAA.Customization.Tests
         private static object Call(string name, params object[] args) => Presenter.GetMethod(name,
             BindingFlags.Public | BindingFlags.Static).Invoke(null, args);
 
+        [Test]
+        public void LateSpatialOwnershipReleasesCameraParentAndPreservesPanelPose()
+        {
+            var cameraHost = new GameObject("MR view", typeof(Camera));
+            var panelHost = new GameObject("Radar initially in overlay", typeof(RectTransform), typeof(Canvas));
+            var presenterHost = new GameObject("MR presenter");
+            try
+            {
+                Camera camera = cameraHost.GetComponent<Camera>();
+                Canvas panel = panelHost.GetComponent<Canvas>(); panel.renderMode = RenderMode.ScreenSpaceOverlay;
+                Component presenter = presenterHost.AddComponent(Presenter);
+                Presenter.GetField("view", BindingFlags.NonPublic | BindingFlags.Instance).SetValue(presenter, camera);
+                Presenter.GetMethod("DiscoverPresentation", BindingFlags.NonPublic | BindingFlags.Instance).Invoke(presenter, null);
+                Presenter.GetMethod("ApplyPresentation", BindingFlags.NonPublic | BindingFlags.Instance).Invoke(presenter, null);
+                Assert.That(panel.transform.parent, Is.EqualTo(camera.transform));
+                Vector3 position = new Vector3(-1.4f, -.2f, .8f);
+                Quaternion rotation = Quaternion.Euler(8, -45, 0);
+                panel.transform.SetPositionAndRotation(position, rotation);
+                Presenter.GetMethod("ReleaseHeadlockedCanvas").Invoke(presenter, new object[] { panel });
+                Presenter.GetMethod("ApplyPresentation", BindingFlags.NonPublic | BindingFlags.Instance).Invoke(presenter, null);
+                camera.transform.position += Vector3.right;
+                Assert.That(panel.transform.parent, Is.Null);
+                Assert.That(Vector3.Distance(panel.transform.position, position), Is.LessThan(.0001f));
+                Assert.That(Quaternion.Angle(panel.transform.rotation, rotation), Is.LessThan(.001f));
+                Assert.That(panel.renderMode, Is.EqualTo(RenderMode.WorldSpace));
+            }
+            finally
+            {
+                Presenter.GetMethod("OnDisable", BindingFlags.NonPublic | BindingFlags.Instance).Invoke(presenterHost.GetComponent(Presenter), null);
+                UnityEngine.Object.DestroyImmediate(presenterHost); UnityEngine.Object.DestroyImmediate(panelHost);
+                UnityEngine.Object.DestroyImmediate(cameraHost);
+            }
+        }
+
+        [TestCase(1600, 900)]
+        [TestCase(1024, 768)]
+        [TestCase(900, 1600)]
+        public void DesktopPreviewCentersAndFitsHudWithoutChangingHeadsetProjection(int width, int height)
+        {
+            var headHost = new GameObject("Headset", typeof(Camera));
+            var desktopHost = new GameObject("Desktop", typeof(Camera));
+            try
+            {
+                Camera headset = headHost.GetComponent<Camera>();
+                Camera desktop = desktopHost.GetComponent<Camera>();
+                headset.transform.SetPositionAndRotation(new Vector3(2, 3, -5), Quaternion.Euler(15, 47, 8));
+                Matrix4x4 left = Matrix4x4.Perspective(85, 1, .3f, 2000), right = left;
+                left.m02 = -.37848f; right.m02 = .36799f;
+                headset.SetStereoProjectionMatrix(Camera.StereoscopicEye.Left, left);
+                headset.SetStereoProjectionMatrix(Camera.StereoscopicEye.Right, right);
+                Matrix4x4 mono = headset.projectionMatrix;
+                Type.GetType("FAA.Headset.XR3DesktopHudPreview, Assembly-CSharp", true)
+                    .GetMethod("ConfigureCamera").Invoke(null, new object[] { desktop, headset, new Vector2(width, height) });
+                Vector3 forward = headset.transform.position + headset.transform.forward * 1.5f;
+                Vector3 center = desktop.WorldToViewportPoint(forward);
+                Assert.That(center.x, Is.EqualTo(.5f).Within(.0001f));
+                Assert.That(center.y, Is.EqualTo(.5f).Within(.0001f));
+                Vector2 size = (Vector2)Call("CanvasMeters", 1.5f, 60f);
+                foreach (float x in new[] { -.5f, .5f })
+                    foreach (float y in new[] { -.5f, .5f })
+                    {
+                        Vector3 corner = desktop.WorldToViewportPoint(forward + headset.transform.right * x * size.x + headset.transform.up * y * size.y);
+                        Assert.That(corner.x, Is.InRange(0f, 1f)); Assert.That(corner.y, Is.InRange(0f, 1f));
+                    }
+                Assert.That(headset.projectionMatrix, Is.EqualTo(mono));
+                Assert.That(headset.GetStereoProjectionMatrix(Camera.StereoscopicEye.Left), Is.EqualTo(left));
+                Assert.That(headset.GetStereoProjectionMatrix(Camera.StereoscopicEye.Right), Is.EqualTo(right));
+                Assert.That(desktop.stereoTargetEye, Is.EqualTo(StereoTargetEyeMask.None));
+            }
+            finally { UnityEngine.Object.DestroyImmediate(headHost); UnityEngine.Object.DestroyImmediate(desktopHost); }
+        }
+
         [TestCase(null, true)]
         [TestCase("--xr3", true)]
         [TestCase("--xr3-vr", false)]

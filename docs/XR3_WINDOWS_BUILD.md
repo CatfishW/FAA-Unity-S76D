@@ -195,3 +195,42 @@ Varjo API accepted video passthrough, the camera reported alpha zero and opaque
 false, and Varjo Base's headset view showed the real room beneath the HUD.
 Headset comfort and final apparent size still need a wearer check. Live flight
 instruments remain unavailable until the X-Plane source is running.
+
+## Centered preview, hand recognition, and panel ownership
+
+The XR-3's left and right projections are asymmetric. A straight-ahead HUD
+point appears near x=0.70 in the left-eye mirror and x=0.31 in the right-eye
+mirror on the tested headset. A single-eye desktop screenshot therefore does
+not measure binocular centering. The app now draws a centered desktop HUD
+preview through its own mono camera and render texture, capped at 30 Hz. Its
+framing fits the entire reference HUD with margin at different window aspects.
+It does not replace either headset projection. Use `--xr3-eye-mirror` to inspect
+the original eye mirror. Varjo Base continues to show its calibrated eye view
+and the composited real-world video; headset comfort still needs a wearer test.
+
+The passthrough presenter releases a canvas when the spatial workspace takes
+ownership after startup. Radar/settings/utility panels keep their cockpit pose
+and are no longer forced onto the forward flight HUD. Releasing also removes
+the temporary camera parent while preserving the panel's world pose.
+
+`XR3HandTracking` connects a native Varjo session to `LeapXRServiceProvider`,
+reusing an existing provider when present. The XR-3 offsets are Y=-0.0112 m,
+Z=0.0999 m, tilt=0 degrees. A visible status label reports detected left/right
+hands. Frames older than 200 ms, missing sensor timestamps, disconnected
+services, and invalid palm positions never count as recognition. Diagnostics
+are written to `Application.persistentDataPath/XR3-hand-tracking.json`; they
+contain connection state, frame age, and current/session hand counts, not images.
+
+The compatible Ultraleap Tracking 7.3.0 package is embedded under
+`Packages/com.ultraleap.tracking`, including original assets, GUIDs and licenses.
+Its two removed Unity object-ID calls are replaced with object equality; see
+`FAA_COMPATIBILITY.md` inside the package. Do not install a separate Gemini
+runtime: the XR-3 service is supplied by Varjo Base.
+
+On the 4090 PC the service reported one connected sensor and fresh frame
+updates. Actual left/right recognition must be verified with hands in view;
+service connection alone is not a successful hand-recognition test.
+
+References:
+- https://developer.varjo.com/docs/unity-xr-sdk/hand-tracking-with-varjo-xr-plugin
+- https://developer.varjo.com/docs/v3.4.0/get-started/hand-tracking

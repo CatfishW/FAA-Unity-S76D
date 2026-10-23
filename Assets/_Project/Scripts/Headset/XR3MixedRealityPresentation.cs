@@ -11,7 +11,7 @@ namespace FAA.Headset
 {
     /// <summary>Native XR-3 video passthrough with a resolution-independent HUD.</summary>
     [UnityEngine.Scripting.Preserve]
-    [DefaultExecutionOrder(32000)]
+    [DefaultExecutionOrder(31900)]
     public sealed class XR3MixedRealityPresentation : MonoBehaviour
     {
         public const int HudLayer = 30;
@@ -50,10 +50,31 @@ namespace FAA.Headset
         private readonly Dictionary<GameObject, int> layers = new Dictionary<GameObject, int>();
         private readonly Dictionary<Camera, CameraState> cameras = new Dictionary<Camera, CameraState>();
         private readonly Dictionary<Behaviour, bool> effects = new Dictionary<Behaviour, bool>();
+        private readonly List<Canvas> releasedCanvases = new List<Canvas>();
+        private static readonly Func<Canvas, bool> spatialCanvasOwner = ResolveSpatialCanvasOwner();
         private Camera view;
         private float nextDiscovery, nextAttempt, reportAt;
         private bool reportedPresentation;
         private bool capturedOpaque, originalOpaque, reportedUnavailable;
+
+        private static Func<Canvas, bool> ResolveSpatialCanvasOwner()
+        {
+            // The older source profile has no spatial workspace. Keep this integration optional.
+            Type type = Type.GetType("FAA.Customization.FaaSpatialWorkspace, Assembly-CSharp");
+            var method = type?.GetMethod("OwnsCanvas", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+            return method != null ? (Func<Canvas, bool>)Delegate.CreateDelegate(typeof(Func<Canvas, bool>), method) : null;
+        }
+
+        public void ReleaseHeadlockedCanvas(Canvas canvas)
+        {
+            if (canvas == null || !canvases.TryGetValue(canvas, out CanvasState state)) return;
+            // The spatial owner already placed the canvas. Preserve that world pose while
+            // releasing the camera parent installed during early XR startup.
+            if (view != null && canvas.transform.parent == view.transform)
+                canvas.transform.SetParent(state.parent, true);
+            canvases.Remove(canvas);
+            Debug.Log("[FAA MR] World-space panel released from headlocked HUD: " + canvas.name);
+        }
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void Bootstrap()
@@ -175,6 +196,11 @@ namespace FAA.Headset
                     if (!layers.ContainsKey(child.gameObject)) layers.Add(child.gameObject, child.gameObject.layer);
                     child.gameObject.layer = HudLayer;
                 }
+                if (spatialCanvasOwner != null && spatialCanvasOwner(canvas))
+                {
+                    ReleaseHeadlockedCanvas(canvas);
+                    continue;
+                }
                 if (!canvas.isRootCanvas || canvas.renderMode == RenderMode.WorldSpace || canvases.ContainsKey(canvas)) continue;
                 var rect = (RectTransform)canvas.transform;
                 var scaler = canvas.GetComponent<UnityCanvasScaler>();
@@ -202,6 +228,10 @@ namespace FAA.Headset
             view.backgroundColor = Color.clear;
             view.allowHDR = false;
             view.cullingMask = 1 << HudLayer;
+            releasedCanvases.Clear();
+            foreach (Canvas canvas in canvases.Keys)
+                if (canvas != null && spatialCanvasOwner != null && spatialCanvasOwner(canvas)) releasedCanvases.Add(canvas);
+            foreach (Canvas canvas in releasedCanvases) ReleaseHeadlockedCanvas(canvas);
             foreach (CanvasState state in canvases.Values)
                 if (state.canvas != null) FitHeadlockedCanvas(state.canvas, view, state.scaler);
         }
