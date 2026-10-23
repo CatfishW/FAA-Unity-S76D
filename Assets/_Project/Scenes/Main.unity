@@ -15745,7 +15745,6 @@ GameObject:
   - component: {fileID: 408152496}
   - component: {fileID: 408152498}
   - component: {fileID: 408152500}
-  - component: {fileID: 408152501}
   m_Layer: 0
   m_Name: Traffic Data Manager
   m_TagString: Untagged
@@ -15845,18 +15844,6 @@ MonoBehaviour:
   mqttPublishInterval: 0.2
   requestUpdatesPeriodically: 1
   requestIntervalSeconds: 5
---- !u!114 &408152501
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 408152495}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: f237ca50167e66748a03589f67699b7d, type: 3}
-  m_Name:
-  m_EditorClassIdentifier:
 --- !u!1 &408962392
 GameObject:
   m_ObjectHideFlags: 0
@@ -77523,7 +77510,7 @@ MonoBehaviour:
   m_GameObject: {fileID: 148721838515539056}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 635eb4e63ba9b7b44b3c83cc4fd91780, type: 3}
+  m_Script: {fileID: 11500000, guid: 829a3c1d8c85d9049a4902780b4d58aa, type: 3}
   m_Name:
   m_EditorClassIdentifier:
   defaultLatitude: 0

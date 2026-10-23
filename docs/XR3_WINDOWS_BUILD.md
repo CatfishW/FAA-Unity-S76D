@@ -101,3 +101,56 @@ This is research/prototyping software, not a certified flight instrument.
 - Varjo Base 4.14: https://support.varjo.com/hc/en-us/release-notes-varjo-base-4.14
 - XR-3 support boundary: https://support.varjo.com/hc/en-us/end-of-support-for-older-generation-models-xr-3-vr-3-and-varjo-aero
 - Cesium 1.25.1: https://github.com/CesiumGS/cesium-unity/releases/tag/v1.25.1
+
+## Windows startup serialization fix (2026-10-23)
+
+A Windows player can crash at scene load with `level0 is corrupted` and
+`Position out of bounds` when a component uses a scene-embedded MonoScript
+instead of an imported source asset. Such components can appear to work in the
+Editor while their fields are omitted from the built scene.
+
+The affected flight-data provider and six radar/UI components now live in
+matching `.cs` files with committed `.meta` GUIDs. The Experiment scene uses
+those persistent script assets instead of its 22 embedded script records;
+56 component references were repaired without changing their serialized values.
+
+`WindowsPlayerScriptValidator` runs for every Windows x64 player build,
+including ordinary Build Settings builds. It rejects missing scripts and
+nonpersistent or mismatched script references with the scene and object name
+before player scene data is written. Editor regression tests cover the repaired
+scene and deliberately invalid references.
+
+The corresponding installed Windows release was rebuilt and verified on the
+4090 PC with direct EXE startup and the Windows file-open action, without
+launcher arguments. The HUD rendered and the Varjo XR output initialized.
+Physical headset image quality and calibration were not tested. This source
+repair preserves this repository's existing component implementations.
+
+The repository now resolves the official Cesium **1.25.1** registry package with
+its generated/native artifacts, instead of importing the incomplete 1.20 source
+checkout. That historical source is preserved under
+`ThirdPartySource~/cesium-unity-1.20.0`; see the adjacent README before using its
+vendor build instructions. Keep the registry package active when running the
+Unity 6000.5 editor or building the Windows player.
+
+Run the source regression suite with Unity Test Runner's EditMode filter
+`FAA.Customization.Tests.WindowsPlayerScriptValidatorTests`. It validates the
+seven script assets, ExperimentScene, enabled Build Settings scenes, and
+deliberately broken references.
+
+The configured Main scene also repairs a stale geographic-projection script GUID
+and removes an unreferenced, fieldless missing-script slot. Its working traffic
+data manager component is retained. The simulator UI source dependency graph is
+tracked under `Assets/ThirdParty/XRInteractionSimulator`, with original GUIDs and
+license information, so a fresh checkout retains its script and prefab bindings.
+Legacy post-processing and lightning depth-texture declarations use Unity's
+stereo-aware shader macros for Direct3D 11.
+
+Validation: Unity **6000.5.10f1** compiled the repaired source and passed all
+**16 EditMode regression cases**, including configured build scenes and
+intentional invalid-script fixtures.
+
+A Windows x64 Mono/Direct3D 11 build of ExperimentScene also completed with
+**zero build errors**. Legacy SDK/deprecation warnings remain. Temporary build
+verification scripts, player binaries, and local test logs are excluded from
+source control.

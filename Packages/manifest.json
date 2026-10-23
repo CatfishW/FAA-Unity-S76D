@@ -1,6 +1,6 @@
 {
   "dependencies": {
-    "com.cesium.unity": "file:com.cesium.unity",
+    "com.cesium.unity": "1.25.1",
     "com.coplaydev.unity-mcp": "file:com.coplaydev.unity-mcp",
     "com.unity.2d.sprite": "1.0.0",
     "com.unity.2d.tilemap": "1.0.0",
