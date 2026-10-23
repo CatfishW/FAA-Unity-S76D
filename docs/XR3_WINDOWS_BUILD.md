@@ -157,3 +157,41 @@ source control.
 
 The checked-in Windows player defaults match the verified profile: Mono,
 Direct3D 11 only, and Graphics Jobs disabled for native XR output.
+
+## XR-3 real-world passthrough and HUD size
+
+Native Windows Varjo launches now enable mixed reality automatically. The
+runtime waits for the native Varjo session, disables opaque rendering, starts
+video passthrough, and clears the headset camera to transparent RGBA zero.
+Only HUD canvas layers are rendered into that camera, so virtual terrain, sky,
+and legacy camera effects cannot hide the real room. Render-to-texture cameras
+used by instruments remain active.
+
+Headlocked HUD canvases use a 1920 x 1080 reference layout spanning 60 degrees
+horizontally (approximately 36 degrees vertically) at a 1.5 metre optical
+presentation distance. This avoids scaling the HUD to the headset eye-buffer
+resolution. Existing world-space cockpit panels retain their poses. The
+presentation restores camera, layer, canvas, and scaler state when disabled.
+
+`--xr3-vr` explicitly retains opaque immersive rendering. `--xr3-sim` opts out
+of mixed reality for desktop simulator runs. Video passthrough requires an
+XR-3 connected to a running Varjo Base session. The Unity desktop mirror can
+show black behind the HUD because Varjo composites the camera video separately;
+check the headset or Varjo Base headset view for the real-world image.
+
+Run the EditMode filter `XR3MixedRealityPresentationTests` for angular size,
+invalid-input handling, camera alpha/culling, world-panel preservation, and
+state restoration. Startup logs prefixed `[FAA MR]` report whether the native
+video renderer started and the active HUD geometry. A physical headset check
+is still required to assess comfort, alignment, and real-world visibility.
+
+Varjo setup reference:
+https://developer.varjo.com/docs/v3.8.0/unity-xr-sdk/mixed-reality-with-varjo-xr-plugin
+
+Validation on 2026-10-23: the Windows x64 Mono/Direct3D 11 release built with
+zero errors. All 10 mixed-reality regression cases and all 16 Windows startup
+regression cases passed in the GitHub source tree. On the 4090 PC, the native
+Varjo API accepted video passthrough, the camera reported alpha zero and opaque
+false, and Varjo Base's headset view showed the real room beneath the HUD.
+Headset comfort and final apparent size still need a wearer check. Live flight
+instruments remain unavailable until the X-Plane source is running.
