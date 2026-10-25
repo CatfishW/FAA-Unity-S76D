@@ -139,6 +139,11 @@ namespace FAA.Headset
             status = textHost.GetComponent<TextMeshProUGUI>();
             status.font = TMP_Settings.defaultFontAsset; status.fontSize = 22;
             status.alignment = TextAlignmentOptions.Center; status.raycastTarget = false;
+            Type regionType = Type.GetType("FAA.Customization.FaaHudKeepOutRegion, Assembly-CSharp");
+            Type kindType = Type.GetType("FAA.Customization.FaaKeepOutKind, Assembly-CSharp");
+            if (regionType != null && kindType != null)
+                regionType.GetMethod("Ensure").Invoke(null,
+                    new object[] { textHost, "xr3:hand-status", Enum.Parse(kindType, "Chrome"), 4f });
         }
 
         private void OnDisable()

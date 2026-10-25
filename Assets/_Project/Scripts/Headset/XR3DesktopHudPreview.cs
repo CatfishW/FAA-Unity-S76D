@@ -25,6 +25,13 @@ namespace FAA.Headset
             DontDestroyOnLoad(host); host.AddComponent<XR3DesktopHudPreview>();
         }
 
+        public static bool IsPreviewCamera(Camera camera)
+        {
+            if (camera == null) return false;
+            var owner = camera.GetComponentInParent<XR3DesktopHudPreview>();
+            return owner != null && owner.preview == camera;
+        }
+
         public static void ConfigureCamera(Camera desktop, Camera headset, Vector2 displaySize)
         {
             if (desktop == null || headset == null || desktop == headset) return;
@@ -36,7 +43,7 @@ namespace FAA.Headset
                 XR3MixedRealityPresentation.DefaultDistanceMeters, XR3MixedRealityPresentation.DefaultHorizontalDegrees);
             float halfHeight = Mathf.Max(size.y * .5f, size.x / (2 * desktop.aspect)) * 1.08f;
             desktop.fieldOfView = 2 * Mathf.Atan(halfHeight / XR3MixedRealityPresentation.DefaultDistanceMeters) * Mathf.Rad2Deg;
-            desktop.nearClipPlane = .03f; desktop.farClipPlane = 2000;
+            desktop.nearClipPlane = .03f; desktop.farClipPlane = Mathf.Max(2000f, headset.farClipPlane);
             desktop.clearFlags = CameraClearFlags.SolidColor; desktop.backgroundColor = Color.black;
             desktop.cullingMask = 1 << XR3MixedRealityPresentation.HudLayer;
             desktop.allowHDR = false; desktop.allowMSAA = false;

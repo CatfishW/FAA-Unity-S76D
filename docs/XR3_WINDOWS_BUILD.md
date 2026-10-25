@@ -282,3 +282,33 @@ an injected engine failure. The launcher now uses a positive interval, explicitl
 disables random failures, repairs failed systems, and reads back the enable flag
 before starting. It never treats the flight API's success response as proof that
 the requested failure mode is disabled.
+
+## Airborne demo and conformal rendering (2026-10-24)
+
+`Tools/XPlane3080/flight_demo.py --start` initializes an actual S-76C flight at
+2,500 m MSL and 100 kt using X-Plane's native flight API. Subsequent motion comes
+from simulator physics, native heading/altitude hold and a rate-limited collective
+speed assist. It never writes a synthetic flight stream or overrides aircraft
+physics. The user service runs without `--start`, attaching to the existing
+S-76 flight rather than repeatedly repositioning it. Clearance, attitude,
+engine, fuel and manual-input checks pause the demo on an unsuitable state.
+
+The full integration profile's angular conformal mesh and native text were on
+the default world layer, which the mixed-reality camera excluded. They now use
+the HUD layer. The per-camera visibility callback includes the explicitly owned
+centered preview, and that preview retains the headset far clip instead of
+clipping the 4 km angular shell at 2 km. Actual calibrated headset projections
+and opaque virtual-world culling are unchanged. The exact corrected full-profile
+implementation is preserved under `SourceProfiles~/XR3Integration` because the
+standard scene profile does not include its workspace dependencies.
+
+The final standard-profile suite passed 22 tests with two optional full-profile
+tests explicitly skipped. The updated Windows player built with zero errors.
+
+The native attitude-window bounds are projected from the physical fixed-angle
+HUD canvas. Full-eye-buffer viewport fractions are inappropriate once that HUD
+occupies only part of the XR field of view: they allowed pitch labels to cross
+the bank/FMA, heading and hand-status lanes. The projected window now bounds the
+ladder, while its world angles remain unchanged. The hand-status label also
+registers an optional chrome keep-out in the full integration profile. All 114
+selected full-profile conformal/window tests passed after this correction.
