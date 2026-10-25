@@ -6,10 +6,10 @@ from urllib.request import Request,urlopen
 from urllib.parse import urlencode
 B='http://127.0.0.1:8086/api/v3'
 IDS={}
-def request(path,payload=None,method=None):
+def request(path,payload=None,method=None,timeout=5):
  data=None if payload is None else json.dumps(payload).encode()
  req=Request(B+path,data=data,method=method or ('GET' if data is None else 'PATCH'),headers={'Content-Type':'application/json'})
- with urlopen(req,timeout=5) as r:
+ with urlopen(req,timeout=timeout) as r:
   body=r.read();return json.loads(body) if body else None
 def ident(name):
  if name not in IDS:IDS[name]=next(r['id'] for r in request('/datarefs?'+urlencode({'filter[name]':name}))['data'] if r['name']==name)
@@ -27,7 +27,7 @@ def main():
   if read('sim/joystick/mouse_is_joystick'):raise SystemExit('Release mouse-flight control before starting the demo')
   command('sim/operation/pause_on')
   payload={'aircraft':{'path':'Aircraft/Laminar Research/Sikorsky S-76/S-76C.acf'},'lle_air_start':{'latitude':47.46,'longitude':-122.3,'elevation_in_meters':2500,'heading_true':0,'speed_in_meters_per_second':51.444,'pitch_in_degrees':0},'engine_status':{'all_engines':{'running':True}},'time_enum':'day','failures':{'fix_everything':True,'mean_time_between_failures_in_hours':10000}}
-  request('/flight',payload,'POST');time.sleep(8)
+  request('/flight',payload,'POST',timeout=60);time.sleep(8)
   write('sim/operation/failures/enable_random_failures',0);command('sim/operation/fix_all_systems')
   command('sim/operation/pause_off');command('sim/operation/quick_start');time.sleep(.3)
   write('sim/cockpit2/switches/rotor_brake_ratio',0);write('sim/cockpit2/engine/actuators/throttle_ratio_all',1)

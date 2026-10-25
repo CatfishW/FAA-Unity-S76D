@@ -312,3 +312,23 @@ the bank/FMA, heading and hand-status lanes. The projected window now bounds the
 ladder, while its world angles remain unchanged. The hand-status label also
 registers an optional chrome keep-out in the full integration profile. All 114
 selected full-profile conformal/window tests passed after this correction.
+
+
+## Desktop mouse buttons in native XR-3 mode (2026-10-24)
+
+Left-click the visible controls inside the FAA desktop window. The centered
+preview and the headset eye use different projections. A dedicated desktop
+pointer camera now matches the preview in desktop window pixels, including
+when the render texture is downsampled. Its canvas raycasters retain Unity's
+normal button, slider, scroll, mask and CanvasGroup filtering. The original
+raycasters are restored when the preview closes. Tracked XR input and the
+workspace hand-pointer IDs keep their original headset camera.
+
+The full integration chrome's menu-inside/outside check uses the same desktop
+projection, so menu buttons remain usable after opening the flyout. The matching
+full-profile chrome source is preserved in `SourceProfiles~/XR3Integration`.
+Rendering/pointer regressions passed all 8 selected full-profile tests; the
+standard profile passed 20 with two optional full-profile tests skipped.
+
+The simulator air-start request allows up to 60 seconds for scenery loading;
+ordinary data requests retain a five-second timeout.

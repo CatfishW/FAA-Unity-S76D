@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using UnityEngine.UI;
 using UnityEngine;
 using UnityEngine.XR;
 
@@ -8,7 +10,10 @@ namespace FAA.Headset
     [UnityEngine.Scripting.Preserve, DefaultExecutionOrder(32000)]
     public sealed class XR3DesktopHudPreview : MonoBehaviour
     {
-        private Camera preview;
+        private static XR3DesktopHudPreview active;
+        private Camera preview, pointerCamera;
+        private readonly List<XR3DesktopCanvasRaycaster> pointerRaycasters = new List<XR3DesktopCanvasRaycaster>();
+        private float nextInputDiscovery;
         private RenderTexture texture;
         private XR3MixedRealityPresentation presentation;
         private bool capturedMirror, originalMirror;
@@ -23,6 +28,12 @@ namespace FAA.Headset
             if (FindAnyObjectByType<XR3DesktopHudPreview>() != null) return;
             var host = new GameObject("FAA Centered Desktop HUD Preview");
             DontDestroyOnLoad(host); host.AddComponent<XR3DesktopHudPreview>();
+        }
+
+        public static Camera PointerCameraForCanvas(Canvas canvas)
+        {
+            return active != null && active.capturedMirror && canvas != null && canvas.renderMode != RenderMode.ScreenSpaceOverlay
+                ? active.pointerCamera : canvas != null && canvas.renderMode != RenderMode.ScreenSpaceOverlay ? canvas.worldCamera : null;
         }
 
         public static bool IsPreviewCamera(Camera camera)
@@ -83,10 +94,34 @@ namespace FAA.Headset
             {
                 var host = new GameObject("FAA Desktop Preview Camera"); host.transform.SetParent(transform, false);
                 preview = host.AddComponent<Camera>(); preview.enabled = false;
+                var pointerHost = new GameObject("FAA Desktop Pointer Camera"); pointerHost.transform.SetParent(transform, false);
+                pointerCamera = pointerHost.AddComponent<Camera>(); pointerCamera.enabled = false;
             }
             preview.targetTexture = texture;
             ConfigureCamera(preview, Camera.main, new Vector2(width, height));
             preview.Render();
+            // Use full desktop pixels for UI events even when the rendered preview is downsampled.
+            ConfigureCamera(pointerCamera, Camera.main, new Vector2(Screen.width, Screen.height));
+            active = this;
+            if (Time.unscaledTime >= nextInputDiscovery)
+            {
+                nextInputDiscovery = Time.unscaledTime + .25f;
+                DiscoverPointerRaycasters();
+            }
+        }
+
+        private void DiscoverPointerRaycasters()
+        {
+            foreach (GraphicRaycaster source in FindObjectsByType<GraphicRaycaster>(FindObjectsInactive.Exclude, FindObjectsSortMode.None))
+            {
+                if (source is XR3DesktopCanvasRaycaster || !source.enabled) continue;
+                Canvas canvas = source.GetComponent<Canvas>();
+                if (canvas == null || canvas.renderMode == RenderMode.ScreenSpaceOverlay) continue;
+                var adapter = source.GetComponent<XR3DesktopCanvasRaycaster>();
+                if (adapter == null) adapter = source.gameObject.AddComponent<XR3DesktopCanvasRaycaster>();
+                adapter.enabled = true; adapter.Bind(source, pointerCamera);
+                if (!pointerRaycasters.Contains(adapter)) pointerRaycasters.Add(adapter);
+            }
         }
 
         private void OnGUI()
@@ -98,8 +133,13 @@ namespace FAA.Headset
 
         private void OnDisable()
         {
+            if (active == this) active = null;
             if (capturedMirror) XRSettings.showDeviceView = originalMirror;
             capturedMirror = false;
+            foreach (var adapter in pointerRaycasters)
+                if (adapter != null) { adapter.Restore(); Destroy(adapter); }
+            pointerRaycasters.Clear();
+            if (pointerCamera != null) Destroy(pointerCamera.gameObject);
             if (preview != null) { preview.targetTexture = null; Destroy(preview.gameObject); }
             if (texture != null) { texture.Release(); Destroy(texture); }
         }
