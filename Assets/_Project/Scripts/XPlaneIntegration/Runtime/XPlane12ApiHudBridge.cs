@@ -1666,6 +1666,21 @@ namespace FAA.XPlaneIntegration.Runtime
             out float percent)
         {
             percent = 0f;
+            // Engine torque and its configured engine limit share the same pre-transmission domain.
+            // Prop/transmission references can differ, especially on helicopters with a geared tail rotor.
+            string engineTorqueKey = $"sim/flightmodel/engine/ENGN_TRQ[{engineIndex}]";
+            const string engineLimitKey = "sim/aircraft/controls/acf_trq_max_eng";
+            if (systems != null && (systems.ContainsKey(engineTorqueKey) || systems.ContainsKey(engineLimitKey)))
+            {
+                if (!TryGetFinite(systems, engineTorqueKey, out float engineTorqueNm) ||
+                    !TryGetFinite(systems, engineLimitKey, out float engineLimitNm) || engineLimitNm <= .001f)
+                    return false;
+                float enginePercent = Mathf.Abs(engineTorqueNm) / engineLimitNm * 100f;
+                if (!IsFinite(enginePercent) || enginePercent > 300f) return false;
+                percent = enginePercent;
+                return true;
+            }
+
             if (!TryGetFinite(systems, $"sim/flightmodel/engine/ENGN_driv_TRQ[{engineIndex}]", out float torqueNm) ||
                 !TryGetFinite(systems, $"sim/flightmodel/engine/POINT_max_TRQ[{engineIndex}]", out float ratedTorqueNm))
             {

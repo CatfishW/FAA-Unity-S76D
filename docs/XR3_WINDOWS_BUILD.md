@@ -234,3 +234,51 @@ service connection alone is not a successful hand-recognition test.
 References:
 - https://developer.varjo.com/docs/unity-xr-sdk/hand-tracking-with-varjo-xr-plugin
 - https://developer.varjo.com/docs/v3.4.0/get-started/hand-tracking
+
+## Live X-Plane 12.4.3 setup on 3080 (2026-10-24)
+
+The Windows FAA PC connects directly to the simulator host using its existing
+SSH alias `3080`. `Tools/XPlane3080/Connect-XPlane3080.ps1` binds only Windows
+loopback ports 8086 (native REST/WebSocket API), 8767 and 12679 (read-only scenery).
+The installed `FAA-XPlane3080-Tunnel` logon task runs this connection with the
+existing user credentials and strict host-key checking. It retries disconnected
+connections without changing firewall rules or copying credentials. Windows'
+built-in OpenSSH is selected explicitly because another SSH executable on PATH
+hung even during configuration inspection.
+
+The simulator's read-only `xplane12-terrain.service` reads the installed Steam
+scenery. Native Web API discovery selects the actual simulator automatically.
+There is no synthetic flight feed and no dependency on the Mac remaining online.
+
+The S-76C torque conversion now prefers `sim/flightmodel/engine/ENGN_TRQ[i]`
+and `sim/aircraft/controls/acf_trq_max_eng`, both in the engine torque domain.
+This avoids comparing per-engine transmission output against a prop reference,
+which yielded an implausible ratio on the stock S-76. Invalid or missing preferred
+metadata is not replaced with a different-domain reference. The displayed value
+is a percentage of the simulator's configured engine torque limit.
+
+The shared native schema includes those fields and accepts bounded signed pitot
+IAS. X-Plane can report a small negative IAS at rest or in reverse flow; this no
+longer discards otherwise healthy flight data. The raw sample is retained and
+the existing display mapping still limits displayed indicated airspeed to zero.
+
+`Tools/XPlane3080/start_s76.py` checks the installed stock aircraft and current
+mouse-flight state. `--reset` explicitly replaces the current simulator flight.
+The reset reloads the airframe to clear retained damage, loads KSEA runway 16L,
+starts the engines while the simulation is running, releases the rotor brake,
+sets flight throttle and checks that the aircraft remains parked. It pauses on
+instability or manual mouse-flight input. It provides no takeoff or continuous
+automatic flight control. Running it without `--reset` only checks availability.
+
+Validation: 18 focused source tests passed in both source profiles, and the
+updated Windows x64 Mono/Direct3D 11 player built with zero errors. The direct
+SSH link returned native API version 12.4.3 and a real installed Seattle DSF tile.
+Actual headset hand recognition remains a separate wearer test.
+
+The effective failure configuration must be checked after flight initialization.
+On this installed 12.4.3 build, supplying a zero MTBF through the flight JSON
+left `enable_random_failures=1` and `mean_time_between_failure_hrs=0`, producing
+an injected engine failure. The launcher now uses a positive interval, explicitly
+disables random failures, repairs failed systems, and reads back the enable flag
+before starting. It never treats the flight API's success response as proof that
+the requested failure mode is disabled.
