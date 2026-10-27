@@ -17,11 +17,13 @@ namespace FAA.Customization
         private FaaSpatialWorkspace owner;
         private LeapProvider provider;
         private GameObject ownedProvider;
+        private FAA.Headset.XR3HandTracking nativeTracker;
+        private bool awaitingProviderFrame = true;
         private readonly FaaWorkspacePointerDispatcher[] pointers = new FaaWorkspacePointerDispatcher[4];
         private readonly bool[] pinched = new bool[4], releaseRequired = new bool[4], handPresent = new bool[2];
         private readonly bool[] uiGesture = new bool[4];
         private long lastTimestamp;
-        private float lastFrameChange, nextDiscovery, palmSince = -1f;
+        private float lastFrameChange = float.NegativeInfinity, nextDiscovery, palmSince = -1f;
         private bool palmLatched, menuButtonWasDown;
         private readonly LineRenderer[] rays = new LineRenderer[4];
         private Material rayMaterial;
@@ -47,8 +49,13 @@ namespace FAA.Customization
             if (HasHandProvider)
             {
                 frame = provider.CurrentFrame;
-                if (frame != null && frame.Timestamp != lastTimestamp)
-                { lastTimestamp = frame.Timestamp; lastFrameChange = Time.unscaledTime; }
+                if (owner.NativeXr && nativeTracker != null && nativeTracker.Provider == provider &&
+                    (!nativeTracker.ServiceConnected || !nativeTracker.LeftTracked && !nativeTracker.RightTracked)) frame = null;
+                if (frame != null && frame.Timestamp > 0)
+                {
+                    if (awaitingProviderFrame) { lastTimestamp = frame.Timestamp; awaitingProviderFrame = false; }
+                    else if (frame.Timestamp != lastTimestamp) { lastTimestamp = frame.Timestamp; lastFrameChange = Time.unscaledTime; }
+                }
                 if (Time.unscaledTime - lastFrameChange > .2f) frame = null;
             }
             Hand left = null;
@@ -76,9 +83,15 @@ namespace FAA.Customization
 
         private void ResolveProvider()
         {
+            nativeTracker = owner.NativeXr ? FindAnyObjectByType<FAA.Headset.XR3HandTracking>() : null;
+            var preferred = nativeTracker != null ? nativeTracker.Provider : null;
+            var selected = PreferredProviderForMode(owner.NativeXr,
+                provider != null && provider.isActiveAndEnabled ? provider : null,
+                preferred, preferred != null && preferred.isActiveAndEnabled);
+            if (selected != provider) BindHandProvider(selected);
             if (provider == null)
                 foreach (var candidate in FindObjectsByType<LeapProvider>(FindObjectsInactive.Exclude, FindObjectsSortMode.None))
-                    if (candidate.isActiveAndEnabled) { provider = candidate; break; }
+                    if (candidate.isActiveAndEnabled && (!owner.NativeXr || candidate is LeapXRServiceProvider)) { BindHandProvider(candidate); break; }
             if (provider != null || !owner.NativeXr) return;
             // Varjo Base supplies the XR-3 tracking service. Do not launch an unsupported native service on Mac.
             if (Application.platform != RuntimePlatform.WindowsPlayer && Application.platform != RuntimePlatform.WindowsEditor) return;
@@ -91,8 +104,30 @@ namespace FAA.Customization
             leap.mainCamera = owner.View;
             leap.deviceOffsetMode = LeapXRServiceProvider.DeviceOffsetMode.ManualHeadOffset;
             leap.deviceOffsetYAxis = -.0112f; leap.deviceOffsetZAxis = .0999f; leap.deviceTiltXAxis = 0f;
-            provider = leap;
+            BindHandProvider(leap);
             ownedProvider.SetActive(true);
+        }
+
+        private static LeapProvider PreferredProviderForMode(bool native, LeapProvider current, LeapXRServiceProvider preferred, bool preferredActive)
+        {
+            if (native && preferred != null && preferredActive) return preferred;
+            return native && current != null && !(current is LeapXRServiceProvider) ? null : current;
+        }
+
+        private void BindHandProvider(LeapProvider candidate)
+        {
+            if (provider == candidate) return;
+            CancelPointers();
+            releaseRequired[0] = releaseRequired[1] = true;
+            lastTimestamp = 0;
+            lastFrameChange = float.NegativeInfinity;
+            awaitingProviderFrame = true;
+            if (ownedProvider != null && (candidate == null || candidate.gameObject != ownedProvider))
+            {
+                Destroy(ownedProvider);
+                ownedProvider = null;
+            }
+            provider = candidate;
         }
 
         private void CheckPalmMenu(Hand hand)

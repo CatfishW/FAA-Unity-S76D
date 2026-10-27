@@ -372,11 +372,20 @@ rejects empty, malformed, frozen, future or nonfinite reports and requires
 advancing simulation time and physical movement. Deploy `flight_demo.py`,
 `start_s76.py` and `verify_flying.py` together because the helpers share code.
 
-The full integration suite passes 1,138 tests. The public imported profile
-passes 533 tests and skips two optional full-profile cases. Python reliability
+The full integration suite passes 1,145 tests. The public imported profile
+passes 538 tests and skips two optional full-profile cases. Python reliability
 coverage contains 41 passing cases. A headset wearer is still required to
 validate optical alignment, comfort, real hand recognition and physical control
 interaction. An idle sensor connection is not a successful wearer test.
 
 Vendor references: [Varjo mixed-reality setup](https://developer.varjo.com/docs/unity-xr-sdk/mixed-reality-with-varjo-xr-plugin)
 and [Laminar autopilot dataref semantics](https://developer.x-plane.com/article/accessing-the-x-plane-autopilot-from-datarefs/).
+
+
+Controller recovery also handles a connected service with no device or a frozen
+frame stream: after five continuous unhealthy seconds it recreates that SDK
+controller on the main thread, at most once per five seconds. Native gestures
+prefer the same fresh provider used by the hand-status label. This does not
+restart vendor services. A controlled off/on test exposed a separate Varjo
+backend reconstruction stall; only that supervised hand-tracking process was
+restarted, preserving the HMD server and compositor.

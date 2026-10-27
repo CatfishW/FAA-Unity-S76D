@@ -15,6 +15,7 @@ namespace FAA.Headset
         public bool LeftTracked { get; private set; }
         public bool RightTracked { get; private set; }
         public bool ServiceConnected { get; private set; }
+        public int ControllerResetAttempts { get; private set; }
         public LeapXRServiceProvider Provider => provider;
         private LeapXRServiceProvider provider;
         private GameObject ownedProvider;
@@ -26,6 +27,8 @@ namespace FAA.Headset
         private bool awaitingFreshFrame = true;
         private string lastStatus;
         private const int ReconnectionIntervalFrames = 180;
+        private const double ControllerRecoverySeconds = 5d;
+        private double unhealthySince = double.NaN, nextControllerReset = double.NegativeInfinity;
 
         [Serializable]
         private sealed class Snapshot
@@ -33,6 +36,7 @@ namespace FAA.Headset
             public string utc;
             public bool connected, left, right, everLeft, everRight;
             public int devices;
+            public int controllerResetAttempts;
             public long timestamp;
             public float frameAgeSeconds;
         }
@@ -66,9 +70,9 @@ namespace FAA.Headset
         {
             if (!Application.isPlaying || Application.platform != RuntimePlatform.WindowsPlayer) return;
             var manager = XRGeneralSettings.Instance != null ? XRGeneralSettings.Instance.Manager : null;
-            if (manager?.activeLoader == null || manager.activeLoader.GetType().FullName != "Varjo.XR.VarjoLoader") { ResetFreshness(); return; }
+            if (manager?.activeLoader == null || manager.activeLoader.GetType().FullName != "Varjo.XR.VarjoLoader") { ResetFreshness(); ResetRecoveryWatchdog(); return; }
             Camera camera = Camera.main;
-            if (camera == null) { ResetFreshness(); return; }
+            if (camera == null) { ResetFreshness(); ResetRecoveryWatchdog(); return; }
             if (Time.unscaledTime >= nextDiscovery)
             {
                 nextDiscovery = Time.unscaledTime + 1f;
@@ -78,14 +82,24 @@ namespace FAA.Headset
                 foreach (LineRenderer ray in FindObjectsByType<LineRenderer>(FindObjectsInactive.Include, FindObjectsSortMode.None))
                     if (ray.name.StartsWith("FAA Layout Pointer ", StringComparison.Ordinal)) ray.gameObject.layer = XR3MixedRealityPresentation.HudLayer;
             }
-            if (provider == null) { ResetFreshness(); return; }
+            if (provider == null) { ResetFreshness(); ResetRecoveryWatchdog(); return; }
             provider.mainCamera = camera;
-            bool connected = provider.isActiveAndEnabled && provider.IsConnected();
+            bool providerEnabled = provider.isActiveAndEnabled;
+            Controller controller = providerEnabled ? provider.GetLeapController() : null;
+            bool connected = controller != null && controller.IsConnected;
+            bool serviceConnected = controller != null && controller.IsServiceConnected;
+            int deviceCount = controller != null ? controller.Devices.Count : 0;
             if (!connected) ResetFreshness();
             ServiceConnected = connected;
             Leap.Frame frame = ServiceConnected ? provider.CurrentFrame : null;
             if (frame != null) ObserveTimestamp(frame.Timestamp, Time.unscaledTime);
             float age = Time.unscaledTime - lastChange;
+            bool freshDeviceFrame = connected && frame != null && frame.Timestamp > 0 && age >= 0f && age <= .2f;
+            if (ShouldRecoverController(providerEnabled, serviceConnected, deviceCount, freshDeviceFrame, Time.realtimeSinceStartupAsDouble))
+            {
+                ResetStalledController();
+                frame = null; age = float.PositiveInfinity; deviceCount = 0;
+            }
             CountFreshHands(frame, ServiceConnected, age, out bool left, out bool right);
             LeftTracked = left; RightTracked = right;
             everLeft |= left; everRight |= right;
@@ -101,7 +115,7 @@ namespace FAA.Headset
             nextReport = Time.unscaledTime + 1f;
             var snapshot = new Snapshot
             {
-                utc = DateTime.UtcNow.ToString("O"), connected = ServiceConnected, devices = provider.GetLeapController().Devices.Count,
+                utc = DateTime.UtcNow.ToString("O"), connected = ServiceConnected, devices = deviceCount, controllerResetAttempts = ControllerResetAttempts,
                 left = left, right = right, everLeft = everLeft, everRight = everRight,
                 timestamp = timestamp, frameAgeSeconds = float.IsInfinity(age) ? -1f : age
             };
@@ -136,8 +150,40 @@ namespace FAA.Headset
 
         private void BindProvider(LeapXRServiceProvider candidate)
         {
-            if (provider != candidate) { provider = candidate; ResetFreshness(); }
+            if (provider != candidate) { provider = candidate; ResetFreshness(); ResetRecoveryWatchdog(); }
             ConfigureRecovery(candidate);
+        }
+
+        private void ResetRecoveryWatchdog()
+        {
+            unhealthySince = double.NaN;
+            nextControllerReset = double.NegativeInfinity;
+        }
+
+        private bool ShouldRecoverController(bool enabled, bool serviceConnected, int devices, bool freshDeviceFrame, double now)
+        {
+            if (!enabled || double.IsNaN(now) || double.IsInfinity(now)) { unhealthySince = double.NaN; return false; }
+            // The SDK's own integrity check accepts a connected service pipe with zero devices.
+            // Empty-hand frames are healthy; a missing device or stalled timestamp is not.
+            if (serviceConnected && devices > 0 && freshDeviceFrame) { unhealthySince = double.NaN; return false; }
+            if (double.IsNaN(unhealthySince) || now < unhealthySince) unhealthySince = now;
+            if (now - unhealthySince < ControllerRecoverySeconds || now < nextControllerReset) return false;
+            unhealthySince = now;
+            nextControllerReset = now + ControllerRecoverySeconds;
+            return true;
+        }
+
+        private void ResetStalledController()
+        {
+            if (provider == null || !provider.isActiveAndEnabled) return;
+            ResetFreshness();
+            ConfigureRecovery(provider);
+            ControllerResetAttempts++;
+            Debug.LogWarning("[FAA HANDS] No fresh device frame for 5 seconds; resetting the Ultraleap controller (attempt " + ControllerResetAttempts + ").");
+            // Called only from Update on Unity's main thread. Keep the existing provider,
+            // offsets, camera, and connection settings; recreate only its SDK controller.
+            try { provider.destroyController(); provider.GetLeapController(); }
+            catch (Exception error) { Debug.LogWarning("[FAA HANDS] Controller recovery will retry: " + error.Message); }
         }
 
         private void ResetFreshness()
@@ -182,12 +228,14 @@ namespace FAA.Headset
         private void OnDisable()
         {
             ResetFreshness();
+            ResetRecoveryWatchdog();
             if (ownedProvider != null) ownedProvider.SetActive(false);
             if (statusCanvas != null) statusCanvas.gameObject.SetActive(false);
         }
         private void OnEnable()
         {
             ResetFreshness();
+            ResetRecoveryWatchdog();
             if (ownedProvider != null) ownedProvider.SetActive(true);
             if (statusCanvas != null) statusCanvas.gameObject.SetActive(true);
         }

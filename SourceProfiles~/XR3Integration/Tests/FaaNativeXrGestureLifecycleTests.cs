@@ -8,6 +8,45 @@ namespace FAA.Customization.Tests
     public class FaaNativeXrGestureLifecycleTests
     {
         [Test]
+        public void NativeWorkspacePrefersTheStatusTrackersHeadsetStreamAndRejectsDesktopProviders()
+        {
+            Type input = Type.GetType("FAA.Customization.FaaWorkspaceGestureInput, Assembly-CSharp", true);
+            Type desktopType = Type.GetType("Leap.LeapServiceProvider, Ultraleap.Tracking.Core", true);
+            Type headsetType = Type.GetType("Leap.LeapXRServiceProvider, Ultraleap.Tracking.Core", true);
+            var desktopHost = new GameObject("Inactive desktop provider fixture");
+            var headsetHost = new GameObject("Inactive headset provider fixture");
+            desktopHost.SetActive(false); headsetHost.SetActive(false);
+            try
+            {
+                Component desktop = desktopHost.AddComponent(desktopType), headset = headsetHost.AddComponent(headsetType);
+                MethodInfo select = input.GetMethod("PreferredProviderForMode", BindingFlags.NonPublic | BindingFlags.Static);
+                Assert.That(select.Invoke(null, new object[] { true, desktop, headset, true }), Is.SameAs(headset));
+                Assert.That(select.Invoke(null, new object[] { true, desktop, headset, false }), Is.Null,
+                    "Native XR must not silently use a desktop-offset stream while the headset source is unavailable.");
+                Assert.That(select.Invoke(null, new object[] { false, desktop, headset, true }), Is.SameAs(desktop),
+                    "Desktop mode retains its existing provider selection.");
+            }
+            finally { UnityEngine.Object.DestroyImmediate(desktopHost); UnityEngine.Object.DestroyImmediate(headsetHost); }
+        }
+
+        [Test]
+        public void NativeWorkspaceKeepsAnExistingHeadsetProviderWhenThePreferredOneIsUnavailable()
+        {
+            Type input = Type.GetType("FAA.Customization.FaaWorkspaceGestureInput, Assembly-CSharp", true);
+            Type headsetType = Type.GetType("Leap.LeapXRServiceProvider, Ultraleap.Tracking.Core", true);
+            var currentHost = new GameObject("Inactive XR fallback fixture");
+            var preferredHost = new GameObject("Inactive preferred XR fixture");
+            currentHost.SetActive(false); preferredHost.SetActive(false);
+            try
+            {
+                Component current = currentHost.AddComponent(headsetType), preferred = preferredHost.AddComponent(headsetType);
+                MethodInfo select = input.GetMethod("PreferredProviderForMode", BindingFlags.NonPublic | BindingFlags.Static);
+                Assert.That(select.Invoke(null, new object[] { true, current, preferred, false }), Is.SameAs(current));
+            }
+            finally { UnityEngine.Object.DestroyImmediate(currentHost); UnityEngine.Object.DestroyImmediate(preferredHost); }
+        }
+
+        [Test]
         public void SeatDetectsATrackingOriginInstalledAfterInitialWorkspaceBinding()
         {
             Type type = Type.GetType("FAA.Customization.FaaTrackedSeatReference, Assembly-CSharp", true);

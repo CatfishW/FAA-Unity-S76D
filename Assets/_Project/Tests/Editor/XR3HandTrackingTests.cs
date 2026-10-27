@@ -10,6 +10,74 @@ namespace FAA.Customization.Tests
     {
         private static Type Tracker => Type.GetType("FAA.Headset.XR3HandTracking, Assembly-CSharp", true);
 
+        [TestCase(false, 0)]
+        [TestCase(true, 0)]
+        [TestCase(true, 1)]
+        public void MissingDeviceOrStalledFramesTriggerControllerRecoveryAfterFiveWallClockSecondsWithBoundedRetries(bool serviceConnected, int devices)
+        {
+            var host = new GameObject("Controller watchdog fixture");
+            host.SetActive(false);
+            try
+            {
+                Component tracker = host.AddComponent(Tracker);
+                MethodInfo policy = Tracker.GetMethod("ShouldRecoverController", BindingFlags.NonPublic | BindingFlags.Instance);
+                Func<double, bool> reset = now => (bool)policy.Invoke(tracker, new object[] { true, serviceConnected, devices, false, now });
+                Assert.That(reset(0), Is.False);
+                Assert.That(reset(4.999), Is.False);
+                Assert.That(reset(5), Is.True, "A service-connected pipe must not conceal zero devices or a frozen frame.");
+                Assert.That(reset(5.001), Is.False);
+                Assert.That(reset(9.999), Is.False);
+                Assert.That(reset(10), Is.True, "Persistent failure permits one reset per five wall-clock seconds.");
+            }
+            finally { UnityEngine.Object.DestroyImmediate(host); }
+        }
+
+        [Test]
+        public void AdvancingDeviceFramesAreHealthyEvenWhenNoHandsAreVisibleAndRestartTheFailureGracePeriod()
+        {
+            var host = new GameObject("Healthy device watchdog fixture");
+            host.SetActive(false);
+            try
+            {
+                Component tracker = host.AddComponent(Tracker);
+                MethodInfo policy = Tracker.GetMethod("ShouldRecoverController", BindingFlags.NonPublic | BindingFlags.Instance);
+                Func<bool, double, bool> reset = (fresh, now) => (bool)policy.Invoke(tracker, new object[] { true, true, 1, fresh, now });
+                Assert.That(reset(false, 0), Is.False);
+                Assert.That(reset(true, 4), Is.False);
+                Assert.That(reset(true, 20), Is.False, "Device freshness does not require a visible hand.");
+                Assert.That(reset(false, 21), Is.False);
+                Assert.That(reset(false, 25.999), Is.False);
+                Assert.That(reset(false, 26), Is.True);
+            }
+            finally { UnityEngine.Object.DestroyImmediate(host); }
+        }
+
+        [Test]
+        public void DisabledProviderNeverResetsOrCreatesAController()
+        {
+            var host = new GameObject("Disabled controller watchdog fixture");
+            var providerHost = new GameObject("Disabled hand provider");
+            host.SetActive(false); providerHost.SetActive(false);
+            try
+            {
+                Component tracker = host.AddComponent(Tracker);
+                Type providerType = Type.GetType("Leap.LeapXRServiceProvider, Ultraleap.Tracking.Core", true);
+                Type serviceType = Type.GetType("Leap.LeapServiceProvider, Ultraleap.Tracking.Core", true);
+                Component provider = providerHost.AddComponent(providerType);
+                Tracker.GetMethod("BindProvider", BindingFlags.NonPublic | BindingFlags.Instance).Invoke(tracker, new object[] { provider });
+                MethodInfo policy = Tracker.GetMethod("ShouldRecoverController", BindingFlags.NonPublic | BindingFlags.Instance);
+                Assert.That(policy.Invoke(tracker, new object[] { false, true, 0, false, 0d }), Is.False);
+                Assert.That(policy.Invoke(tracker, new object[] { false, true, 0, false, 100d }), Is.False);
+                Tracker.GetMethod("ResetStalledController", BindingFlags.NonPublic | BindingFlags.Instance).Invoke(tracker, null);
+                Assert.That(Tracker.GetProperty("ControllerResetAttempts").GetValue(tracker), Is.Zero);
+                Assert.That(serviceType.GetField("_leapController", BindingFlags.NonPublic | BindingFlags.Instance).GetValue(provider), Is.Null);
+                Assert.That(policy.Invoke(tracker, new object[] { true, true, 0, false, 101d }), Is.False);
+                Assert.That(policy.Invoke(tracker, new object[] { true, true, 0, false, 105.999d }), Is.False);
+                Assert.That(policy.Invoke(tracker, new object[] { true, true, 0, false, 106d }), Is.True);
+            }
+            finally { UnityEngine.Object.DestroyImmediate(host); UnityEngine.Object.DestroyImmediate(providerHost); }
+        }
+
         [Test]
         public void NativeProviderContinuesBoundedRecoveryAfterTheSdkDefaultRetryBudget()
         {
@@ -20,11 +88,15 @@ namespace FAA.Customization.Tests
             try
             {
                 Component provider = host.AddComponent(providerType);
+                providerType.GetProperty("deviceOffsetYAxis").SetValue(provider, -.0112f);
+                providerType.GetProperty("deviceOffsetZAxis").SetValue(provider, .0999f);
                 Assert.That(serviceType.GetField("_leapController", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(provider), Is.Null,
                     "An inactive Editor fixture must not open a real hand-tracking connection.");
                 Tracker.GetMethod("ConfigureRecovery", BindingFlags.Static | BindingFlags.NonPublic).Invoke(null, new object[] { provider });
                 Assert.That(serviceType.GetField("_reconnectionAttempts").GetValue(provider), Is.EqualTo(-1));
                 Assert.That(serviceType.GetField("_reconnectionInterval").GetValue(provider), Is.EqualTo(180));
+                Assert.That(providerType.GetProperty("deviceOffsetYAxis").GetValue(provider), Is.EqualTo(-.0112f));
+                Assert.That(providerType.GetProperty("deviceOffsetZAxis").GetValue(provider), Is.EqualTo(.0999f));
                 FieldInfo attempts = serviceType.GetField("_numberOfReconnectionAttempts", BindingFlags.Instance | BindingFlags.NonPublic);
                 FieldInfo checks = serviceType.GetField("_framesSinceServiceConnectionChecked", BindingFlags.Instance | BindingFlags.NonPublic);
                 attempts.SetValue(provider, 5);
