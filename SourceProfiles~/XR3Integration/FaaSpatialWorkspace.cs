@@ -200,7 +200,9 @@ namespace FAA.Customization
             var cockpit = new GameObject("FAA Seat Reference (aircraft anchored)");
             cockpit.transform.SetParent(transform, false); CockpitFrame = cockpit.transform;
             var xr3 = FindFirstObjectByType<FAA.Headset.XR3HeadsetCompatibility>();
-            nativeDefaults = NativeXr || xr3 != null && xr3.IsCompatibilityActive;
+            nativeDefaults = FAA.Headset.XR3HeadsetCompatibility.UseNativeLayoutDefaults(NativeXr,
+                xr3 != null && xr3.IsCompatibilityActive, xr3 != null && xr3.IsNativeVarjoMode,
+                FAA.Headset.XR3HeadsetCompatibility.ExplicitSimulatorRequested);
             SpatialPanelsEnabled = true; // Laptop and headset radars both stay in protected cockpit-side space.
             profileKey = "FAA.SpatialLayout.v1." + boundScene.name + (nativeDefaults ? ".XR" : ".Desktop");
             AddRadar("weather", "XPlaneWeatherRadarCanvas", "X-Plane Weather Radar System", -55f);

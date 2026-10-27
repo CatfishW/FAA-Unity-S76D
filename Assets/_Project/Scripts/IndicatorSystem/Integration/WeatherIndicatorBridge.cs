@@ -84,6 +84,8 @@ namespace IndicatorSystem.Integration
         private readonly List<WeatherIndicatorTarget> _weatherTargets = new List<WeatherIndicatorTarget>();
         private float _nextUpdateTime;
         private bool _isConnected;
+        private WeatherRadarProviderBase _subscribedProvider;
+        private bool _canUseDisplaySnapshot = true;
         private Texture2D _lastRadarTexture;
         private XPlaneOriginalWeatherRadarDisplay _originalDisplay;
         private FAA.XPlaneIntegration.Runtime.XPlane12ApiHudBridge _feed;
@@ -120,19 +122,18 @@ namespace IndicatorSystem.Integration
         
         private void Update()
         {
-            if (weatherProvider == null || indicatorController == null)
+            if (weatherProvider == null || !weatherProvider.isActiveAndEnabled || indicatorController == null)
             {
                 AutoFindComponents();
-                Connect();
             }
 
-            if (weatherProvider == null || indicatorController == null)
-                return;
-
-            if (!_isConnected)
+            if (weatherProvider == null || !weatherProvider.isActiveAndEnabled || indicatorController == null)
             {
-                Connect();
+                Disconnect();
+                SourceStatus = "WAITING FOR DATA";
+                return;
             }
+            Connect();
             
             // Periodic update
             bool controlsChanged = !Mathf.Approximately(_scannedRange, weatherProvider.RangeNM) ||
@@ -186,9 +187,11 @@ namespace IndicatorSystem.Integration
         {
             if (_feed == null)
                 _feed = FindAnyObjectByType<FAA.XPlaneIntegration.Runtime.XPlane12ApiHudBridge>();
-            if (weatherProvider == null)
+            if (weatherProvider == null || !weatherProvider.isActiveAndEnabled)
             {
-                weatherProvider = FindAnyObjectByType<WeatherRadarProviderBase>();
+                weatherProvider = null;
+                foreach (var candidate in FindObjectsByType<WeatherRadarProviderBase>(FindObjectsInactive.Exclude, FindObjectsSortMode.None))
+                    if (candidate.isActiveAndEnabled) { weatherProvider = candidate; break; }
             }
 
             if (_originalDisplay == null)
@@ -211,22 +214,33 @@ namespace IndicatorSystem.Integration
         
         private void Connect()
         {
-            if (_isConnected || weatherProvider == null)
-                return;
+            if (_isConnected && _subscribedProvider == weatherProvider && weatherProvider != null && weatherProvider.isActiveAndEnabled) return;
+            if (_isConnected || !ReferenceEquals(_subscribedProvider, null)) Disconnect();
+            if (weatherProvider == null || !weatherProvider.isActiveAndEnabled) return;
             
             // Subscribe to the correct event name
+            weatherProvider.OnRadarDataUpdated -= OnWeatherDataUpdated;
             weatherProvider.OnRadarDataUpdated += OnWeatherDataUpdated;
+            _subscribedProvider = weatherProvider;
             _isConnected = true;
+            SourceStatus = "WAITING FOR DATA";
             
             Log("Connected to WeatherRadarProviderBase");
         }
         
         private void Disconnect()
         {
-            if (_isConnected && weatherProvider != null)
-                weatherProvider.OnRadarDataUpdated -= OnWeatherDataUpdated;
+            if (_subscribedProvider != null)
+                _subscribedProvider.OnRadarDataUpdated -= OnWeatherDataUpdated;
+            _subscribedProvider = null;
             _isConnected = false;
             ClearWeatherIndicators();
+            _lastRadarTexture = null;
+            _lastTextureTime = -100f;
+            _canUseDisplaySnapshot = false;
+            _hasCueReference = false;
+            _nextUpdateTime = 0f;
+            _scannedRange = _scannedGain = float.NaN;
             SourceStatus = "DISCONNECTED";
             
             Log("Disconnected from WeatherRadarProviderBase");
@@ -234,6 +248,7 @@ namespace IndicatorSystem.Integration
         
         private void OnWeatherDataUpdated(Texture2D radarTexture)
         {
+            _canUseDisplaySnapshot = false;
             _lastTextureTime = Time.unscaledTime;
             // Store the texture reference for use in updates
             _lastRadarTexture = radarTexture;
@@ -244,21 +259,27 @@ namespace IndicatorSystem.Integration
         
         private void UpdateWeatherIndicators()
         {
-            if (indicatorController == null || weatherProvider == null)
+            if (indicatorController == null || weatherProvider == null || !weatherProvider.isActiveAndEnabled)
+            {
+                Disconnect();
+                SourceStatus = "WAITING FOR DATA";
                 return;
+            }
+            Connect();
 
-            if (_lastRadarTexture == null && _originalDisplay != null)
+            if (_lastRadarTexture == null && _originalDisplay != null && _canUseDisplaySnapshot)
             {
                 _lastRadarTexture = _originalDisplay.CurrentTexture as Texture2D;
             }
 
-            bool hasFreshOriginalTexture = _originalDisplay != null && _originalDisplay.HasFreshTexture;
-            bool hasPoweredRadarState = _originalDisplay != null && _originalDisplay.HasRadarPowerState;
+            bool usesOriginalTexture = _originalDisplay != null && _lastRadarTexture != null &&
+                ReferenceEquals(_lastRadarTexture, _originalDisplay.CurrentTexture);
+            bool hasPoweredRadarState = usesOriginalTexture && _originalDisplay.HasRadarPowerState;
             bool isPoweredRadarOn = hasPoweredRadarState
                 ? _originalDisplay.IsRadarPowered
                 : weatherProvider.Status != ProviderStatus.Inactive;
 
-            bool hasFreshData = _originalDisplay != null ? hasFreshOriginalTexture :
+            bool hasFreshData = usesOriginalTexture ? _originalDisplay.HasFreshTexture :
                 _lastRadarTexture != null && Time.unscaledTime - _lastTextureTime <= 5f;
             if ((_feed != null && !_feed.IsFeedHealthy) || !hasFreshData)
             {

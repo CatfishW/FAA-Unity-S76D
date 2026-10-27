@@ -7,6 +7,7 @@ using UnityEngine.InputSystem.XR;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 using UnityEngine.XR;
+using UnityEngine.XR.Management;
 using UnityEngine.XR.Interaction.Toolkit.Inputs.Simulation;
 using WeatherRadar;
 
@@ -102,6 +103,61 @@ namespace FAA.Headset
         private int _nativeDetectionFrames;
         private bool _reportedUnavailable;
 
+        public static bool ExplicitSimulatorRequested { get; } = RequestsExplicitSimulator(Environment.GetCommandLineArgs());
+
+        public static bool RequestsExplicitSimulator(string[] arguments) => HasArgument(arguments, "--xr3-sim", "-xr3-sim");
+
+        public static ActivationMode ResolveActivationMode(ActivationMode configured, bool autoDetect, bool nativeActive,
+            bool editorSimulator, bool playerSimulator, bool isEditor, string[] arguments)
+        {
+            if (RequestsExplicitSimulator(arguments)) return ActivationMode.UnitySimulator;
+            bool native = configured == ActivationMode.VarjoXR3 || HasArgument(arguments,
+                "-xr3", "--xr3", "-varjo", "--varjo", "-varjo-xr3", "--varjo-xr3");
+            if (native || autoDetect && nativeActive) return ActivationMode.VarjoXR3;
+            bool simulator = configured == ActivationMode.UnitySimulator || HasArgument(arguments,
+                "-xr-simulator", "--xr-simulator", "-varjo-sim", "--varjo-sim");
+            return simulator || isEditor && editorSimulator || !isEditor && playerSimulator ? ActivationMode.UnitySimulator : ActivationMode.Auto;
+        }
+
+        public static bool PreferSimulatorDesktopPointer(bool explicitSimulator, bool isEditor, bool simulatorMode, bool overlay, bool preferPointer)
+            => simulatorMode && (explicitSimulator || isEditor && overlay && preferPointer);
+
+        public static bool UseNativeLayoutDefaults(bool nativeXr, bool compatibilityActive, bool nativeVarjoMode, bool explicitSimulator)
+            => !explicitSimulator && (nativeXr || compatibilityActive || nativeVarjoMode);
+
+        public static void ConfigureOutputCamera(Camera view, bool explicitSimulator)
+        {
+            if (view == null) return;
+            view.stereoTargetEye = explicitSimulator ? StereoTargetEyeMask.None : StereoTargetEyeMask.Both;
+            view.targetDisplay = 0;
+            if (explicitSimulator) { view.ResetProjectionMatrix(); view.ResetWorldToCameraMatrix(); }
+        }
+
+        /// <summary>Release only this application's XR session. XR Management stops its subsystems before deinitializing.</summary>
+        public static bool StopApplicationXr(XRManagerSettings manager)
+        {
+            if (manager == null || !manager.isInitializationComplete || manager.activeLoader == null) return false;
+            manager.DeinitializeLoader();
+            return manager.activeLoader == null;
+        }
+
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
+        private static void ApplyExplicitSimulatorStartup()
+        {
+            if (!ExplicitSimulatorRequested) return;
+            StopApplicationXr(XRGeneralSettings.Instance != null ? XRGeneralSettings.Instance.Manager : null);
+            Debug.Log("[FAA XR] Explicit desktop simulator requested; this application's XR loader is released. Varjo Base services are unchanged.");
+        }
+
+        private static bool HasArgument(string[] arguments, params string[] flags)
+        {
+            if (arguments == null) return false;
+            foreach (string argument in arguments)
+                foreach (string flag in flags)
+                    if (string.Equals(argument, flag, StringComparison.OrdinalIgnoreCase)) return true;
+            return false;
+        }
+
         private struct CanvasState
         {
             public Canvas canvas;
@@ -143,7 +199,7 @@ namespace FAA.Headset
         private void Start()
         {
             EvaluateActivation();
-            if (!_active && autoDetectNativeXr)
+            if (!_active && autoDetectNativeXr && !ExplicitSimulatorRequested)
             {
                 StartCoroutine(WaitForNativeXrStartup());
             }
@@ -151,7 +207,7 @@ namespace FAA.Headset
 
         private void Update()
         {
-            if (!_active && autoDetectNativeXr && activationMode == ActivationMode.Auto)
+            if (!_active && autoDetectNativeXr && activationMode == ActivationMode.Auto && !ExplicitSimulatorRequested)
             {
                 // Varjo's loader can finish initialization after the first
                 // scene frame. Keep this check cheap and bounded for projects
@@ -187,6 +243,7 @@ namespace FAA.Headset
 
         private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
         {
+            if (ExplicitSimulatorRequested) StopApplicationXr(XRGeneralSettings.Instance != null ? XRGeneralSettings.Instance.Manager : null);
             if (_active)
             {
                 _simulatorInputSelectionLayoutConfigured = false;
@@ -232,28 +289,16 @@ namespace FAA.Headset
 
         private void EvaluateActivation()
         {
-            bool forceVarjo = activationMode == ActivationMode.VarjoXR3 || HasAnyCommandLineFlag(
-                "-xr3", "--xr3", "-varjo", "--varjo", "-varjo-xr3", "--varjo-xr3");
-            bool forceSimulator = activationMode == ActivationMode.UnitySimulator || HasAnyCommandLineFlag(
-                "-xr3-sim", "--xr3-sim", "-xr-simulator", "--xr-simulator", "-varjo-sim", "--varjo-sim");
-
-            if (forceVarjo || (autoDetectNativeXr && IsNativeXrActive()))
-            {
-                Activate(ActivationMode.VarjoXR3, false);
-                return;
-            }
-
-            if (forceSimulator || (Application.isEditor && enableEditorSimulator) ||
-                (!Application.isEditor && enableSimulatorInPlayer))
-            {
-                Activate(ActivationMode.UnitySimulator, true);
-            }
+            if (ExplicitSimulatorRequested) StopApplicationXr(XRGeneralSettings.Instance != null ? XRGeneralSettings.Instance.Manager : null);
+            ActivationMode requested = ResolveActivationMode(activationMode, autoDetectNativeXr, IsNativeXrActive(),
+                enableEditorSimulator, enableSimulatorInPlayer, Application.isEditor, Environment.GetCommandLineArgs());
+            if (requested != ActivationMode.Auto) Activate(requested, requested == ActivationMode.UnitySimulator);
         }
 
         private IEnumerator WaitForNativeXrStartup()
         {
             const int maxFrames = 180;
-            for (int i = 0; i < maxFrames && !_active; i++)
+            for (int i = 0; i < maxFrames && !_active && !ExplicitSimulatorRequested; i++)
             {
                 if (IsNativeXrActive())
                 {
@@ -267,6 +312,11 @@ namespace FAA.Headset
 
         private void Activate(ActivationMode mode, bool startSimulator)
         {
+            if (ExplicitSimulatorRequested)
+            {
+                StopApplicationXr(XRGeneralSettings.Instance != null ? XRGeneralSettings.Instance.Manager : null);
+                mode = ActivationMode.UnitySimulator; startSimulator = true;
+            }
             bool modeChanged = _active && _activeMode != mode;
             if (modeChanged)
             {
@@ -329,13 +379,12 @@ namespace FAA.Headset
             }
 
             _reportedUnavailable = false;
-            xrCamera.stereoTargetEye = StereoTargetEyeMask.Both;
-            xrCamera.targetDisplay = 0;
+            ConfigureOutputCamera(xrCamera, ExplicitSimulatorRequested);
         }
 
         private void EnsureTrackedPoseDriver()
         {
-            if (!driveCameraFromXrHmd || xrCamera == null)
+            if (xrCamera == null || !driveCameraFromXrHmd && !ExplicitSimulatorRequested)
             {
                 return;
             }
@@ -351,7 +400,7 @@ namespace FAA.Headset
             // HMD otherwise overwrites it again before rendering (often with
             // world-north/identity), leaving the map and screen cues at odds.
             // Native head tracking and explicit XR-controller testing are unchanged.
-            if (UseDesktopAircraftView(_activeMode, preferEditorPointerInput,
+            if (UseDesktopAircraftView(_activeMode, ExplicitSimulatorRequested || preferEditorPointerInput,
                 xrCamera.GetComponent<AircraftControl.Camera.AircraftCameraController>() != null))
             {
                 if (_trackedPoseDriver == null)
@@ -502,7 +551,7 @@ namespace FAA.Headset
                 // Native Varjo mode uses camera-space canvases for stereo output.
                 if (canvas.renderMode != RenderMode.WorldSpace &&
                     _activeMode == ActivationMode.UnitySimulator &&
-                    useScreenSpaceOverlayForSimulator)
+                    (useScreenSpaceOverlayForSimulator || ExplicitSimulatorRequested))
                 {
                     canvas.renderMode = RenderMode.ScreenSpaceOverlay;
                     canvas.worldCamera = null;
@@ -788,10 +837,8 @@ namespace FAA.Headset
                 _simulatorPointAndClickStateCaptured = true;
             }
 
-            bool useEditorPointer = Application.isEditor &&
-                _activeMode == ActivationMode.UnitySimulator &&
-                useScreenSpaceOverlayForSimulator &&
-                preferEditorPointerInput;
+            bool useEditorPointer = PreferSimulatorDesktopPointer(ExplicitSimulatorRequested, Application.isEditor,
+                _activeMode == ActivationMode.UnitySimulator, useScreenSpaceOverlayForSimulator, preferEditorPointerInput);
             simulator.usePointAndClick = useEditorPointer ? false : _simulatorOriginalPointAndClick;
         }
 

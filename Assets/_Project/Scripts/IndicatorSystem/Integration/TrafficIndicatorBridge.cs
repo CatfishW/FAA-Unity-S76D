@@ -213,13 +213,15 @@ namespace IndicatorSystem.Integration
             
             // Convert targets
             _convertedTargets.Clear();
+            int staleTargets = 0;
             foreach (var target in targets)
             {
                 // A healthy transport does not make an old individual track current.
                 if (target.TimeSinceUpdate <= 10f)
                     _convertedTargets.Add(ConvertToIndicatorTarget(target));
+                else staleTargets++;
             }
-            SourceStatus = _convertedTargets.Count > 0 ? "LIVE TRAFFIC" : "NO TRAFFIC IN RANGE";
+            SourceStatus = _convertedTargets.Count > 0 ? "LIVE TRAFFIC" : staleTargets > 0 ? "TRAFFIC DATA STALE" : "NO TRAFFIC IN RANGE";
             
             // Update only traffic targets so weather indicators can coexist.
             indicatorController.SetTargetsForType(IndicatorType.Traffic, _convertedTargets);
