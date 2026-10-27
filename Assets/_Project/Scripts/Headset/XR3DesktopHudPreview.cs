@@ -32,7 +32,18 @@ namespace FAA.Headset
         public static Camera PointerCameraForCanvas(Canvas canvas)
         {
             return active != null && active.capturedMirror && canvas != null && canvas.renderMode != RenderMode.ScreenSpaceOverlay
-                ? active.preview : canvas != null && canvas.renderMode != RenderMode.ScreenSpaceOverlay ? canvas.worldCamera : null;
+                ? SynchronizePointerCamera(active.preview) : canvas != null && canvas.renderMode != RenderMode.ScreenSpaceOverlay ? canvas.worldCamera : null;
+        }
+
+        /// <summary>Input may run after the head moves but before this owner's LateUpdate.</summary>
+        public static Camera SynchronizePointerCamera(Camera candidate)
+        {
+            if (candidate == null || active == null || !active.isActiveAndEnabled || !active.capturedMirror ||
+                active.preview != candidate || !candidate.enabled) return candidate;
+            Camera headset = Camera.main;
+            if (headset != null && headset != candidate)
+                ConfigureSpectatorCamera(candidate, headset, new Vector2(Screen.width, Screen.height));
+            return candidate;
         }
 
         public static bool IsPreviewCamera(Camera camera)

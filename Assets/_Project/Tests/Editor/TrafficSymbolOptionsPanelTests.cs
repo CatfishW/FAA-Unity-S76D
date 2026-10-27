@@ -129,6 +129,33 @@ namespace FAA.Customization.Tests
             Assert.That(PlayerPrefs.GetInt(Prefix + "Outline"), Is.Zero);
         }
 
+        [TestCase("Outline", "STYLE", "FILLED", false)]
+        [TestCase("Outline", "STYLE", "OUTLINE", true)]
+        [TestCase("Adaptive", "ADAPTIVE", "ON", true)]
+        [TestCase("Adaptive", "ADAPTIVE", "OFF", false)]
+        [TestCase("HeadingTip", "NOSE TIP", "ON", true)]
+        [TestCase("HeadingTip", "NOSE TIP", "OFF", false)]
+        [TestCase("NavigationMarks", "NAV MARKS", "ON", true)]
+        [TestCase("NavigationMarks", "NAV MARKS", "OFF", false)]
+        [TestCase("TailLight", "TAIL", "ON", true)]
+        [TestCase("TailLight", "TAIL", "OFF", false)]
+        [TestCase("BodyStripe", "STRIPE", "ON", true)]
+        [TestCase("BodyStripe", "STRIPE", "OFF", false)]
+        public void EveryRealStyleButtonPersistsOnlyItsOwnNamedOption(string option, string title, string choice, bool expected)
+        {
+            var settings = Settings(); var panel = Create(settings);
+            var before = Options.ToDictionary(x => x, x => (bool)Call(panel, "OptionEnabled", Option(x)));
+            Button button = panel.transform.Find(title + " style choice/" + choice).GetComponent<Button>();
+            button.onClick.Invoke();
+            foreach (string name in Options)
+            {
+                Assert.That((bool)Call(panel, "OptionEnabled", Option(name)), Is.EqualTo(name == option ? expected : before[name]), name);
+                Assert.That(PlayerPrefs.HasKey(Prefix + name), Is.EqualTo(name == option), name);
+            }
+            Assert.That(PlayerPrefs.GetInt(Prefix + option), Is.EqualTo(expected ? 1 : 0));
+            AssertCueStateUnchanged(settings);
+        }
+
         [Test]
         public void RangeKeyTracksAuthoredThresholdsWithoutWritingStylePreferences()
         {

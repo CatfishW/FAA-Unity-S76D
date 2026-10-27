@@ -482,6 +482,62 @@ namespace IndicatorSystem.Controller
         
         #region Private Methods
         
+        private static readonly System.Func<List<Rect>, bool, int> KeepOutCollector = ResolveKeepOutCollector();
+        private static System.Func<List<Rect>, bool, int> ResolveKeepOutCollector()
+        {
+            // The standard source profile has no full HUD-region registry.
+            var type = System.Type.GetType("FAA.Customization.FaaHudKeepOut, Assembly-CSharp");
+            var method = type?.GetMethod("Collect", new[] { typeof(List<Rect>), typeof(bool) });
+            return method != null ? (System.Func<List<Rect>, bool, int>)System.Delegate.CreateDelegate(typeof(System.Func<List<Rect>, bool, int>), method) : null;
+        }
+
+        /// <summary>Move only an edge cue's vertical anchor to the nearest clear slot inside its physical HUD.</summary>
+        public static bool TryPlaceOffscreenCue(ref IndicatorData data, float pixelScale, IndicatorSettings cueSettings,
+            IReadOnlyList<Rect> occupied, out Rect bounds)
+        {
+            IndicatorData original = data;
+            bounds = PilotIndicatorCue.ScreenBoundsForSettings(original, pixelScale, cueSettings);
+            if (!TrafficGlyphPolicy.Finite(original.ScreenPosition.x) || !TrafficGlyphPolicy.Finite(original.ScreenPosition.y)) return false;
+            if (original.Visibility == IndicatorVisibility.OnScreen)
+            {
+                if (occupied != null) for (int i = 0; i < occupied.Count; i++) if (occupied[i].Overlaps(bounds)) return false;
+                return true;
+            }
+            Rect region = original.ProjectionRect;
+            if (!TrafficGlyphPolicy.Finite(region.xMin) || !TrafficGlyphPolicy.Finite(region.yMin) ||
+                !TrafficGlyphPolicy.Finite(region.xMax) || !TrafficGlyphPolicy.Finite(region.yMax) || region.width <= 0 || region.height <= 0) return false;
+            var centered = original; centered.ScreenPosition.y = region.center.y;
+            Rect centerBounds = PilotIndicatorCue.ScreenBoundsForSettings(centered, pixelScale, cueSettings);
+            float halfHeight = centerBounds.height * .5f;
+            float low = region.yMin + halfHeight, high = region.yMax - halfHeight;
+            if (!TrafficGlyphPolicy.Finite(halfHeight) || low > high) return false;
+            float bestDistance = float.PositiveInfinity;
+            IndicatorData best = original; Rect bestBounds = bounds;
+            void Consider(float y)
+            {
+                if (!TrafficGlyphPolicy.Finite(y) || y < low || y > high) return;
+                var candidate = original; candidate.ScreenPosition.y = y;
+                Rect trial = PilotIndicatorCue.ScreenBoundsForSettings(candidate, pixelScale, cueSettings);
+                if (trial.xMin < region.xMin - .01f || trial.xMax > region.xMax + .01f ||
+                    trial.yMin < region.yMin - .01f || trial.yMax > region.yMax + .01f) return;
+                if (occupied != null) for (int i = 0; i < occupied.Count; i++) if (occupied[i].Overlaps(trial)) return;
+                float distance = Mathf.Abs(y - original.ScreenPosition.y);
+                if (distance > bestDistance || Mathf.Approximately(distance, bestDistance) && y >= best.ScreenPosition.y) return;
+                bestDistance = distance; best = candidate; bestBounds = trial;
+            }
+            Consider(Mathf.Clamp(original.ScreenPosition.y, low, high));
+            if (occupied != null)
+                for (int i = 0; i < occupied.Count; i++)
+                {
+                    Rect obstacle = occupied[i];
+                    if (obstacle.xMax <= centerBounds.xMin || obstacle.xMin >= centerBounds.xMax) continue;
+                    Consider(obstacle.yMin - halfHeight - 2f);
+                    Consider(obstacle.yMax + halfHeight + 2f);
+                }
+            if (float.IsPositiveInfinity(bestDistance)) return false;
+            data = best; bounds = bestBounds; return true;
+        }
+
         private Canvas ProjectionCanvas => targetCanvas != null ? targetCanvas :
             _pool != null && _pool.Container != null ? _pool.Container.GetComponentInParent<Canvas>() : null;
         private static readonly Vector3[] ProjectionCorners = new Vector3[4];
@@ -529,6 +585,7 @@ namespace IndicatorSystem.Controller
             _previousVisibleIds.UnionWith(_activeIds);
             _activeIds.Clear();
             _occupiedCueBounds.Clear();
+            if (settings.usePilotCueStyle) KeepOutCollector?.Invoke(_occupiedCueBounds, true);
             if (settings.usePilotCueStyle && _controlsPanel != null && _controlsPanel.isActiveAndEnabled)
                 _occupiedCueBounds.Add(_controlsPanel.OccupiedScreenBounds());
             _trafficVisible = _weatherVisible = _onScreenVisible = _offScreenVisible = 0;
@@ -585,6 +642,8 @@ namespace IndicatorSystem.Controller
                 if (settings.usePilotCueStyle)
                 {
                     Rect bounds = PilotIndicatorCue.ScreenBoundsForSettings(data, canvasScale * settings.globalScale, settings);
+                    if (data.Visibility != IndicatorVisibility.OnScreen &&
+                        !TryPlaceOffscreenCue(ref data, canvasScale * settings.globalScale, settings, _occupiedCueBounds, out bounds)) continue;
                     if (_occupiedCueBounds.Exists(other => other.Overlaps(bounds))) continue;
                     _occupiedCueBounds.Add(bounds);
                 }

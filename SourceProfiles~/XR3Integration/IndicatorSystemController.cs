@@ -500,18 +500,67 @@ namespace IndicatorSystem.Controller
             return distance != 0 ? distance : string.CompareOrdinal(a.Id, b.Id);
         }
 
-        private int _chromeRectStart, _chromeRectEnd;
         private void LiftAboveChrome(ref IndicatorData data, ref Rect bounds)
         {
-            float half = data.ProjectionRect.height > 0 ? data.ProjectionRect.center.y : Screen.height * .5f;
-            for (int i = _chromeRectStart; i < _chromeRectEnd && i < _occupiedCueBounds.Count; i++)
+            float width = PilotIndicatorCue.ScreenBoundsForSettings(data, 1f, settings).width;
+            float scale = width > 0 ? bounds.width / width : 1f;
+            if (TryPlaceOffscreenCue(ref data, scale, settings, _occupiedCueBounds, out Rect placed)) bounds = placed;
+        }
+
+        private static readonly System.Func<List<Rect>, bool, int> KeepOutCollector = ResolveKeepOutCollector();
+        private static System.Func<List<Rect>, bool, int> ResolveKeepOutCollector()
+        {
+            // The standard source profile has no full HUD-region registry.
+            var type = System.Type.GetType("FAA.Customization.FaaHudKeepOut, Assembly-CSharp");
+            var method = type?.GetMethod("Collect", new[] { typeof(List<Rect>), typeof(bool) });
+            return method != null ? (System.Func<List<Rect>, bool, int>)System.Delegate.CreateDelegate(typeof(System.Func<List<Rect>, bool, int>), method) : null;
+        }
+
+        /// <summary>Move only an edge cue's vertical anchor to the nearest clear slot inside its physical HUD.</summary>
+        public static bool TryPlaceOffscreenCue(ref IndicatorData data, float pixelScale, IndicatorSettings cueSettings,
+            IReadOnlyList<Rect> occupied, out Rect bounds)
+        {
+            IndicatorData original = data;
+            bounds = PilotIndicatorCue.ScreenBoundsForSettings(original, pixelScale, cueSettings);
+            if (!TrafficGlyphPolicy.Finite(original.ScreenPosition.x) || !TrafficGlyphPolicy.Finite(original.ScreenPosition.y)) return false;
+            if (original.Visibility == IndicatorVisibility.OnScreen)
             {
-                Rect chrome = _occupiedCueBounds[i];
-                if (chrome.center.y > half || !chrome.Overlaps(bounds)) continue; // only the bottom-edge chrome (bar, flyouts)
-                float dy = chrome.yMax + 2f - bounds.yMin;
-                if (dy <= 0f) continue;
-                bounds.y += dy; data.ScreenPosition.y += dy;
+                if (occupied != null) for (int i = 0; i < occupied.Count; i++) if (occupied[i].Overlaps(bounds)) return false;
+                return true;
             }
+            Rect region = original.ProjectionRect;
+            if (!TrafficGlyphPolicy.Finite(region.xMin) || !TrafficGlyphPolicy.Finite(region.yMin) ||
+                !TrafficGlyphPolicy.Finite(region.xMax) || !TrafficGlyphPolicy.Finite(region.yMax) || region.width <= 0 || region.height <= 0) return false;
+            var centered = original; centered.ScreenPosition.y = region.center.y;
+            Rect centerBounds = PilotIndicatorCue.ScreenBoundsForSettings(centered, pixelScale, cueSettings);
+            float halfHeight = centerBounds.height * .5f;
+            float low = region.yMin + halfHeight, high = region.yMax - halfHeight;
+            if (!TrafficGlyphPolicy.Finite(halfHeight) || low > high) return false;
+            float bestDistance = float.PositiveInfinity;
+            IndicatorData best = original; Rect bestBounds = bounds;
+            void Consider(float y)
+            {
+                if (!TrafficGlyphPolicy.Finite(y) || y < low || y > high) return;
+                var candidate = original; candidate.ScreenPosition.y = y;
+                Rect trial = PilotIndicatorCue.ScreenBoundsForSettings(candidate, pixelScale, cueSettings);
+                if (trial.xMin < region.xMin - .01f || trial.xMax > region.xMax + .01f ||
+                    trial.yMin < region.yMin - .01f || trial.yMax > region.yMax + .01f) return;
+                if (occupied != null) for (int i = 0; i < occupied.Count; i++) if (occupied[i].Overlaps(trial)) return;
+                float distance = Mathf.Abs(y - original.ScreenPosition.y);
+                if (distance > bestDistance || Mathf.Approximately(distance, bestDistance) && y >= best.ScreenPosition.y) return;
+                bestDistance = distance; best = candidate; bestBounds = trial;
+            }
+            Consider(Mathf.Clamp(original.ScreenPosition.y, low, high));
+            if (occupied != null)
+                for (int i = 0; i < occupied.Count; i++)
+                {
+                    Rect obstacle = occupied[i];
+                    if (obstacle.xMax <= centerBounds.xMin || obstacle.xMin >= centerBounds.xMax) continue;
+                    Consider(obstacle.yMin - halfHeight - 2f);
+                    Consider(obstacle.yMax + halfHeight + 2f);
+                }
+            if (float.IsPositiveInfinity(bestDistance)) return false;
+            data = best; bounds = bestBounds; return true;
         }
 
         private bool OverlapsOccupied(Rect bounds)
@@ -583,10 +632,8 @@ namespace IndicatorSystem.Controller
             _occupiedCueBounds.Clear();
             if (settings.usePilotCueStyle && _controlsPanel != null && _controlsPanel.isActiveAndEnabled && !_controlsPanel.IsDocked)
                 _occupiedCueBounds.Add(_controlsPanel.OccupiedScreenBounds());
-            // Edge arrows never sit on the chrome bar, an open flyout (brief, cue controls, key list) or the status chip.
-            _chromeRectStart = _occupiedCueBounds.Count;
-            if (settings.usePilotCueStyle) FAA.Customization.FaaPilotChrome.CollectOccupiedScreenRects(_occupiedCueBounds);
-            _chromeRectEnd = _occupiedCueBounds.Count;
+            // Protect visible flight instruments and chrome; the central attitude window remains available to real targets.
+            if (settings.usePilotCueStyle) KeepOutCollector?.Invoke(_occupiedCueBounds, true);
             ApplyInspectionDimming();
             _trafficVisible = _weatherVisible = _onScreenVisible = _offScreenVisible = 0;
             _edgeConfig = settings.GetEdgeConfig();
@@ -635,9 +682,8 @@ namespace IndicatorSystem.Controller
                 if (settings.usePilotCueStyle)
                 {
                     Rect bounds = PilotIndicatorCue.ScreenBoundsForSettings(data, canvasScale * settings.globalScale, settings);
-                    // An edge-clamped (off-screen) cue only shows a direction, so lift it above the chrome instead of
-                    // dropping it; an on-screen cue marks a real position and is never moved.
-                    if (data.Visibility != IndicatorVisibility.OnScreen) LiftAboveChrome(ref data, ref bounds);
+                    if (data.Visibility != IndicatorVisibility.OnScreen &&
+                        !TryPlaceOffscreenCue(ref data, canvasScale * settings.globalScale, settings, _occupiedCueBounds, out bounds)) continue;
                     if (OverlapsOccupied(bounds)) continue;
                     _occupiedCueBounds.Add(bounds);
                 }
