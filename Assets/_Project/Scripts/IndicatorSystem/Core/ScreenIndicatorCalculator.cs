@@ -21,7 +21,14 @@ namespace IndicatorSystem.Core
         public static IndicatorData CalculateIndicator(
             IIndicatorTarget target,
             Camera camera,
-            IndicatorEdgeConfig edgeConfig)
+            IndicatorEdgeConfig edgeConfig) => CalculateIndicatorInRect(target, camera, edgeConfig, camera.pixelRect);
+
+        /// <summary>Project with the full camera, then clip/clamp cues to an absolute pixel region.</summary>
+        public static IndicatorData CalculateIndicatorInRect(
+            IIndicatorTarget target,
+            Camera camera,
+            IndicatorEdgeConfig edgeConfig,
+            Rect region)
         {
             var data = new IndicatorData
             {
@@ -37,11 +44,43 @@ namespace IndicatorSystem.Core
                 WeatherKind = target is IWeatherIndicatorTarget weather ? weather.WeatherKind : WeatherCueKind.Return,
                 IsIllustrativeWeather = target is IWeatherIndicatorTarget source && source.IsIllustrative,
                 Heading = target.Heading,
+                ProjectionRect = region,
+                ViewRelativeRotation = Quaternion.identity,
                 IsActive = true
             };
 
+            if (target is ITrafficIndicatorKinematics traffic && target.Type == IndicatorType.Traffic)
+            {
+                data.HasHeading = traffic.HasHeading && IsFinite(target.Heading);
+                data.HasPitch = traffic.HasPitch && IsFinite(traffic.PitchDegrees) && Mathf.Abs(traffic.PitchDegrees) <= 90f;
+                data.HasRoll = traffic.HasRoll && IsFinite(traffic.RollDegrees) && Mathf.Abs(traffic.RollDegrees) <= 360f;
+                data.HasVerticalSpeed = traffic.HasVerticalSpeed && IsFinite(traffic.VerticalSpeedFpm);
+                data.PitchDegrees = data.HasPitch ? traffic.PitchDegrees : 0f;
+                data.RollDegrees = data.HasRoll ? traffic.RollDegrees : 0f;
+                data.VerticalSpeedFpm = data.HasVerticalSpeed ? traffic.VerticalSpeedFpm : 0f;
+                Vector3 sight = target.WorldPosition - camera.transform.position;
+                // Keep reported field validity distinct from view-pose validity:
+                // a coincident/invalid sight line cannot define observer axes.
+                if (data.HasHeading && data.HasPitch && data.HasRoll) data.ViewRelativeRotation = new Quaternion();
+                if (data.HasHeading && IsFinite(sight.x) && IsFinite(sight.y) && IsFinite(sight.z) && sight.sqrMagnitude > 0.0001f)
+                {
+                    float sightHeading = Mathf.Atan2(sight.x, sight.z) * Mathf.Rad2Deg;
+                    data.RelativeHeadingDegrees = Mathf.DeltaAngle(sightHeading, target.Heading);
+                    if (data.HasPitch && data.HasRoll)
+                    {
+                        Vector3 up = camera.transform.up;
+                        if (Mathf.Abs(Vector3.Dot(sight.normalized, up)) > 0.999f) up = camera.transform.forward;
+                        Quaternion basis = Quaternion.LookRotation(sight, up);
+                        Quaternion body = Quaternion.Euler(-data.PitchDegrees, target.Heading, -data.RollDegrees);
+                        data.ViewRelativeRotation = Quaternion.Inverse(basis) * body;
+                    }
+                }
+            }
+
             // Check distance limit
-            if (!IsFinite(target.DistanceNM) || target.DistanceNM < 0f ||
+            if (!IsFinite(region.x) || !IsFinite(region.y) || !IsFinite(region.width) || !IsFinite(region.height) ||
+                region.width <= 0f || region.height <= 0f ||
+                !IsFinite(target.DistanceNM) || target.DistanceNM < 0f ||
                 !IsFinite(target.WorldPosition.x) || !IsFinite(target.WorldPosition.y) ||
                 !IsFinite(target.WorldPosition.z) || target.DistanceNM > edgeConfig.MaxDisplayDistance)
             {
@@ -62,20 +101,22 @@ namespace IndicatorSystem.Core
                 viewportPos.y = 1f - viewportPos.y;
             }
 
-            // Convert to screen space
+            // Camera projection stays in the actual eye/spectator pixel rect.
+            // The HUD region affects clipping and arrow anchors, never projection.
             Rect viewport = camera.pixelRect;
-            float screenWidth = viewport.width;
-            float screenHeight = viewport.height;
-            Vector2 screenPos = new Vector2(
-                viewportPos.x * screenWidth,
-                viewportPos.y * screenHeight
-            );
+            float screenWidth = region.width;
+            float screenHeight = region.height;
+            Vector2 absolute = new Vector2(viewport.x + viewportPos.x * viewport.width,
+                viewport.y + viewportPos.y * viewport.height);
+            Vector2 screenPos = absolute - region.position;
 
             // Visibility describes the actual camera frustum, not our UI inset.
             // Padding only locates off-screen arrows; a visible edge target
             // must keep its exact projection instead of becoming a false arrow.
             float padding = Mathf.Clamp(edgeConfig.EdgePadding, 0f, Mathf.Min(screenWidth, screenHeight) * 0.45f);
             bool isOnScreen = viewportPos.z > 0 &&
+                              viewportPos.x >= 0f && viewportPos.x <= 1f &&
+                              viewportPos.y >= 0f && viewportPos.y <= 1f &&
                               screenPos.x >= 0f &&
                               screenPos.x <= screenWidth &&
                               screenPos.y >= 0f &&
@@ -84,7 +125,7 @@ namespace IndicatorSystem.Core
             if (isOnScreen)
             {
                 data.Visibility = IndicatorVisibility.OnScreen;
-                data.ScreenPosition = screenPos + viewport.position;
+                data.ScreenPosition = absolute;
                 data.ArrowRotation = 0f;
             }
             else
@@ -96,10 +137,16 @@ namespace IndicatorSystem.Core
                 Vector2 screenCenter = new Vector2(screenWidth / 2f, screenHeight / 2f);
                 // Directly behind projects onto the screen centre. Give it an
                 // explicit aft cue at the bottom edge, never an on-screen target.
-                if ((screenPos - screenCenter).sqrMagnitude < 0.001f)
+                // Calibrated asymmetric XR projections need not put the eye's
+                // physical forward/back axis at viewport (0.5,0.5).
+                Vector3 viewDirection = camera.transform.InverseTransformPoint(target.WorldPosition);
+                bool directlyBehind = viewDirection.z < 0f &&
+                    viewDirection.x * viewDirection.x + viewDirection.y * viewDirection.y <=
+                    viewDirection.z * viewDirection.z * 0.000001f;
+                if (directlyBehind || (screenPos - screenCenter).sqrMagnitude < 0.001f)
                     screenPos = screenCenter + Vector2.down * screenHeight;
                 Vector2 clampedPos = ClampToScreenEdge(screenPos, screenWidth, screenHeight, padding);
-                data.ScreenPosition = clampedPos + viewport.position;
+                data.ScreenPosition = clampedPos + region.position;
                 
                 // Calculate arrow rotation pointing toward target
                 Vector2 direction = (screenPos - screenCenter).normalized;

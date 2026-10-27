@@ -18,6 +18,7 @@ namespace IndicatorSystem.Display
         private GameObject _content;
         private Text _headerLabel;
         private GameObject _legend;
+        private TrafficSymbolOptionsPanel _symbolOptions;
         private bool _expanded;
         private readonly Vector3[] _boundsCorners = new Vector3[4];
         private float _nextRefresh;
@@ -27,11 +28,13 @@ namespace IndicatorSystem.Display
         private static readonly Color Active = new Color(0.08f, 0.23f, 0.26f, 0.96f);
         private static readonly Color Inactive = new Color(0.065f, 0.10f, 0.14f, 0.96f);
         public bool IsExpanded => _expanded;
+        public GameObject Legend => _legend;
 
         public static IndicatorControlsPanel Create(IndicatorSystemController controller, Transform parent)
         {
             var root = new GameObject("Screen cue controls", typeof(RectTransform), typeof(Canvas), typeof(GraphicRaycaster), typeof(Image));
             root.transform.SetParent(parent, false);
+            if (parent != null) root.layer = parent.gameObject.layer;
             var rt = root.GetComponent<RectTransform>();
             rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(1, 1);
             rt.anchoredPosition = new Vector2(-62, -62);
@@ -44,6 +47,7 @@ namespace IndicatorSystem.Display
             background.raycastTarget = false;
             var panel = root.AddComponent<IndicatorControlsPanel>();
             panel._controller = controller;
+            TrafficSymbolOptionsPanel.RestoreSavedStyle(controller.Settings);
             panel._traffic = controller.GetComponent<TrafficIndicatorBridge>();
             panel._weather = controller.GetComponent<WeatherIndicatorBridge>();
             Button header = MakeButton(root.transform, "Show or hide cue controls", new Vector2(6, -4), new Vector2(148, 27));
@@ -79,6 +83,7 @@ namespace IndicatorSystem.Display
             if (PlayerPrefs.HasKey(TrafficKey)) controller.SetTypeVisible(IndicatorType.Traffic, PlayerPrefs.GetInt(TrafficKey) != 0);
             if (PlayerPrefs.HasKey(WeatherKey)) controller.SetTypeVisible(IndicatorType.Weather, PlayerPrefs.GetInt(WeatherKey) != 0);
             panel.ApplyExpandedState(PlayerPrefs.GetInt(ExpandedKey, 0) != 0);
+            foreach (Transform child in root.GetComponentsInChildren<Transform>(true)) child.gameObject.layer = root.layer;
             panel.Refresh();
             return panel;
         }
@@ -108,36 +113,15 @@ namespace IndicatorSystem.Display
             if (!_expanded) SetExpanded(true);
             if (_legend == null)
             {
-                _legend = new GameObject("Screen cue symbol key", typeof(RectTransform), typeof(Image));
-                _legend.transform.SetParent(_content.transform, false);
+                _symbolOptions = TrafficSymbolOptionsPanel.Create(_controller.Settings, _content.transform, _controller.RefreshSettings);
+                _legend = _symbolOptions.gameObject;
                 var rt = _legend.GetComponent<RectTransform>();
-                rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0, 1);
+                rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(1, 1);
                 rt.anchoredPosition = new Vector2(0, -174);
-                rt.sizeDelta = new Vector2(306, 294);
-                _legend.GetComponent<Image>().color = new Color(.012f, .045f, .068f, .98f);
-                FaaRadarIcon[] icons = { FaaRadarIcon.AircraftAirliner, FaaRadarIcon.AircraftGeneral, FaaRadarIcon.AircraftHelicopter,
-                    FaaRadarIcon.AircraftMilitary, FaaRadarIcon.AircraftUnknown, FaaRadarIcon.WeatherRainLight,
-                    FaaRadarIcon.WeatherRainModerate, FaaRadarIcon.WeatherRainHeavy };
-                string[] labels = { "AIRLINER", "LIGHT AIRCRAFT", "HELICOPTER", "MILITARY CATEGORY", "AIRCRAFT TYPE UNREPORTED", "LIGHT RAIN RETURN", "MODERATE RAIN RETURN", "HEAVY RAIN RETURN" };
-                for (int i = 0; i < icons.Length; i++)
-                {
-                    var symbol = new GameObject(labels[i], typeof(RectTransform), typeof(PilotCueSymbol)).GetComponent<PilotCueSymbol>();
-                    symbol.transform.SetParent(_legend.transform, false);
-                    symbol.rectTransform.anchorMin = symbol.rectTransform.anchorMax = new Vector2(0, 1);
-                    symbol.rectTransform.anchoredPosition = new Vector2(25, -23 - i * 31);
-                    symbol.rectTransform.sizeDelta = new Vector2(31, 31);
-                    symbol.raycastTarget = false;
-                    symbol.Configure(icons[i], false, 0, new Color(.55f, .91f, .96f));
-                    var label = PilotIndicatorCue.MakeText(_legend.transform, "Meaning", 11, FontStyle.Bold);
-                    PilotIndicatorCue.LayoutText(label, new Vector2(48, -11 - i * 31), new Vector2(250, 24));
-                    label.text = labels[i]; label.color = new Color(.80f, .92f, .97f);
-                }
-                var note = PilotIndicatorCue.MakeText(_legend.transform, "Source caveat", 10, FontStyle.Normal);
-                PilotIndicatorCue.LayoutText(note, new Vector2(12, -260), new Vector2(282, 28));
-                note.text = "SIMULATED = illustrative, not measured weather.\nUnknown type is never guessed from speed.";
-                note.color = new Color(.65f, .78f, .82f);
+                rt.sizeDelta = new Vector2(TrafficSymbolOptionsPanel.Width, TrafficSymbolOptionsPanel.Height);
             }
             else _legend.SetActive(!_legend.activeSelf);
+            if (_legend.activeSelf) _symbolOptions.RefreshState();
         }
 
         public Rect OccupiedScreenBounds()
@@ -180,6 +164,7 @@ namespace IndicatorSystem.Display
         {
             var go = new GameObject(name, typeof(RectTransform), typeof(Image), typeof(Button));
             go.transform.SetParent(parent, false);
+            if (parent != null) go.layer = parent.gameObject.layer;
             var rt = go.GetComponent<RectTransform>();
             rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0, 1);
             rt.anchoredPosition = position; rt.sizeDelta = size;
@@ -222,6 +207,7 @@ namespace IndicatorSystem.Display
         private void Refresh()
         {
             if (_controller == null || _controller.Settings == null) return;
+            if (_legend != null && _legend.activeInHierarchy) _symbolOptions.RefreshState();
             if (_traffic == null) _traffic = _controller.GetComponent<TrafficIndicatorBridge>();
             if (_weather == null) _weather = _controller.GetComponent<WeatherIndicatorBridge>();
             UpdateRow(IndicatorType.Traffic, _trafficTitle, _trafficStatus, _trafficBackground,

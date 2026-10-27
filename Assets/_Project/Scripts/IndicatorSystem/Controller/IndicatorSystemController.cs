@@ -482,6 +482,43 @@ namespace IndicatorSystem.Controller
         
         #region Private Methods
         
+        private Canvas ProjectionCanvas => targetCanvas != null ? targetCanvas :
+            _pool != null && _pool.Container != null ? _pool.Container.GetComponentInParent<Canvas>() : null;
+        private static readonly Vector3[] ProjectionCorners = new Vector3[4];
+
+        /// <summary>The physical HUD window in camera pixels; XR eye projection remains owned by the runtime.</summary>
+        public static Rect GetProjectionRect(Canvas canvas, Camera view)
+        {
+            if (view == null) return default;
+            Rect cameraRect = view.pixelRect;
+            if (canvas == null || canvas.renderMode != RenderMode.WorldSpace) return cameraRect;
+            var rect = canvas.transform as RectTransform;
+            if (rect == null) return cameraRect;
+            rect.GetWorldCorners(ProjectionCorners);
+            Vector2 min = new Vector2(float.PositiveInfinity, float.PositiveInfinity);
+            Vector2 max = new Vector2(float.NegativeInfinity, float.NegativeInfinity);
+            for (int i = 0; i < ProjectionCorners.Length; i++)
+            {
+                Vector3 point = view.WorldToScreenPoint(ProjectionCorners[i]);
+                if (point.z <= 0 || !TrafficGlyphPolicy.Finite(point.x) || !TrafficGlyphPolicy.Finite(point.y) || !TrafficGlyphPolicy.Finite(point.z)) return cameraRect;
+                min = Vector2.Min(min, point); max = Vector2.Max(max, point);
+            }
+            min = Vector2.Max(min, cameraRect.min); max = Vector2.Min(max, cameraRect.max);
+            return max.x - min.x > 1f && max.y - min.y > 1f ? Rect.MinMaxRect(min.x, min.y, max.x, max.y) : cameraRect;
+        }
+
+        public static float PixelsPerReferenceUnit(Canvas canvas, Camera view)
+        {
+            if (canvas == null) return 1f;
+            if (canvas.renderMode == RenderMode.ScreenSpaceOverlay || view == null) return Mathf.Max(.001f, canvas.scaleFactor);
+            Transform reference = canvas.rootCanvas.transform;
+            Vector3 origin = view.WorldToScreenPoint(reference.TransformPoint(Vector3.zero));
+            Vector3 right = view.WorldToScreenPoint(reference.TransformPoint(Vector3.right));
+            Vector3 up = view.WorldToScreenPoint(reference.TransformPoint(Vector3.up));
+            float value = Mathf.Max(Vector2.Distance(origin, right), Vector2.Distance(origin, up));
+            return origin.z > 0 && !float.IsNaN(value) && !float.IsInfinity(value) && value > .001f ? value : Mathf.Max(.001f, canvas.scaleFactor);
+        }
+
         private void UpdateIndicators()
         {
             if (_pool == null || targetCamera == null)
@@ -496,9 +533,11 @@ namespace IndicatorSystem.Controller
                 _occupiedCueBounds.Add(_controlsPanel.OccupiedScreenBounds());
             _trafficVisible = _weatherVisible = _onScreenVisible = _offScreenVisible = 0;
             _edgeConfig = settings.GetEdgeConfig();
-            float canvasScale = targetCanvas != null ? targetCanvas.scaleFactor : 1f;
+            Canvas projectionCanvas = ProjectionCanvas;
+            Rect projectionRect = GetProjectionRect(projectionCanvas, targetCamera);
+            float canvasScale = PixelsPerReferenceUnit(projectionCanvas, targetCamera);
             if (settings.usePilotCueStyle)
-                _edgeConfig.EdgePadding = Mathf.Max(72f, settings.edgePadding) * canvasScale;
+                _edgeConfig.EdgePadding = Mathf.Max(Mathf.Max(72f, 60f * settings.globalScale), settings.edgePadding) * canvasScale;
             
             // Calculate indicator data for each target
             foreach (var kvp in _targets)
@@ -514,7 +553,7 @@ namespace IndicatorSystem.Controller
                     continue;
                 
                 // Calculate screen-space data
-                var data = ScreenIndicatorCalculator.CalculateIndicator(target, targetCamera, _edgeConfig);
+                var data = ScreenIndicatorCalculator.CalculateIndicatorInRect(target, targetCamera, _edgeConfig, projectionRect);
                 
                 if (data.IsActive)
                 {
@@ -545,7 +584,7 @@ namespace IndicatorSystem.Controller
                 var data = _indicatorDataList[i];
                 if (settings.usePilotCueStyle)
                 {
-                    Rect bounds = PilotIndicatorCue.ScreenBounds(data, canvasScale * settings.globalScale);
+                    Rect bounds = PilotIndicatorCue.ScreenBoundsForSettings(data, canvasScale * settings.globalScale, settings);
                     if (_occupiedCueBounds.Exists(other => other.Overlaps(bounds))) continue;
                     _occupiedCueBounds.Add(bounds);
                 }

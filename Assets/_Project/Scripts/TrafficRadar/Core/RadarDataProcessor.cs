@@ -103,6 +103,11 @@ namespace TrafficRadar.Core
                     Longitude = aircraft.Longitude,
                     AltitudeFeet = aircraft.AltitudeFeet,
                     Heading = aircraft.Heading,
+                    HasHeading = aircraft.HasHeading && IsFinite(aircraft.Heading) && IsFresh(aircraft.LastUpdate),
+                    HasPitch = aircraft.HasPitch && IsFinite(aircraft.PitchDegrees) && Mathf.Abs(aircraft.PitchDegrees) <= 90f && IsFresh(aircraft.LastUpdate),
+                    HasRoll = aircraft.HasRoll && IsFinite(aircraft.RollDegrees) && Mathf.Abs(aircraft.RollDegrees) <= 360f && IsFresh(aircraft.LastUpdate),
+                    HasVerticalSpeed = aircraft.HasVerticalSpeed && IsFinite(aircraft.VerticalRateMps) && IsFresh(aircraft.LastUpdate),
+                    PitchDegrees = aircraft.PitchDegrees, RollDegrees = aircraft.RollDegrees,
                     GroundSpeedKnots = aircraft.VelocityKnots,
                     VerticalRateFpm = aircraft.VerticalRateFpm,
                     DistanceNM = distanceNM,
@@ -132,6 +137,13 @@ namespace TrafficRadar.Core
         /// <summary>
         /// Calculate distance between two points using Haversine formula
         /// </summary>
+        private static bool IsFinite(float value) => !float.IsNaN(value) && !float.IsInfinity(value);
+        private static bool IsFresh(DateTime timestamp)
+        {
+            double age = (DateTime.UtcNow - timestamp.ToUniversalTime()).TotalSeconds;
+            return age >= -1d && age <= 10d;
+        }
+
         private float CalculateDistanceKm(float lat1, float lon1, float lat2, float lon2)
         {
             const float EarthRadiusKm = 6371f;

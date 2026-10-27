@@ -89,6 +89,20 @@ namespace IndicatorSystem.Core
         [Range(0f, 10f)]
         public float minDisplayDistance = 0f;
 
+        [Header("Reference Aircraft Symbology")]
+        [Tooltip("Far double diamonds, medium type silhouettes and close reported-attitude views. Uses close/far NM thresholds below.")]
+        public bool useAdaptiveTrafficSymbols = true;
+        [Tooltip("Draw aircraft as outlines rather than filled silhouettes.")]
+        public bool trafficSymbolsOutline = false;
+        [Tooltip("Mark the reported aircraft nose with a small green triangle; unavailable headings have no tip.")]
+        public bool showTrafficHeadingTip = true;
+        [Tooltip("Add a contrasting centre-body stripe to aircraft symbols.")]
+        public bool showTrafficBodyStripe = false;
+        [Tooltip("Include the white tail orientation marker independently of the wing marks.")]
+        public bool showTrafficTailLight = true;
+        [Tooltip("NM hysteresis around distance-detail boundaries; missing pose always falls back immediately.")]
+        [Range(0f, 2f)] public float trafficLodHysteresisNM = .25f;
+
         [Header("Distance-Based Scaling")]
         [Tooltip("Enable scaling indicators based on distance")]
         public bool enableDistanceScaling = true;

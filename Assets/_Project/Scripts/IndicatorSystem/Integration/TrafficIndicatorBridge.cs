@@ -270,6 +270,12 @@ namespace IndicatorSystem.Integration
                 threatLevel = radarTarget.ThreatLevel,
                 aircraftType = radarTarget.AircraftType,
                 heading = radarTarget.Heading,
+                hasHeading = radarTarget.HasHeading && radarTarget.TimeSinceUpdate <= 10f,
+                hasPitch = radarTarget.HasPitch && radarTarget.TimeSinceUpdate <= 10f,
+                hasRoll = radarTarget.HasRoll && radarTarget.TimeSinceUpdate <= 10f,
+                hasVerticalSpeed = radarTarget.HasVerticalSpeed && radarTarget.TimeSinceUpdate <= 10f,
+                pitchDegrees = radarTarget.PitchDegrees, rollDegrees = radarTarget.RollDegrees,
+                verticalSpeedFpm = radarTarget.VerticalRateFpm,
                 bearingFromOwn = radarTarget.BearingDegrees
             };
         }
@@ -332,7 +338,7 @@ namespace IndicatorSystem.Integration
     /// <summary>
     /// Implementation of IIndicatorTarget for traffic radar targets.
     /// </summary>
-    public class TrafficIndicatorTarget : IIndicatorTarget
+    public class TrafficIndicatorTarget : IIndicatorTarget, ITrafficIndicatorKinematics
     {
         public string id;
         public Vector3 worldPosition;
@@ -346,6 +352,15 @@ namespace IndicatorSystem.Integration
         public ThreatLevel threatLevel;
         public TrafficRadarDataManager.AircraftType aircraftType;
         public float heading;
+        public bool hasHeading, hasPitch, hasRoll, hasVerticalSpeed;
+        public float pitchDegrees, rollDegrees, verticalSpeedFpm;
+        public bool HasHeading => hasHeading;
+        public bool HasPitch => hasPitch;
+        public bool HasRoll => hasRoll;
+        public bool HasVerticalSpeed => hasVerticalSpeed;
+        public float PitchDegrees => pitchDegrees;
+        public float RollDegrees => rollDegrees;
+        public float VerticalSpeedFpm => verticalSpeedFpm;
         public float bearingFromOwn;
         
         // IIndicatorTarget implementation

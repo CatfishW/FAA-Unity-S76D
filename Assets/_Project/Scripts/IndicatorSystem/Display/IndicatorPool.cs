@@ -335,6 +335,8 @@ namespace IndicatorSystem.Display
             }
             
             indicator.Initialize();
+            foreach (Transform child in indicator.GetComponentsInChildren<Transform>(true))
+                child.gameObject.layer = poolContainer.gameObject.layer;
             indicator.name = $"{nameSuffix}_{_totalCreated}";
             _totalCreated++;
             
@@ -381,6 +383,7 @@ namespace IndicatorSystem.Display
             // Create pool container
             GameObject poolObj = new GameObject("[Indicator Pool]");
             poolObj.transform.SetParent(targetCanvas.transform, false);
+            poolObj.layer = targetCanvas.gameObject.layer;
             
             RectTransform rt = poolObj.AddComponent<RectTransform>();
             rt.anchorMin = Vector2.zero;
@@ -402,6 +405,7 @@ namespace IndicatorSystem.Display
             // Find or create canvas
             GameObject canvasObj = new GameObject("IndicatorCanvas");
             canvasObj.transform.SetParent(parent, false);
+            if (parent != null) canvasObj.layer = parent.gameObject.layer;
             
             Canvas canvas = canvasObj.AddComponent<Canvas>();
             canvas.renderMode = RenderMode.ScreenSpaceOverlay;
@@ -416,6 +420,7 @@ namespace IndicatorSystem.Display
             // Create pool container
             GameObject poolObj = new GameObject("[Indicator Pool]");
             poolObj.transform.SetParent(canvasObj.transform, false);
+            poolObj.layer = canvasObj.layer;
             
             RectTransform rt = poolObj.AddComponent<RectTransform>();
             rt.anchorMin = Vector2.zero;

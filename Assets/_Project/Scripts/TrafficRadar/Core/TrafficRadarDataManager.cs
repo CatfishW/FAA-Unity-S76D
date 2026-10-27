@@ -28,6 +28,8 @@ namespace TrafficRadar
             public float velocity;
             public float heading;
             public float verticalRate;
+            public bool hasHeading, hasPitch, hasRoll, hasVerticalSpeed;
+            public float pitchDegrees, rollDegrees;
             public bool onGround;
             public DateTime lastUpdateTime;
             public AircraftType type = AircraftType.Unknown;
@@ -424,6 +426,13 @@ namespace TrafficRadar
                         aircraft.velocity = (acObj["gs"]?.Value<float>() ?? 0) * 0.514444f;
                         aircraft.heading = acObj["track"]?.Value<float>() ?? 0;
                         aircraft.verticalRate = (acObj["baro_rate"]?.Value<float>() ?? 0) * 0.00508f;
+                        aircraft.hasHeading = TryReportedNumber(acObj["true_heading"], out float bodyHeading);
+                        if (aircraft.hasHeading) aircraft.heading = Mathf.Repeat(bodyHeading, 360f);
+                        aircraft.hasPitch = TryReportedNumber(acObj["pitch"], out float pitch) && Mathf.Abs(pitch) <= 90f;
+                        aircraft.hasRoll = TryReportedNumber(acObj["roll"], out float roll) && Mathf.Abs(roll) <= 360f;
+                        aircraft.hasVerticalSpeed = TryReportedNumber(acObj["baro_rate"], out _);
+                        aircraft.pitchDegrees = aircraft.hasPitch ? pitch : 0f;
+                        aircraft.rollDegrees = aircraft.hasRoll ? Mathf.DeltaAngle(0f, roll) : 0f;
                         aircraft.lastUpdateTime = DateTime.Now;
                         
                         string desc = acObj["desc"]?.ToString() ?? "";
@@ -448,6 +457,15 @@ namespace TrafficRadar
                 Debug.LogError($"[TrafficRadarDataManager] Error processing response: {e.Message}");
                 throw;
             }
+        }
+
+        private static bool TryReportedNumber(JToken token, out float value)
+        {
+            value = 0f;
+            return token != null && (token.Type == JTokenType.Float || token.Type == JTokenType.Integer) &&
+                float.TryParse(token.ToString(), System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out value) &&
+                !float.IsNaN(value) && !float.IsInfinity(value);
         }
 
         private AircraftType DetermineAircraftType(string description, string category)

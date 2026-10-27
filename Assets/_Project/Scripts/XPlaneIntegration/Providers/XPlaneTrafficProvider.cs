@@ -384,7 +384,10 @@ namespace FAA.XPlaneIntegration.Providers
                 slotData.Latitude = GetDataRefValue(data, $"sim/multiplayer/position/plane{slotNumber}_lat");
                 slotData.Longitude = GetDataRefValue(data, $"sim/multiplayer/position/plane{slotNumber}_lon");
                 slotData.AltitudeMeters = GetDataRefValue(data, $"sim/multiplayer/position/plane{slotNumber}_el");
-                slotData.Heading = GetDataRefValue(data, $"sim/multiplayer/position/plane{slotNumber}_psi");
+                slotData.HasHeading = TryFiniteDataRef(data, $"sim/multiplayer/position/plane{slotNumber}_psi", out slotData.Heading);
+                slotData.HasPitch = TryFiniteDataRef(data, $"sim/multiplayer/position/plane{slotNumber}_the", out slotData.Pitch) && Mathf.Abs(slotData.Pitch) <= 90f;
+                slotData.HasRoll = TryFiniteDataRef(data, $"sim/multiplayer/position/plane{slotNumber}_phi", out slotData.Roll) && Mathf.Abs(slotData.Roll) <= 360f;
+                slotData.HasVerticalSpeed = TryFiniteDataRef(data, $"sim/multiplayer/position/plane{slotNumber}_v_y", out slotData.VelocityY);
                 slotData.Pitch = GetDataRefValue(data, $"sim/multiplayer/position/plane{slotNumber}_the");
                 slotData.Roll = GetDataRefValue(data, $"sim/multiplayer/position/plane{slotNumber}_phi");
                 slotData.VelocityX = GetDataRefValue(data, $"sim/multiplayer/position/plane{slotNumber}_v_x");
@@ -399,6 +402,9 @@ namespace FAA.XPlaneIntegration.Providers
                 _slotDataMap[slotNumber] = slotData;
             }
         }
+
+        private static bool TryFiniteDataRef(Dictionary<string, float> data, string path, out float value) =>
+            data.TryGetValue(path, out value) && !float.IsNaN(value) && !float.IsInfinity(value);
 
         private static float GetDataRefValue(Dictionary<string, float> data, string dataRefPath)
         {
@@ -458,6 +464,9 @@ namespace FAA.XPlaneIntegration.Providers
                     Longitude = slotData.Longitude,
                     AltitudeMeters = slotData.AltitudeMeters,
                     Heading = slotData.Heading,
+                    HasHeading = slotData.HasHeading, HasPitch = slotData.HasPitch,
+                    HasRoll = slotData.HasRoll, HasVerticalSpeed = slotData.HasVerticalSpeed,
+                    PitchDegrees = slotData.Pitch, RollDegrees = slotData.Roll,
                     VelocityMps = groundSpeedMps,
                     VerticalRateMps = slotData.VelocityY,
                     OnGround = slotData.GearPosition > 0.5f,
@@ -558,6 +567,7 @@ namespace FAA.XPlaneIntegration.Providers
             public float GearPosition;
             public float FlapRatio;
             public bool HasValidData;
+            public bool HasHeading, HasPitch, HasRoll, HasVerticalSpeed;
         }
 
         /// <summary>

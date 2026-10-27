@@ -301,7 +301,7 @@ namespace IndicatorSystem.Display
                 rectTransform.anchoredPosition = _currentPosition;
                 rectTransform.localRotation = Quaternion.identity;
                 rectTransform.localScale = Vector3.one * settings.globalScale;
-                _pilotCue.Present(data);
+                _pilotCue.PresentWithSettings(data, settings);
                 _pilotCueAge += Time.unscaledDeltaTime;
                 float alpha = _opacityOverride ? _baseOpacity : settings.globalOpacity;
                 if (!_opacityOverride && settings.useProximityOpacity && data.DistanceNM <= settings.nearbyDistanceThresholdNM)
@@ -1265,7 +1265,7 @@ namespace IndicatorSystem.Display
         private void UpdateNavigationLights(IndicatorData data, IndicatorSettings settings, bool isOffScreen)
         {
             // Only show nav lights for traffic indicators when on-screen
-            bool showLights = settings.showNavigationLights && 
+            bool showLights = settings.showNavigationLights && data.HasHeading &&
                               data.Type == IndicatorType.Traffic && 
                               !isOffScreen;
             
@@ -1304,9 +1304,8 @@ namespace IndicatorSystem.Display
             
             // Dot product tells us if aircraft is moving toward us or away
             float dotProduct = Vector3.Dot(worldDirection, toAircraft);
-            // dotProduct > 0 = aircraft heading toward us (approaching)
-            // dotProduct < 0 = aircraft heading away from us (receding)
-            bool isApproaching = dotProduct > 0;
+            // Camera-to-target aligns with target-forward when it is receding.
+            bool isApproaching = dotProduct < 0;
             
             // Cross product tells us which side of the aircraft we're viewing
             float crossY = worldDirection.x * toAircraft.z - worldDirection.z * toAircraft.x;
@@ -1636,6 +1635,7 @@ namespace IndicatorSystem.Display
             // Create root object
             GameObject root = new GameObject("Indicator");
             root.transform.SetParent(parent, false);
+            if (parent != null) root.layer = parent.gameObject.layer;
             
             RectTransform rt = root.AddComponent<RectTransform>();
             rt.sizeDelta = new Vector2(120, 100);
@@ -1703,6 +1703,7 @@ namespace IndicatorSystem.Display
             altText.color = Color.white;
             element.altitudeText = altText;
             
+            foreach (Transform child in root.GetComponentsInChildren<Transform>(true)) child.gameObject.layer = root.layer;
             element.Initialize();
             element.SetVisible(false);
             

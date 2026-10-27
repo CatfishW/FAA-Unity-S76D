@@ -2093,7 +2093,9 @@ namespace FAA.XPlaneIntegration.Runtime
                 float lon = Get(traffic, prefix + "_lon");
                 float elevationMeters = Get(traffic, prefix + "_el");
                 bool hasPosition = Mathf.Abs(lat) > 0.0001f || Mathf.Abs(lon) > 0.0001f || Mathf.Abs(elevationMeters) > 1f;
-                if (!hasPosition)
+                if (!hasPosition || !TryGetFinite(traffic, prefix + "_lat", out _) ||
+                    !TryGetFinite(traffic, prefix + "_lon", out _) || !TryGetFinite(traffic, prefix + "_el", out _) ||
+                    Mathf.Abs(lat) > 90f || Mathf.Abs(lon) > 180f || elevationMeters < -1500f || elevationMeters > 100000f)
                 {
                     continue;
                 }
@@ -2102,6 +2104,10 @@ namespace FAA.XPlaneIntegration.Runtime
                 float vy = Get(traffic, prefix + "_v_y");
                 float vz = Get(traffic, prefix + "_v_z");
 
+                bool headingValid = TryGetFinite(traffic, prefix + "_psi", out float trueHeading);
+                bool pitchValid = TryGetFinite(traffic, prefix + "_the", out float pitch) && Mathf.Abs(pitch) <= 90f;
+                bool rollValid = TryGetFinite(traffic, prefix + "_phi", out float roll) && Mathf.Abs(roll) <= 360f;
+                bool verticalValid = TryGetFinite(traffic, prefix + "_v_y", out _);
                 rows.Add(new TrafficRadarDataManager.AircraftData
                 {
                     icao24 = $"xplmp{i:00}",
@@ -2111,7 +2117,11 @@ namespace FAA.XPlaneIntegration.Runtime
                     longitude = lon,
                     altitude = elevationMeters,
                     velocity = Mathf.Sqrt(vx * vx + vy * vy + vz * vz),
-                    heading = XPlaneDataRefMapper.NormalizeHeading(Get(traffic, prefix + "_psi")),
+                    heading = headingValid ? XPlaneDataRefMapper.NormalizeHeading(trueHeading) : 0f,
+                    hasHeading = headingValid, hasPitch = pitchValid, hasRoll = rollValid,
+                    hasVerticalSpeed = verticalValid,
+                    pitchDegrees = pitchValid ? pitch : 0f,
+                    rollDegrees = rollValid ? XPlaneDataRefMapper.NormalizeAngle(roll) : 0f,
                     verticalRate = vy,
                     onGround = elevationMeters < 5f,
                     lastUpdateTime = timestamp,
@@ -3404,9 +3414,15 @@ namespace FAA.XPlaneIntegration.Runtime
                 _snapshot.Traffic[prefix + "_lat"] = latitude;
                 _snapshot.Traffic[prefix + "_lon"] = longitude;
                 _snapshot.Traffic[prefix + "_el"] = altitudeMeters;
-                _snapshot.Traffic[prefix + "_psi"] = heading;
+                float reportedHeading = ReadFloat(target["heading_deg"], float.NaN);
+                float reportedPitch = ReadFloat(target["pitch_deg"], float.NaN);
+                float reportedRoll = ReadFloat(target["roll_deg"], float.NaN);
+                if (IsFinite(reportedHeading)) _snapshot.Traffic[prefix + "_psi"] = reportedHeading;
+                if (IsFinite(reportedPitch) && Mathf.Abs(reportedPitch) <= 90f) _snapshot.Traffic[prefix + "_the"] = reportedPitch;
+                if (IsFinite(reportedRoll) && Mathf.Abs(reportedRoll) <= 360f) _snapshot.Traffic[prefix + "_phi"] = reportedRoll;
                 _snapshot.Traffic[prefix + "_v_x"] = Mathf.Sin(headingRadians) * speed;
-                _snapshot.Traffic[prefix + "_v_y"] = verticalRate;
+                if (target["vertical_rate_mps"] != null && IsFinite(ReadFloat(target["vertical_rate_mps"], float.NaN)))
+                    _snapshot.Traffic[prefix + "_v_y"] = verticalRate;
                 _snapshot.Traffic[prefix + "_v_z"] = Mathf.Cos(headingRadians) * speed;
                 planeIndex++;
             }

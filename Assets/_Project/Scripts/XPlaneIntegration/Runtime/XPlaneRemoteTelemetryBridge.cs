@@ -340,6 +340,8 @@ namespace FAA.XPlaneIntegration.Runtime
             aircraftController.SetRoll(ownship.AileronInput);
         }
 
+        private static bool FiniteTraffic(float value) => !float.IsNaN(value) && !float.IsInfinity(value);
+
         private void ApplyTraffic(XPlaneRemoteTelemetrySnapshot snapshot)
         {
             if (trafficRadarDataManager == null)
@@ -376,6 +378,11 @@ namespace FAA.XPlaneIntegration.Runtime
                         altitude = target.AltitudeMeters,
                         velocity = target.VelocityMps,
                         heading = target.HeadingDeg,
+                        hasHeading = target.HeadingDegSpecified && FiniteTraffic(target.HeadingDeg),
+                        hasPitch = target.PitchDegSpecified && FiniteTraffic(target.PitchDeg) && Mathf.Abs(target.PitchDeg) <= 90f,
+                        hasRoll = target.RollDegSpecified && FiniteTraffic(target.RollDeg) && Mathf.Abs(target.RollDeg) <= 360f,
+                        hasVerticalSpeed = target.VerticalRateMpsSpecified && FiniteTraffic(target.VerticalRateMps),
+                        pitchDegrees = target.PitchDeg, rollDegrees = target.RollDeg,
                         verticalRate = target.VerticalRateMps,
                         onGround = target.OnGround,
                         lastUpdateTime = ParseTimestamp(snapshot.TimestampUtc),
@@ -573,6 +580,7 @@ namespace FAA.XPlaneIntegration.Runtime
         [JsonProperty("heading_deg")]
         public float HeadingDeg;
 
+
         [JsonProperty("track_deg")]
         public float TrackDeg;
 
@@ -676,12 +684,18 @@ namespace FAA.XPlaneIntegration.Runtime
 
         [JsonProperty("heading_deg")]
         public float HeadingDeg;
+        [JsonIgnore] public bool HeadingDegSpecified;
+        [JsonProperty("pitch_deg")] public float PitchDeg;
+        [JsonIgnore] public bool PitchDegSpecified;
+        [JsonProperty("roll_deg")] public float RollDeg;
+        [JsonIgnore] public bool RollDegSpecified;
 
         [JsonProperty("velocity_mps")]
         public float VelocityMps;
 
         [JsonProperty("vertical_rate_mps")]
         public float VerticalRateMps;
+        [JsonIgnore] public bool VerticalRateMpsSpecified;
 
         [JsonProperty("on_ground")]
         public bool OnGround;

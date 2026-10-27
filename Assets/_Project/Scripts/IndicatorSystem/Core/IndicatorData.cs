@@ -82,6 +82,11 @@ namespace IndicatorSystem.Core
         
         /// <summary>Aircraft heading in degrees (0-360)</summary>
         public float Heading;
+        public bool HasHeading, HasPitch, HasRoll, HasVerticalSpeed;
+        public float PitchDegrees, RollDegrees, VerticalSpeedFpm;
+        public float RelativeHeadingDegrees;
+        public Quaternion ViewRelativeRotation;
+        public Rect ProjectionRect;
         
         /// <summary>Bearing from own aircraft to target in degrees</summary>
         public float BearingFromOwn;

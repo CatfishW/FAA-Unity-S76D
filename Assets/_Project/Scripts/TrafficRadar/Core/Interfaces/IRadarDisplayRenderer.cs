@@ -47,6 +47,8 @@ namespace TrafficRadar.Core
         public double Longitude;
         public float AltitudeFeet;
         public float Heading;
+        public bool HasHeading, HasPitch, HasRoll, HasVerticalSpeed;
+        public float PitchDegrees, RollDegrees;
         public float GroundSpeedKnots;
         public float VerticalRateFpm;
         
