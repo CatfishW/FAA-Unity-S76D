@@ -11,13 +11,12 @@ namespace FAA.Headset
     public sealed class XR3DesktopHudPreview : MonoBehaviour
     {
         private static XR3DesktopHudPreview active;
-        private Camera preview, pointerCamera;
+        private Camera preview;
         private readonly List<XR3DesktopCanvasRaycaster> pointerRaycasters = new List<XR3DesktopCanvasRaycaster>();
         private float nextInputDiscovery;
-        private RenderTexture texture;
         private XR3MixedRealityPresentation presentation;
         private bool capturedMirror, originalMirror;
-        private float nextRender, nextDiscovery;
+        private float nextDiscovery;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void Bootstrap()
@@ -33,7 +32,7 @@ namespace FAA.Headset
         public static Camera PointerCameraForCanvas(Canvas canvas)
         {
             return active != null && active.capturedMirror && canvas != null && canvas.renderMode != RenderMode.ScreenSpaceOverlay
-                ? active.pointerCamera : canvas != null && canvas.renderMode != RenderMode.ScreenSpaceOverlay ? canvas.worldCamera : null;
+                ? active.preview : canvas != null && canvas.renderMode != RenderMode.ScreenSpaceOverlay ? canvas.worldCamera : null;
         }
 
         public static bool IsPreviewCamera(Camera camera)
@@ -62,6 +61,29 @@ namespace FAA.Headset
             desktop.ResetProjectionMatrix(); desktop.ResetWorldToCameraMatrix();
         }
 
+        /// <summary>Use Unity's normal mono camera pass for the desktop display, never an XR eye/GUI overlay.</summary>
+        public static void ConfigureSpectatorCamera(Camera desktop, Camera headset, Vector2 displaySize)
+        {
+            if (desktop == null || headset == null || desktop == headset) return;
+            desktop.targetTexture = null;
+            desktop.targetDisplay = 0;
+            ConfigureCamera(desktop, headset, displaySize);
+            desktop.depth = headset.depth + 1f;
+            desktop.enabled = true;
+        }
+
+        private void OnEnable() => Application.onBeforeRender += RefreshSpectatorPose;
+
+        [BeforeRenderOrder(32000)]
+        private void RefreshSpectatorPose()
+        {
+            AircraftControl.Camera.RenderPhaseAudit.Mark("Spectator begin");
+            if (active == this && capturedMirror && preview != null && preview.enabled &&
+                presentation != null && presentation.PassthroughActive && Camera.main != null)
+                ConfigureSpectatorCamera(preview, Camera.main, new Vector2(Screen.width, Screen.height));
+            AircraftControl.Camera.RenderPhaseAudit.Mark("Spectator end");
+        }
+
         private void LateUpdate()
         {
             if (!Application.isPlaying || Application.platform != RuntimePlatform.WindowsPlayer) return;
@@ -70,38 +92,20 @@ namespace FAA.Headset
                 nextDiscovery = Time.unscaledTime + 1f;
                 presentation = FindAnyObjectByType<XR3MixedRealityPresentation>();
             }
-            if (presentation == null || !presentation.PassthroughActive || Camera.main == null) return;
+            if (presentation == null || !presentation.PassthroughActive || Camera.main == null) { SuspendPreview(); return; }
             if (!capturedMirror)
             {
                 originalMirror = XRSettings.showDeviceView; capturedMirror = true;
                 XRSettings.showDeviceView = false;
-                Debug.Log("[FAA MR] Centered desktop HUD preview active; headset stereo projections unchanged.");
+                Debug.Log("[FAA MR] Centered mono desktop spectator active; headset stereo projections unchanged.");
             }
-            if (Time.unscaledTime < nextRender) return;
-            nextRender = Time.unscaledTime + 1f / 30f;
-            float scale = Mathf.Min(1f, 1920f / Mathf.Max(1, Screen.width), 1080f / Mathf.Max(1, Screen.height));
-            int width = Mathf.Max(1, Mathf.RoundToInt(Screen.width * scale));
-            int height = Mathf.Max(1, Mathf.RoundToInt(Screen.height * scale));
-            if (texture == null || texture.width != width || texture.height != height)
-            {
-                if (preview != null) preview.targetTexture = null;
-                if (texture != null) { texture.Release(); Destroy(texture); }
-                texture = new RenderTexture(width, height, 24, RenderTextureFormat.ARGB32)
-                    { name = "FAA Centered HUD Preview", vrUsage = VRTextureUsage.None };
-                texture.Create();
-            }
+            XRSettings.showDeviceView = false;
             if (preview == null)
             {
                 var host = new GameObject("FAA Desktop Preview Camera"); host.transform.SetParent(transform, false);
                 preview = host.AddComponent<Camera>(); preview.enabled = false;
-                var pointerHost = new GameObject("FAA Desktop Pointer Camera"); pointerHost.transform.SetParent(transform, false);
-                pointerCamera = pointerHost.AddComponent<Camera>(); pointerCamera.enabled = false;
             }
-            preview.targetTexture = texture;
-            ConfigureCamera(preview, Camera.main, new Vector2(width, height));
-            preview.Render();
-            // Use full desktop pixels for UI events even when the rendered preview is downsampled.
-            ConfigureCamera(pointerCamera, Camera.main, new Vector2(Screen.width, Screen.height));
+            ConfigureSpectatorCamera(preview, Camera.main, new Vector2(Screen.width, Screen.height));
             active = this;
             if (Time.unscaledTime >= nextInputDiscovery)
             {
@@ -119,29 +123,34 @@ namespace FAA.Headset
                 if (canvas == null || canvas.renderMode == RenderMode.ScreenSpaceOverlay) continue;
                 var adapter = source.GetComponent<XR3DesktopCanvasRaycaster>();
                 if (adapter == null) adapter = source.gameObject.AddComponent<XR3DesktopCanvasRaycaster>();
-                adapter.enabled = true; adapter.Bind(source, pointerCamera);
+                adapter.enabled = true; adapter.Bind(source, preview);
                 if (!pointerRaycasters.Contains(adapter)) pointerRaycasters.Add(adapter);
             }
         }
 
-        private void OnGUI()
-        {
-            if (texture == null || !capturedMirror || Event.current.type != EventType.Repaint) return;
-            GUI.depth = -1000;
-            GUI.DrawTexture(new Rect(0, 0, Screen.width, Screen.height), texture, ScaleMode.StretchToFill, false);
-        }
-
-        private void OnDisable()
+        private void SuspendPreview()
         {
             if (active == this) active = null;
             if (capturedMirror) XRSettings.showDeviceView = originalMirror;
             capturedMirror = false;
             foreach (var adapter in pointerRaycasters)
-                if (adapter != null) { adapter.Restore(); Destroy(adapter); }
+                if (adapter != null) { adapter.Restore(); DestroyOwned(adapter); }
             pointerRaycasters.Clear();
-            if (pointerCamera != null) Destroy(pointerCamera.gameObject);
-            if (preview != null) { preview.targetTexture = null; Destroy(preview.gameObject); }
-            if (texture != null) { texture.Release(); Destroy(texture); }
+            if (preview != null) preview.enabled = false;
+        }
+
+        private void OnDisable()
+        {
+            Application.onBeforeRender -= RefreshSpectatorPose;
+            SuspendPreview();
+            if (preview != null) DestroyOwned(preview.gameObject);
+            preview = null;
+        }
+
+        private static void DestroyOwned(UnityEngine.Object value)
+        {
+            if (Application.isPlaying) Destroy(value);
+            else DestroyImmediate(value);
         }
     }
 }

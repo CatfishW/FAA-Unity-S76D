@@ -140,8 +140,10 @@ namespace FAA.Customization
         [BeforeRenderOrder(200)]
         private void RefreshRenderProjection()
         {
+            AircraftControl.Camera.RenderPhaseAudit.Mark("Projection begin");
             if (isActiveAndEnabled && UsesScreenProjection && _screenHudRoot != null)
                 UpdateScreenConformalProjection();
+            AircraftControl.Camera.RenderPhaseAudit.Mark("Projection end");
         }
 
         private void OnDestroy()

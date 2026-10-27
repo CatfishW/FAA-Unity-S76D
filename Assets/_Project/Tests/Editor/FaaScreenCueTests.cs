@@ -45,24 +45,28 @@ namespace FAA.Customization.Tests
             Assert.That(Call(Runtime("IndicatorSystem.Integration.WeatherIndicatorBridge"), null, "TryGetFanCoordinates", args), Is.False);
         }
 
-        [TestCase(0f, 0f, 100f, "OnScreen", 700f, 400f)]
-        [TestCase(1000f, 0f, 100f, "OffScreen", 1150f, 400f)]
-        [TestCase(0f, 0f, -100f, "Behind", 700f, 150f)]
-        public void Projection_UsesCameraViewportAndKeepsAftCueAtEdge(float x, float y, float z, string visibility, float sx, float sy)
+        [TestCase(0f, 0f, 100f, "OnScreen")]
+        [TestCase(1000f, 0f, 100f, "OffScreen")]
+        [TestCase(0f, 0f, -100f, "Behind")]
+        public void Projection_UsesCameraViewportAndKeepsAftCueAtEdge(float x, float y, float z, string visibility)
         {
             var go = new GameObject("Cue projection test", typeof(Camera));
             try
             {
                 var camera = go.GetComponent<Camera>();
-                camera.pixelRect = new Rect(200, 100, 1000, 600);
+                camera.rect = new Rect(.2f, .1f, .6f, .7f);
+                Rect viewport = camera.pixelRect;
                 var target = Activator.CreateInstance(Runtime("IndicatorSystem.Integration.TrafficIndicatorTarget"));
                 Set(target, "id", "TEST"); Set(target, "worldPosition", new Vector3(x, y, z)); Set(target, "distanceNM", 1f);
                 var config = Activator.CreateInstance(Runtime("IndicatorSystem.Core.IndicatorEdgeConfig"));
                 Set(config, "EdgePadding", 50f); Set(config, "MaxDisplayDistance", 80f);
                 var data = Call(Runtime("IndicatorSystem.Core.ScreenIndicatorCalculator"), null, "CalculateIndicator", target, camera, config);
                 Assert.That(Get<object>(data, "Visibility").ToString(), Is.EqualTo(visibility));
-                Assert.That(Get<Vector2>(data, "ScreenPosition").x, Is.EqualTo(sx).Within(.1));
-                Assert.That(Get<Vector2>(data, "ScreenPosition").y, Is.EqualTo(sy).Within(.1));
+                Vector2 expected = viewport.center;
+                if (visibility == "OffScreen") expected.x = viewport.xMax - 50f;
+                else if (visibility == "Behind") expected.y = viewport.yMin + 50f;
+                Assert.That(Get<Vector2>(data, "ScreenPosition").x, Is.EqualTo(expected.x).Within(.1));
+                Assert.That(Get<Vector2>(data, "ScreenPosition").y, Is.EqualTo(expected.y).Within(.1));
             }
             finally { UnityEngine.Object.DestroyImmediate(go); }
         }

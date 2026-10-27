@@ -165,6 +165,7 @@ namespace AircraftControl.Camera
         private float _smoothedFlightPathPitch;
         private float _currentVerticalOffset;
         private Quaternion _aircraftReferenceRotation = Quaternion.identity;
+        private readonly AircraftNativeXrOrigin _nativeXrOrigin = new AircraftNativeXrOrigin();
         
         #endregion
         
@@ -191,11 +192,19 @@ namespace AircraftControl.Camera
         /// their boresight remains tied to the aircraft while the pilot looks
         /// through the side windows.
         /// </summary>
-        public Quaternion AircraftReferenceRotation => _aircraftReferenceRotation;
+        public Quaternion AircraftReferenceRotation => NativeXrTrackingOrigin != null
+            ? _nativeXrOrigin.BodyReferenceRotation : _aircraftReferenceRotation;
+        public Transform NativeXrTrackingOrigin => _nativeXrOrigin.Origin;
+        public bool NativeXrSeatCalibrated => _nativeXrOrigin.SeatCalibrated;
+        public int NativeXrSeatCalibrationVersion => _nativeXrOrigin.CalibrationVersion;
+        public float NativeXrOriginBodyErrorDegrees => NativeXrTrackingOrigin != null && aircraftTransform != null
+            ? Quaternion.Angle(_nativeXrOrigin.BodyReferenceRotation, NativeAircraftRotation()) : 0f;
         
         #endregion
         
         #region Unity Lifecycle
+
+        private void OnEnable() => Application.onBeforeRender += RefreshNativeXrOrigin;
         
         private void Start()
         {
@@ -229,13 +238,13 @@ namespace AircraftControl.Camera
             var trackedPose = GetComponent<TrackedPoseDriver>();
             if (trackedPose != null && trackedPose.isActiveAndEnabled)
             {
-                // Keep the conformal reference current without taking ownership
-                // of the tracked head pose or applying desktop look compensation.
-                _aircraftReferenceRotation = aircraftTransform.rotation;
+                _aircraftReferenceRotation = NativeAircraftRotation();
+                UpdateNativeXrOrigin();
                 return;
             }
 #endif
-            
+            _nativeXrOrigin.Release();
+
             // Check for mode cycle
             if (KeyPressed(cycleModeKey))
             {
@@ -266,6 +275,58 @@ namespace AircraftControl.Camera
             }
         }
         
+        private void OnDisable()
+        {
+            Application.onBeforeRender -= RefreshNativeXrOrigin;
+            _nativeXrOrigin.Release();
+        }
+
+        [BeforeRenderOrder(200)]
+        private void RefreshNativeXrOrigin()
+        {
+            RenderPhaseAudit.Mark("Origin begin");
+            if (isActiveAndEnabled && NativeXrTrackingOrigin != null) UpdateNativeXrOrigin();
+            RenderPhaseAudit.Mark("Origin end");
+        }
+
+        private Quaternion NativeAircraftRotation()
+        {
+            var state = aircraftController != null ? aircraftController.State : null;
+            return state != null ? AircraftNativeXrOrigin.BodyRotation(state.Pitch, state.Roll, state.Heading) : aircraftTransform.rotation;
+        }
+
+        private void UpdateNativeXrOrigin()
+        {
+            if (!UnityEngine.XR.XRSettings.isDeviceActive && NativeXrTrackingOrigin == null) return;
+            if (aircraftTransform == null) return;
+#if ENABLE_INPUT_SYSTEM
+            var tracking = GetComponent<TrackedPoseDriver>();
+            if (tracking == null || !tracking.isActiveAndEnabled) return;
+            bool firstPose = NativeXrTrackingOrigin == null;
+            bool wasCalibrated = NativeXrSeatCalibrated;
+            _nativeXrOrigin.Follow(transform, aircraftTransform.position, NativeAircraftRotation(), cockpitOffset, NativeHeadTracked());
+            if (firstPose) Debug.Log("[FAA XR] Aircraft tracking origin active; local HMD pose preserved, seat calibrated=" + NativeXrSeatCalibrated + ".", this);
+            if (!wasCalibrated && NativeXrSeatCalibrated)
+                Debug.Log("[FAA XR] Native aircraft seat position/yaw calibrated from the first valid tracked HMD sample.", this);
+#endif
+        }
+
+        private static bool NativeHeadTracked()
+        {
+            var device = UnityEngine.XR.InputDevices.GetDeviceAtXRNode(UnityEngine.XR.XRNode.Head);
+            return UnityEngine.XR.XRSettings.isDeviceActive && device.isValid &&
+                device.TryGetFeatureValue(UnityEngine.XR.CommonUsages.isTracked, out bool tracked) && tracked;
+        }
+
+        /// <summary>Calibrate the current physical seat position and yaw without modifying the tracked head pose.</summary>
+        public bool RecenterNativeXrSeat()
+        {
+            if (NativeXrTrackingOrigin == null || aircraftTransform == null) return false;
+            if (!_nativeXrOrigin.Recenter(aircraftTransform.position, NativeAircraftRotation(), cockpitOffset, NativeHeadTracked())) return false;
+            Debug.Log("[FAA XR] Native aircraft seat recentered from the current tracked position and yaw.", this);
+            return true;
+        }
+
         #endregion
         
         #region Input Handling

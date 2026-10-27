@@ -160,9 +160,9 @@ namespace FAA.Customization.Tests
                 var data = Call(Projection, null, "CalculateIndicator", target, camera, config);
                 Vector2 screen = Get<Vector2>(data, "ScreenPosition");
                 if (Mathf.Abs(relativeBearing) > .1f)
-                    Assert.That(Mathf.Sign(screen.x - 700), Is.EqualTo(Mathf.Sign(map.x)), "Map and screen disagree left/right");
+                    Assert.That(Mathf.Sign(screen.x - camera.pixelRect.center.x), Is.EqualTo(Mathf.Sign(map.x)), "Map and screen disagree left/right");
                 Assert.That(Get<object>(data, "Visibility").ToString(), Is.EqualTo(Mathf.Abs(relativeBearing) > 90 ? "Behind" : "OnScreen"));
-                Assert.That(screen.y, Is.GreaterThan(440), "Positive relative altitude must project above the level view");
+                Assert.That(screen.y, Is.GreaterThan(camera.pixelRect.center.y), "Positive relative altitude must project above the level view");
             }
             finally { UnityEngine.Object.DestroyImmediate(go); }
         }
@@ -233,7 +233,7 @@ namespace FAA.Customization.Tests
                 Set(config, "EdgePadding", 80f); Set(config, "MaxDisplayDistance", 80f);
                 var data = Call(Projection, null, "CalculateIndicator", target, camera, config);
                 Assert.That(Get<object>(data, "Visibility").ToString(), Is.EqualTo("OnScreen"));
-                Assert.That(Get<Vector2>(data, "ScreenPosition").x, Is.EqualTo(1176).Within(.1f));
+                Assert.That(Get<Vector2>(data, "ScreenPosition").x, Is.EqualTo(camera.pixelRect.xMin + .98f * camera.pixelRect.width).Within(.1f));
             }
             finally { UnityEngine.Object.DestroyImmediate(go); }
         }

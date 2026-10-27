@@ -23,7 +23,9 @@ namespace FAA.Headset
         private long timestamp;
         private float lastChange = float.NegativeInfinity, nextDiscovery, nextReport;
         private bool everLeft, everRight;
+        private bool awaitingFreshFrame = true;
         private string lastStatus;
+        private const int ReconnectionIntervalFrames = 180;
 
         [Serializable]
         private sealed class Snapshot
@@ -64,9 +66,9 @@ namespace FAA.Headset
         {
             if (!Application.isPlaying || Application.platform != RuntimePlatform.WindowsPlayer) return;
             var manager = XRGeneralSettings.Instance != null ? XRGeneralSettings.Instance.Manager : null;
-            if (manager?.activeLoader == null || manager.activeLoader.GetType().FullName != "Varjo.XR.VarjoLoader") return;
+            if (manager?.activeLoader == null || manager.activeLoader.GetType().FullName != "Varjo.XR.VarjoLoader") { ResetFreshness(); return; }
             Camera camera = Camera.main;
-            if (camera == null) return;
+            if (camera == null) { ResetFreshness(); return; }
             if (Time.unscaledTime >= nextDiscovery)
             {
                 nextDiscovery = Time.unscaledTime + 1f;
@@ -76,14 +78,13 @@ namespace FAA.Headset
                 foreach (LineRenderer ray in FindObjectsByType<LineRenderer>(FindObjectsInactive.Include, FindObjectsSortMode.None))
                     if (ray.name.StartsWith("FAA Layout Pointer ", StringComparison.Ordinal)) ray.gameObject.layer = XR3MixedRealityPresentation.HudLayer;
             }
-            if (provider == null) return;
+            if (provider == null) { ResetFreshness(); return; }
             provider.mainCamera = camera;
-            ServiceConnected = provider.isActiveAndEnabled && provider.IsConnected();
+            bool connected = provider.isActiveAndEnabled && provider.IsConnected();
+            if (!connected) ResetFreshness();
+            ServiceConnected = connected;
             Leap.Frame frame = ServiceConnected ? provider.CurrentFrame : null;
-            if (frame != null && frame.Timestamp > 0 && frame.Timestamp != timestamp)
-            {
-                timestamp = frame.Timestamp; lastChange = Time.unscaledTime;
-            }
+            if (frame != null) ObserveTimestamp(frame.Timestamp, Time.unscaledTime);
             float age = Time.unscaledTime - lastChange;
             CountFreshHands(frame, ServiceConnected, age, out bool left, out bool right);
             LeftTracked = left; RightTracked = right;
@@ -110,18 +111,50 @@ namespace FAA.Headset
 
         private void ResolveProvider(Camera camera)
         {
-            if (provider != null) return;
+            if (provider != null) { ConfigureRecovery(provider); return; }
             foreach (LeapXRServiceProvider existing in FindObjectsByType<LeapXRServiceProvider>(FindObjectsInactive.Exclude, FindObjectsSortMode.None))
-                if (existing.isActiveAndEnabled) { provider = existing; return; }
+                if (existing.isActiveAndEnabled) { BindProvider(existing); return; }
             ownedProvider = new GameObject("FAA XR-3 Ultraleap Provider");
             ownedProvider.SetActive(false);
             ownedProvider.transform.SetParent(transform, false);
-            provider = ownedProvider.AddComponent<LeapXRServiceProvider>();
+            BindProvider(ownedProvider.AddComponent<LeapXRServiceProvider>());
             provider.mainCamera = camera;
             provider.deviceOffsetMode = LeapXRServiceProvider.DeviceOffsetMode.ManualHeadOffset;
             provider.deviceOffsetYAxis = -.0112f; provider.deviceOffsetZAxis = .0999f; provider.deviceTiltXAxis = 0f;
             ownedProvider.SetActive(true);
             Debug.Log("[FAA HANDS] Native Varjo Ultraleap provider enabled with XR-3 sensor offset.");
+        }
+
+        private static void ConfigureRecovery(LeapXRServiceProvider candidate)
+        {
+            if (candidate == null) return;
+            // The SDK otherwise stops after five failed service checks. Keep retrying
+            // across a Varjo Base/service restart, with its bounded frame-based backoff.
+            candidate._reconnectionAttempts = -1;
+            candidate._reconnectionInterval = ReconnectionIntervalFrames;
+        }
+
+        private void BindProvider(LeapXRServiceProvider candidate)
+        {
+            if (provider != candidate) { provider = candidate; ResetFreshness(); }
+            ConfigureRecovery(candidate);
+        }
+
+        private void ResetFreshness()
+        {
+            LeftTracked = RightTracked = ServiceConnected = false;
+            timestamp = 0;
+            lastChange = float.NegativeInfinity;
+            awaitingFreshFrame = true;
+        }
+
+        private void ObserveTimestamp(long observed, float now)
+        {
+            if (observed <= 0) return;
+            // The first frame can be the SDK's cached pre-disconnect frame.
+            // Only a subsequent timestamp change establishes fresh sensor data.
+            if (awaitingFreshFrame) { timestamp = observed; awaitingFreshFrame = false; return; }
+            if (observed != timestamp) { timestamp = observed; lastChange = now; }
         }
 
         private void CreateStatus()
@@ -148,12 +181,13 @@ namespace FAA.Headset
 
         private void OnDisable()
         {
-            LeftTracked = RightTracked = ServiceConnected = false;
+            ResetFreshness();
             if (ownedProvider != null) ownedProvider.SetActive(false);
             if (statusCanvas != null) statusCanvas.gameObject.SetActive(false);
         }
         private void OnEnable()
         {
+            ResetFreshness();
             if (ownedProvider != null) ownedProvider.SetActive(true);
             if (statusCanvas != null) statusCanvas.gameObject.SetActive(true);
         }

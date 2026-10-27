@@ -107,7 +107,11 @@ namespace FAA.Customization.Tests
                     aircraftGo.transform.position += new Vector3(10, 20, -40); // packet-stepped position
                     refresh.Invoke(hud, null);
                     Project(camera, Quaternion.identity, out Vector2 pixel, out _);
-                    Assert.That(Vector2.Distance(root.anchoredPosition, pixel - camera.pixelRect.center), Is.LessThan(.001f));
+                    Vector2 pixelOffset = pixel - camera.pixelRect.center;
+                    Vector2 expected = new Vector2(
+                        pixelOffset.x * scaler.referenceResolution.x / camera.pixelRect.width,
+                        pixelOffset.y * scaler.referenceResolution.y / camera.pixelRect.height);
+                    Assert.That(Vector2.Distance(root.anchoredPosition, expected), Is.LessThan(.001f));
                 }
                 camera.transform.rotation = Quaternion.Euler(0, 180, 0);
                 refresh.Invoke(hud, null);

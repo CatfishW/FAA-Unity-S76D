@@ -332,3 +332,51 @@ standard profile passed 20 with two optional full-profile tests skipped.
 
 The simulator air-start request allows up to 60 seconds for scenery loading;
 ordinary data requests retain a five-second timeout.
+
+
+## Remote XR-3 verification and recovery (2026-10-27)
+
+The native cockpit camera now has a separate aircraft tracking origin. Validated
+nose-up pitch, roll and true heading move that parent; the HMD pose driver keeps
+ownership of its local pose and calibrated eye projections. While the headset
+is idle, a provisional body frame supports the forward preview without claiming
+tracking or seat calibration. The first valid tracked sample calibrates the
+physical seat once. Temporary tracking loss preserves calibration; manual seat
+recenter requires valid tracking. Cockpit panels refresh their seat reference
+only on origin/calibration changes.
+
+The desktop preview uses a normal enabled mono spectator camera and the same
+camera for mouse hit-testing. It renders directly to display zero. The old
+manual camera render and opaque IMGUI image could cover headset passthrough;
+this separate pass leaves the native eye surfaces alone. MR routing preserves
+the owned spectator and periodically reasserts video/alpha settings after a
+headset/runtime reconnect.
+
+The hand provider continues bounded reconnection attempts and waits for an
+advancing frame timestamp after recovery. Focus loss keeps an existing pinch
+release latch until a real unpinched sample, preventing a new press on refocus.
+Read-only local evidence is written to `XR3-runtime-report.json`; unavailable
+provider statistics are explicitly marked unavailable. `--xr3-audit` also writes
+before-render phase breadcrumbs for diagnosing native rendering faults.
+
+The S-76 helper waits for advancing native flight time, valid IAS and stable
+engines before selecting HDG/ALT. Its service uses `--route --collective-assist`:
+bounded Puget Sound waypoints, gentle heading commands (at most 0.5 degrees per
+second and five degrees from current heading), and rate-limited collective
+feedback with native autothrottle off. It never writes synthetic telemetry or
+overrides physics. Only explicit `--start` sets initial conditions; service
+restart attaches to existing flight and recovers validated waypoint progress.
+
+Safety stops publish an atomic terminal report and specific reason. The verifier
+rejects empty, malformed, frozen, future or nonfinite reports and requires
+advancing simulation time and physical movement. Deploy `flight_demo.py`,
+`start_s76.py` and `verify_flying.py` together because the helpers share code.
+
+The full integration suite passes 1,138 tests. The public imported profile
+passes 533 tests and skips two optional full-profile cases. Python reliability
+coverage contains 41 passing cases. A headset wearer is still required to
+validate optical alignment, comfort, real hand recognition and physical control
+interaction. An idle sensor connection is not a successful wearer test.
+
+Vendor references: [Varjo mixed-reality setup](https://developer.varjo.com/docs/unity-xr-sdk/mixed-reality-with-varjo-xr-plugin)
+and [Laminar autopilot dataref semantics](https://developer.x-plane.com/article/accessing-the-x-plane-autopilot-from-datarefs/).

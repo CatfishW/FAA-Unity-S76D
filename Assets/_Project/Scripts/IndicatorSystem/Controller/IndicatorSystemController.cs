@@ -146,8 +146,10 @@ namespace IndicatorSystem.Controller
         [BeforeRenderOrder(100)]
         private void RefreshProjectionBeforeRender()
         {
+            AircraftControl.Camera.RenderPhaseAudit.Mark("Indicators begin");
             if (_isInitialized && settings != null && settings.enabled && settings.globalOpacity > 0f)
                 UpdateIndicators();
+            AircraftControl.Camera.RenderPhaseAudit.Mark("Indicators end");
         }
 
         private void OnDestroy()

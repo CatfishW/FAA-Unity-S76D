@@ -197,6 +197,8 @@ namespace FAA.Customization
         /// Near zero when the view and the data agree; the ladder and waterline are always centred on the validated heading.
         /// </summary>
         public float BoresightHeadingOffsetDegrees { get; private set; }
+        /// <summary>Full angular error of the actual native tracking origin against the validated aircraft frame.</summary>
+        public float NativeOriginBodyOffsetDegrees { get; private set; }
 
         private static string[] BuildPitchText()
         {
@@ -294,9 +296,11 @@ namespace FAA.Customization
         [BeforeRenderOrder(300)]
         private void RefreshBeforeRender()
         {
+            AircraftControl.Camera.RenderPhaseAudit.Mark("Conformal begin");
             if (isActiveAndEnabled && view != null && (lastRefreshFrame != Time.frameCount ||
                 lastViewPosition != view.transform.position || lastViewRotation != view.transform.rotation))
                 RefreshPresentation();
+            AircraftControl.Camera.RenderPhaseAudit.Mark("Conformal end");
         }
         private void PipelineCameraReady(ScriptableRenderContext context, Camera camera) => CameraReady(camera);
         private void CameraReady(Camera camera)
@@ -670,20 +674,22 @@ namespace FAA.Customization
         /// </summary>
         private void UpdateBoresightDiagnostics(AviationFlightData data)
         {
-            if (!HasLiveAttitude || data == null) { ViewHeadingOffsetDegrees = BoresightHeadingOffsetDegrees = 0f; boresightOffsetSince = -1f; return; }
+            if (!HasLiveAttitude || data == null) { ViewHeadingOffsetDegrees = BoresightHeadingOffsetDegrees = NativeOriginBodyOffsetDegrees = 0f; boresightOffsetSince = -1f; return; }
             ViewHeadingOffsetDegrees = HeadingOffset(viewRotation * Vector3.forward, data.heading);
             if (cameraRigView != view) { cameraRigView = view; cameraRig = view != null ? view.GetComponent<AircraftControl.Camera.AircraftCameraController>() : null; }
-            if (cameraRig == null) { BoresightHeadingOffsetDegrees = ViewHeadingOffsetDegrees; boresightOffsetSince = -1f; return; }
+            if (cameraRig == null) { BoresightHeadingOffsetDegrees = ViewHeadingOffsetDegrees; NativeOriginBodyOffsetDegrees = 0f; boresightOffsetSince = -1f; return; }
             BoresightHeadingOffsetDegrees = HeadingOffset(cameraRig.AircraftReferenceRotation * Vector3.forward, data.heading);
+            NativeOriginBodyOffsetDegrees = cameraRig.NativeXrOriginBodyErrorDegrees;
             float now = Time.unscaledTime;
-            if (Mathf.Abs(BoresightHeadingOffsetDegrees) < BoresightLogDegrees) { boresightOffsetSince = -1f; return; }
+            if (Mathf.Abs(BoresightHeadingOffsetDegrees) < BoresightLogDegrees && NativeOriginBodyOffsetDegrees < BoresightLogDegrees) { boresightOffsetSince = -1f; return; }
             if (boresightOffsetSince < 0f) boresightOffsetSince = now;
             if (now - boresightOffsetSince < 2f || now < nextBoresightLog) return;
             nextBoresightLog = now + 30f;
             var inv = System.Globalization.CultureInfo.InvariantCulture;
             Debug.LogWarning("[FAA rotorcraft HUD] Camera boresight azimuth differs from the validated heading by " +
                 BoresightHeadingOffsetDegrees.ToString("0.0", inv) + " deg (view incl. look offset: " + ViewHeadingOffsetDegrees.ToString("0.0", inv) +
-                " deg). The ladder and waterline stay on the validated heading; check what drives the aircraft transform.");
+                " deg; actual native tracking-origin/body error: " + NativeOriginBodyOffsetDegrees.ToString("0.0", inv) +
+                " deg). The ladder and waterline stay on the validated heading; check what drives the aircraft tracking origin.");
         }
         private float HeadingOffset(Vector3 forward, float heading)
         {

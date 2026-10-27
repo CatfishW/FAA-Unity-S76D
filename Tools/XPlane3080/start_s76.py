@@ -1,96 +1,107 @@
 #!/usr/bin/env python3
-"""Explicitly reset the simulator to a parked S-76C at KSEA, then run its engines with the rotor brake released."""
+"""Explicitly reset to a parked S-76C at KSEA, then start and check its engines."""
 import argparse
 import json
 from pathlib import Path
 import time
-from urllib.parse import urlencode
-from urllib.request import Request, urlopen
+
+from flight_demo import AIRCRAFT, B, DemoError, NativeApi, P, aircraft_matches, decoded, number, reset_autopilot, safe_pause, wait_until
 
 
-def main():
+def reset_parked(api, clock=time):
+    if api.read('sim/joystick/mouse_is_joystick'):
+        raise DemoError('Release mouse-flight control before resetting; no flight changed.')
+    changed = False
+    try:
+        changed = True
+        api.command('sim/operation/pause_on')
+        reset_autopilot(api)
+        # One explicit native flight load replaces the old reload + second load
+        # race. Do not unpause until the requested aircraft/ground state is read back.
+        api.request('/flight', {'aircraft': {'path': AIRCRAFT},
+            'runway_start': {'airport_id': 'KSEA', 'runway': '16L'},
+            'engine_status': {'all_engines': {'running': False}}, 'time_enum': 'day',
+            'failures': {'fix_everything': True, 'mean_time_between_failures_in_hours': 10000}}, 'POST', 60)
+
+        def loaded():
+            return (aircraft_matches(api)
+                and abs(number(api.read(P + 'latitude'), 'latitude') - 47.45) < .1
+                and abs(number(api.read(P + 'longitude'), 'longitude') + 122.31) < .1
+                and 0 <= number(api.read(P + 'y_agl'), 'clearance') < 10
+                and abs(number(api.read(P + 'indicated_airspeed'), 'airspeed')) < 10)
+
+        wait_until(loaded, 60, clock, 'parked S-76 at KSEA')
+        api.command('sim/operation/pause_on')
+        reset_autopilot(api)
+        api.write('sim/operation/failures/enable_random_failures', 0)
+        api.write('sim/operation/failures/mean_time_between_failure_hrs', 10000.)
+        api.command('sim/operation/fix_all_systems')
+        if api.read('sim/operation/failures/enable_random_failures') != 0:
+            raise DemoError('Random failure configuration not confirmed')
+        if api.read('sim/joystick/mouse_is_joystick'):
+            raise DemoError('Mouse-flight input became active during reset')
+        def parked_controls():
+            api.write('sim/cockpit2/controls/parking_brake_ratio', 1.)
+            api.write('sim/cockpit2/engine/actuators/prop_ratio_all', 0.)
+            api.write('sim/cockpit2/switches/rotor_brake_ratio', 0.)
+            api.write('sim/cockpit2/engine/actuators/governor_on', [1, 1] + [0] * 14)
+            api.write('sim/cockpit2/engine/actuators/throttle_ratio_all', 1.)
+        parked_controls()
+        api.command('sim/operation/pause_off')
+        api.command('sim/operation/quick_start', .2)
+        clock.sleep(.3)
+        parked_controls()
+
+        def stable(require_engines):
+            roll = number(api.read(P + 'phi'), 'roll')
+            rpm, burning = api.read('sim/cockpit2/engine/indicators/N2_percent'), api.read('sim/flightmodel2/engines/engine_is_burning_fuel')
+            if not isinstance(rpm, list) or len(rpm) < 2 or not isinstance(burning, list) or len(burning) < 2:
+                raise DemoError('Missing two engine values')
+            rpm = [number(n, 'N2') for n in rpm[:2]]
+            if (abs(roll) > 8 or max(rpm) > 115 or min(rpm) < 0
+                    or api.read('sim/flightmodel2/misc/has_crashed')
+                    or api.read('sim/joystick/mouse_is_joystick')
+                    or api.read('sim/time/paused')
+                    or number(api.read(P + 'y_agl'), 'clearance') > 10):
+                raise DemoError('Instability, pause, or manual-input detected')
+            return not require_engines or min(rpm) >= 90 and burning[:2] == [1, 1]
+
+        wait_until(lambda: stable(True), 20, clock, 'running parked S-76 engines')
+        print('S-76C reset at KSEA; engines running, rotor brake released, parking brake on. Checking stability...', flush=True)
+        for _ in range(15):
+            if not stable(True):
+                raise DemoError('Engine stability check failed')
+            clock.sleep(1)
+    except (Exception, KeyboardInterrupt):
+        if changed:
+            safe_pause(api)
+        raise
+
+
+def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--xplane-root', type=Path, default=Path.home()/'.steam/debian-installation/steamapps/common/X-Plane 12')
-    parser.add_argument('--api', default='http://127.0.0.1:8086/api/v3')
+    parser.add_argument('--api', default=B)
     parser.add_argument('--reset', action='store_true', help='Start a new flight; replaces the current simulator flight')
-    args = parser.parse_args()
-    root = args.xplane_root.resolve(strict=True)
-    aircraft = 'Aircraft/Laminar Research/Sikorsky S-76/S-76C.acf'
-    if not (root/aircraft).is_file():
-        raise SystemExit('Installed S-76C not found')
-
-    def request(path, method='GET', payload=None):
-        data = None if payload is None else json.dumps(payload).encode()
-        req = Request(args.api.rstrip('/')+path, data=data, method=method, headers={'Content-Type':'application/json'})
-        with urlopen(req, timeout=15) as response:
-            body = response.read()
-            return json.loads(body) if body else None
-
-    def identifier(name):
-        rows = request('/datarefs?'+urlencode({'filter[name]':name}))['data']
-        return next(row['id'] for row in rows if row['name']==name)
-
-    def read(name):
-        return request('/datarefs/'+str(identifier(name))+'/value')['data']
-
-    def write(name, value):
-        request('/datarefs/'+str(identifier(name))+'/value','PATCH',{'data':value})
-
-    def command(name, duration=0):
-        rows=request('/commands?'+urlencode({'filter[name]':name}))['data']
-        command_id=next(row['id'] for row in rows if row['name']==name)
-        request('/command/'+str(command_id)+'/activate','POST',{'duration':duration})
-
-    if not args.reset:
-        print(json.dumps({'ready':True,'aircraft':aircraft,'reset_requested':False,'mouse_flight_active':read('sim/joystick/mouse_is_joystick')}))
-        return
-    if read('sim/joystick/mouse_is_joystick'):
-        raise SystemExit('Release mouse-flight control in X-Plane before resetting; no flight changed.')
-    command('sim/operation/pause_on')
-    command('sim/operation/reload_aircraft_no_art')
-    time.sleep(8)
-    request('/flight','POST',{'aircraft':{'path':aircraft},'runway_start':{'airport_id':'KSEA','runway':'16L'},
-        'engine_status':{'all_engines':{'running':False}},'time_enum':'day',
-        'failures':{'fix_everything':True,'mean_time_between_failures_in_hours':10000}})
-    # The installed cached S-76/scenery loads asynchronously. Keep engines off
-    # while it loads, then verify the actual aircraft path before starting.
-    write('sim/operation/failures/enable_random_failures',0)
-    command('sim/operation/pause_off')
-    time.sleep(8)
-    import base64
-    loaded=base64.b64decode(read('sim/aircraft/view/acf_relative_path')).split(b'\0')[0].decode()
-    if loaded != aircraft:
-        command('sim/operation/pause_on')
-        raise SystemExit('Requested aircraft load not confirmed; simulator left paused.')
-    command('sim/operation/pause_on')
-    write('sim/operation/failures/enable_random_failures',0)
-    write('sim/operation/failures/mean_time_between_failure_hrs',10000.0)
-    command('sim/operation/fix_all_systems')
-    for attempt in range(20):
-        if read('sim/operation/failures/enable_random_failures') == 0:
-            break
-        time.sleep(.1)
-    else:
-        raise SystemExit('Random failure configuration not confirmed; simulator left paused.')
-    command('sim/operation/pause_off')
-    command('sim/operation/quick_start', .2)
-    time.sleep(.4)
-    write('sim/cockpit2/switches/rotor_brake_ratio',0.0)
-    write('sim/cockpit2/controls/parking_brake_ratio',1.0)
-    write('sim/cockpit2/engine/actuators/throttle_ratio_all',1.0)
-    print('S-76C reset at KSEA; engines running, rotor brake released, parking brake on. Checking stability...',flush=True)
-    for i in range(15):
-        roll=read('sim/flightmodel/position/phi')
-        rpm=read('sim/cockpit2/engine/indicators/N2_percent')[:2]
-        crashed=read('sim/flightmodel2/misc/has_crashed')
-        mouse=read('sim/joystick/mouse_is_joystick')
-        burning=read('sim/flightmodel2/engines/engine_is_burning_fuel')[:2]
-        if abs(roll)>8 or max(rpm)>115 or crashed or mouse or i>=5 and (min(rpm)<90 or burning != [1,1]):
-            command('sim/operation/pause_on')
-            raise SystemExit('Instability or mouse-flight input detected; simulator paused.')
-        time.sleep(1)
-    print('Parked stability check passed. This launcher provides no takeoff or automatic flight control.')
+    args = parser.parse_args(argv)
+    try:
+        root = args.xplane_root.resolve(strict=True)
+        if not (root / AIRCRAFT).is_file():
+            raise DemoError('Installed S-76C not found')
+        api = NativeApi(args.api)
+        if not args.reset:
+            loaded = decoded(api.read('sim/aircraft/view/acf_relative_path'))
+            print(json.dumps({'ready': loaded == AIRCRAFT, 'installed': True, 'aircraft': loaded,
+                'requested_aircraft': AIRCRAFT, 'reset_requested': False,
+                'mouse_flight_active': api.read('sim/joystick/mouse_is_joystick')}))
+            return 0
+        reset_parked(api)
+        print('Parked stability check passed. This launcher provides no takeoff or automatic flight control.')
+        return 0
+    except (Exception, KeyboardInterrupt) as error:
+        print(json.dumps({'ready': False, 'reset_requested': args.reset, 'error': str(error) or type(error).__name__}), flush=True)
+        return 1
 
 
-if __name__=='__main__':
-    main()
+if __name__ == '__main__':
+    raise SystemExit(main())

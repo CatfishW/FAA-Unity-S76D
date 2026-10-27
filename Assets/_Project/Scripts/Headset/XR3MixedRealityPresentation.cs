@@ -118,13 +118,14 @@ namespace FAA.Headset
         private void LateUpdate()
         {
             if (!Application.isPlaying || Application.platform != RuntimePlatform.WindowsPlayer) return;
-            if (!PassthroughActive)
+            // Varjo can reconnect the same Unity session after Base/headset sleep.
+            // Reassert the idempotent video/alpha settings instead of trusting a stale startup flag.
+            if (Time.unscaledTime >= nextAttempt)
             {
-                if (Time.unscaledTime < nextAttempt) return;
                 nextAttempt = Time.unscaledTime + 1f;
                 TryStartPassthrough();
-                if (!PassthroughActive) return;
             }
+            if (!PassthroughActive) return;
             if (Time.unscaledTime >= nextDiscovery)
             {
                 nextDiscovery = Time.unscaledTime + .5f;
@@ -148,19 +149,22 @@ namespace FAA.Headset
             var manager = XRGeneralSettings.Instance != null ? XRGeneralSettings.Instance.Manager : null;
             if (manager == null || manager.activeLoader == null ||
                 manager.activeLoader.GetType().FullName != "Varjo.XR.VarjoLoader" ||
-                Varjo.XR.Varjo.GetVarjoSession() == IntPtr.Zero) return;
+                Varjo.XR.Varjo.GetVarjoSession() == IntPtr.Zero) { PassthroughActive = false; return; }
             if (!VarjoMixedReality.IsMRAvailable())
             {
+                PassthroughActive = false;
                 if (!reportedUnavailable) Debug.LogWarning("[FAA MR] XR-3 video passthrough is unavailable. Check headset connection and Varjo Base mixed-reality access.");
                 reportedUnavailable = true;
                 return;
             }
             if (!capturedOpaque) { originalOpaque = VarjoRendering.GetOpaque(); capturedOpaque = true; }
             VarjoRendering.SetOpaque(false);
-            if (!VarjoMixedReality.StartRender()) return;
+            if (!VarjoMixedReality.StartRender()) { PassthroughActive = false; return; }
             view = Camera.main;
             if (view == null) return;
+            if (PassthroughActive) return;
             PassthroughActive = true;
+            reportedUnavailable = false;
             reportAt = Time.unscaledTime + 3f;
             DiscoverPresentation();
             ApplyPresentation();
@@ -173,7 +177,7 @@ namespace FAA.Headset
             if (view == null) return;
             foreach (Camera camera in FindObjectsByType<Camera>(FindObjectsInactive.Include, FindObjectsSortMode.None))
             {
-                if (camera.targetTexture != null || camera.cameraType != CameraType.Game) continue;
+                if (camera.targetTexture != null || camera.cameraType != CameraType.Game || XR3DesktopHudPreview.IsPreviewCamera(camera)) continue;
                 if (!cameras.ContainsKey(camera)) cameras.Add(camera, new CameraState
                 {
                     camera = camera, clear = camera.clearFlags, background = camera.backgroundColor,
@@ -216,13 +220,13 @@ namespace FAA.Headset
         }
 
         [BeforeRenderOrder(10000)]
-        private void BeforeRender() { if (PassthroughActive) ApplyPresentation(); }
+        private void BeforeRender() { AircraftControl.Camera.RenderPhaseAudit.Mark("MR begin"); if (PassthroughActive) ApplyPresentation(); AircraftControl.Camera.RenderPhaseAudit.Mark("MR end"); }
 
         private void ApplyPresentation()
         {
             if (view == null) return;
             foreach (CameraState state in cameras.Values)
-                if (state.camera != null && state.camera != view) state.camera.enabled = false;
+                if (state.camera != null && state.camera != view && !XR3DesktopHudPreview.IsPreviewCamera(state.camera)) state.camera.enabled = false;
             foreach (var state in effects) if (state.Key != null) state.Key.enabled = false;
             view.clearFlags = CameraClearFlags.SolidColor;
             view.backgroundColor = Color.clear;
@@ -274,7 +278,7 @@ namespace FAA.Headset
             }
             foreach (var state in layers) if (state.Key != null) state.Key.layer = state.Value;
             foreach (CameraState state in cameras.Values)
-                if (state.camera != null)
+                if (state.camera != null && !XR3DesktopHudPreview.IsPreviewCamera(state.camera))
                 {
                     state.camera.clearFlags = state.clear; state.camera.backgroundColor = state.background;
                     state.camera.cullingMask = state.mask; state.camera.allowHDR = state.hdr; state.camera.enabled = state.enabled;
