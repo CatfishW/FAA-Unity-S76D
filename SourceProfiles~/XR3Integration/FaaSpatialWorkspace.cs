@@ -391,7 +391,12 @@ namespace FAA.Customization
             if (View == null || aircraft == null) return;
             var rig = View.GetComponent<AircraftCameraController>();
             if ((NativeXr || rig != null && rig.NativeXrTrackingOrigin != null) &&
-                (rig == null || !rig.RecenterNativeXrSeat())) return;
+                (rig == null || !rig.RecenterNativeXrSeat()))
+            {
+                ProfileStatus = "Seat unchanged: wear a tracked headset to recenter.";
+                RefreshControls(); return;
+            }
+            ProfileStatus = "Seat recentered.";
             CancelManipulation(); seatOffset = aircraft.InverseTransformPoint(View.transform.position);
             trackedSeat.Capture(View.transform); RefreshTransforms();
         }

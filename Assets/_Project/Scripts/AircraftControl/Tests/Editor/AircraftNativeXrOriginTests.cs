@@ -72,6 +72,125 @@ namespace AircraftControl.Tests.Editor
         }
 
         [Test]
+        public void ReportedAbsenceWaitsForPresentTrackedPoseAndEstablishedSeatSurvivesAbsence()
+        {
+            var head = new GameObject("Presence-gated tracked head");
+            var frame = new AircraftNativeXrOrigin();
+            try
+            {
+                Quaternion body = AircraftNativeXrOrigin.BodyRotation(4f, -6f, 80f);
+                Vector3 position = new Vector3(20f, 300f, 40f), seat = new Vector3(0f, .07f, -.17f);
+                for (int i = 0; i < 3; i++)
+                {
+                    head.transform.SetLocalPositionAndRotation(new Vector3(.2f + i, .6f, -.1f), Quaternion.Euler(0f, 75f, 0f));
+                    frame.Follow(head.transform, position, body, seat, true, true, false);
+                    Assert.That(frame.SeatCalibrated, Is.False, "A cached tracked sample from an unworn headset must remain provisional.");
+                    Assert.That(frame.CalibrationVersion, Is.Zero);
+                    Assert.That(Vector3.Distance(frame.Origin.position, position + body * seat), Is.LessThan(.001f));
+                }
+                Vector3 neutral = new Vector3(.1f, 1.65f, -.2f);
+                Quaternion neutralRotation = Quaternion.Euler(0f, 35f, 0f);
+                head.transform.SetLocalPositionAndRotation(neutral, neutralRotation);
+                frame.Follow(head.transform, position, body, seat, true, true, true);
+                Assert.That(frame.SeatCalibrated, Is.True);
+                Assert.That(frame.CalibrationVersion, Is.EqualTo(1));
+                Assert.That(Vector3.Distance(head.transform.position, position + body * seat), Is.LessThan(.001f));
+                Assert.That(Quaternion.Angle(head.transform.rotation, body), Is.LessThan(.05f));
+
+                Vector3 rawPosition = neutral + new Vector3(.15f, -.03f, .04f);
+                Quaternion rawRotation = Quaternion.Euler(-5f, 48f, 2f);
+                head.transform.SetLocalPositionAndRotation(rawPosition, rawRotation);
+                foreach (bool tracked in new[] { true, false, true })
+                {
+                    body = Quaternion.AngleAxis(7f, Vector3.up) * body;
+                    frame.Follow(head.transform, position, body, seat, tracked, true, false);
+                    Quaternion origin = body * Quaternion.Inverse(neutralRotation);
+                    Assert.That(frame.SeatCalibrated, Is.True, "Taking off the headset must not discard an established seat.");
+                    Assert.That(frame.CalibrationVersion, Is.EqualTo(1));
+                    Assert.That(head.transform.localPosition, Is.EqualTo(rawPosition));
+                    Assert.That(Quaternion.Angle(head.transform.localRotation, rawRotation), Is.LessThan(.05f));
+                    Assert.That(Vector3.Distance(head.transform.position, position + body * seat + origin * (rawPosition - neutral)), Is.LessThan(.001f));
+                }
+            }
+            finally { frame.Release(); Object.DestroyImmediate(head); }
+        }
+
+        [TestCase(false)]
+        [TestCase(true)]
+        public void ProvidersWithoutPresenceKeepTheValidTrackedFallback(bool unusedPresenceValue)
+        {
+            var head = new GameObject("Provider without presence feature");
+            var frame = new AircraftNativeXrOrigin();
+            try
+            {
+                head.transform.SetLocalPositionAndRotation(new Vector3(.2f, 1.6f, -.1f), Quaternion.Euler(0f, 25f, 0f));
+                Quaternion body = AircraftNativeXrOrigin.BodyRotation(2f, -3f, 90f);
+                Vector3 position = new Vector3(50f, 400f, -20f);
+                frame.Follow(head.transform, position, body, Vector3.zero, true, false, unusedPresenceValue);
+                Assert.That(frame.SeatCalibrated, Is.True, "An unavailable optional presence feature must not disable another provider's tracked calibration.");
+                Assert.That(frame.CalibrationVersion, Is.EqualTo(1));
+                Assert.That(Vector3.Distance(head.transform.position, position), Is.LessThan(.001f));
+                Assert.That(Quaternion.Angle(head.transform.rotation, body), Is.LessThan(.05f));
+            }
+            finally { frame.Release(); Object.DestroyImmediate(head); }
+        }
+
+        [Test]
+        public void ManualRecenterRejectsKnownAbsenceWithoutChangingTheEstablishedSeat()
+        {
+            var head = new GameObject("Known-absent manual recenter");
+            var frame = new AircraftNativeXrOrigin();
+            try
+            {
+                Quaternion body = AircraftNativeXrOrigin.BodyRotation(0f, 0f, 100f);
+                Vector3 position = new Vector3(20f, 40f, 60f);
+                head.transform.SetLocalPositionAndRotation(new Vector3(.2f, .6f, -.1f), Quaternion.Euler(0f, 75f, 0f));
+                frame.Follow(head.transform, position, body, Vector3.zero, true, true, false);
+                Assert.That(frame.Recenter(position, body, Vector3.zero, true, true, false), Is.False);
+                Assert.That(frame.SeatCalibrated, Is.False);
+                Assert.That(frame.CalibrationVersion, Is.Zero);
+
+                head.transform.SetLocalPositionAndRotation(new Vector3(.1f, 1.7f, -.2f), Quaternion.Euler(0f, 30f, 0f));
+                frame.Follow(head.transform, position, body, Vector3.zero, true, true, true);
+                Vector3 previousOrigin = frame.Origin.position;
+                Quaternion previousRotation = frame.Origin.rotation;
+                Vector3 rawPosition = new Vector3(.4f, 1.6f, .1f);
+                Quaternion rawRotation = Quaternion.Euler(-4f, 50f, 0f);
+                head.transform.SetLocalPositionAndRotation(rawPosition, rawRotation);
+                Assert.That(frame.Recenter(position, body, Vector3.zero, true, true, false), Is.False);
+                Assert.That(frame.SeatCalibrated, Is.True);
+                Assert.That(frame.CalibrationVersion, Is.EqualTo(1));
+                Assert.That(frame.Origin.position, Is.EqualTo(previousOrigin));
+                Assert.That(Quaternion.Angle(frame.Origin.rotation, previousRotation), Is.LessThan(.001f));
+                Assert.That(head.transform.localPosition, Is.EqualTo(rawPosition));
+                Assert.That(Quaternion.Angle(head.transform.localRotation, rawRotation), Is.LessThan(.001f));
+                Assert.That(frame.Recenter(position, body, Vector3.zero, true, true, true), Is.True);
+                Assert.That(frame.CalibrationVersion, Is.EqualTo(2));
+                Assert.That(Vector3.Distance(head.transform.position, position), Is.LessThan(.001f));
+            }
+            finally { frame.Release(); Object.DestroyImmediate(head); }
+        }
+
+        [Test]
+        public void PresenceCannotCalibrateAnUntrackedHeadset()
+        {
+            var head = new GameObject("Present but untracked head");
+            var frame = new AircraftNativeXrOrigin();
+            try
+            {
+                Quaternion body = AircraftNativeXrOrigin.BodyRotation(0f, 0f, 30f);
+                frame.Follow(head.transform, Vector3.zero, body, Vector3.zero, false, true, true);
+                Assert.That(frame.SeatCalibrated, Is.False);
+                Assert.That(frame.Recenter(Vector3.zero, body, Vector3.zero, false, true, true), Is.False);
+                Assert.That(frame.CalibrationVersion, Is.Zero);
+                frame.Follow(head.transform, Vector3.zero, body, Vector3.zero, true, true, true);
+                Assert.That(frame.SeatCalibrated, Is.True);
+                Assert.That(frame.CalibrationVersion, Is.EqualTo(1));
+            }
+            finally { frame.Release(); Object.DestroyImmediate(head); }
+        }
+
+        [Test]
         public void ManualSeatRecenterRequiresRealTrackingAndCannotCalibrateAnIdleHeadset()
         {
             var head = new GameObject("Idle recenter fixture");

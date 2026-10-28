@@ -18,11 +18,16 @@ namespace AircraftControl.Camera
         // Flight data uses nose-up positive pitch; Unity's positive X points the nose down.
         public static Quaternion BodyRotation(float pitch, float roll, float heading) => Quaternion.Euler(-pitch, heading, -roll);
 
-        public void Follow(Transform trackedHead, Vector3 aircraftPosition, Quaternion bodyRotation, Vector3 cockpitOffset, bool trackingValid = true)
+        /// <summary>A reported absence cannot establish a physical seat; providers without presence retain tracked fallback.</summary>
+        public static bool CanCalibrateSeat(bool trackingValid, bool presenceAvailable, bool userPresent) =>
+            trackingValid && (!presenceAvailable || userPresent);
+
+        public void Follow(Transform trackedHead, Vector3 aircraftPosition, Quaternion bodyRotation, Vector3 cockpitOffset,
+            bool trackingValid = true, bool presenceAvailable = false, bool userPresent = false)
         {
             if (trackedHead == null) return;
             if (head != trackedHead || Origin == null) Bind(trackedHead);
-            if (!SeatCalibrated && trackingValid) CalibrateSeat();
+            if (!SeatCalibrated && CanCalibrateSeat(trackingValid, presenceAvailable, userPresent)) CalibrateSeat();
             Quaternion rotation = bodyRotation * Quaternion.Inverse(neutralYaw);
             Vector3 seat = aircraftPosition + bodyRotation * cockpitOffset;
             Origin.SetPositionAndRotation(seat - rotation * neutralPosition, rotation);
@@ -57,9 +62,11 @@ namespace AircraftControl.Camera
             CalibrationVersion++;
         }
 
-        public bool Recenter(Vector3 aircraftPosition, Quaternion bodyRotation, Vector3 cockpitOffset, bool trackingValid = true)
+        /// <summary>Explicit recenter uses the same tracked/presence gate and leaves an existing seat unchanged on refusal.</summary>
+        public bool Recenter(Vector3 aircraftPosition, Quaternion bodyRotation, Vector3 cockpitOffset,
+            bool trackingValid = true, bool presenceAvailable = false, bool userPresent = false)
         {
-            if (head == null || Origin == null || !trackingValid) return false;
+            if (head == null || Origin == null || !CanCalibrateSeat(trackingValid, presenceAvailable, userPresent)) return false;
             CalibrateSeat();
             Follow(head, aircraftPosition, bodyRotation, cockpitOffset);
             return true;

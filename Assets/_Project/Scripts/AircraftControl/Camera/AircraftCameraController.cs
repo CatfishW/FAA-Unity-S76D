@@ -304,25 +304,31 @@ namespace AircraftControl.Camera
             if (tracking == null || !tracking.isActiveAndEnabled) return;
             bool firstPose = NativeXrTrackingOrigin == null;
             bool wasCalibrated = NativeXrSeatCalibrated;
-            _nativeXrOrigin.Follow(transform, aircraftTransform.position, NativeAircraftRotation(), cockpitOffset, NativeHeadTracked());
+            bool tracked = NativeHeadTracked(out bool presenceAvailable, out bool userPresent);
+            _nativeXrOrigin.Follow(transform, aircraftTransform.position, NativeAircraftRotation(), cockpitOffset,
+                tracked, presenceAvailable, userPresent);
             if (firstPose) Debug.Log("[FAA XR] Aircraft tracking origin active; local HMD pose preserved, seat calibrated=" + NativeXrSeatCalibrated + ".", this);
             if (!wasCalibrated && NativeXrSeatCalibrated)
-                Debug.Log("[FAA XR] Native aircraft seat position/yaw calibrated from the first valid tracked HMD sample.", this);
+                Debug.Log("[FAA XR] Native aircraft seat position/yaw calibrated from the first eligible tracked HMD sample (user presence required when reported).", this);
 #endif
         }
 
-        private static bool NativeHeadTracked()
+        private static bool NativeHeadTracked(out bool presenceAvailable, out bool userPresent)
         {
+            presenceAvailable = false; userPresent = false;
             var device = UnityEngine.XR.InputDevices.GetDeviceAtXRNode(UnityEngine.XR.XRNode.Head);
-            return UnityEngine.XR.XRSettings.isDeviceActive && device.isValid &&
-                device.TryGetFeatureValue(UnityEngine.XR.CommonUsages.isTracked, out bool tracked) && tracked;
+            if (!UnityEngine.XR.XRSettings.isDeviceActive || !device.isValid) return false;
+            presenceAvailable = device.TryGetFeatureValue(UnityEngine.XR.CommonUsages.userPresence, out userPresent);
+            return device.TryGetFeatureValue(UnityEngine.XR.CommonUsages.isTracked, out bool tracked) && tracked;
         }
 
-        /// <summary>Calibrate the current physical seat position and yaw without modifying the tracked head pose.</summary>
+        /// <summary>Wear a tracked headset to recenter the seat; reported absence is refused without changing its prior calibration.</summary>
         public bool RecenterNativeXrSeat()
         {
             if (NativeXrTrackingOrigin == null || aircraftTransform == null) return false;
-            if (!_nativeXrOrigin.Recenter(aircraftTransform.position, NativeAircraftRotation(), cockpitOffset, NativeHeadTracked())) return false;
+            bool tracked = NativeHeadTracked(out bool presenceAvailable, out bool userPresent);
+            if (!_nativeXrOrigin.Recenter(aircraftTransform.position, NativeAircraftRotation(), cockpitOffset,
+                tracked, presenceAvailable, userPresent)) return false;
             Debug.Log("[FAA XR] Native aircraft seat recentered from the current tracked position and yaw.", this);
             return true;
         }
