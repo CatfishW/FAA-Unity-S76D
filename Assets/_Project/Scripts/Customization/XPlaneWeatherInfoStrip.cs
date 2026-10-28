@@ -376,6 +376,7 @@ namespace FAA.Customization
             {
                 ExpandedChanged?.Invoke(expanded);
             }
+            PositionToRightOfRadar();
         }
 
         private void AnimateDisclosure()
@@ -486,7 +487,69 @@ namespace FAA.Customization
 
             _rectTransform.localScale = Vector3.one;
             _rectTransform.localRotation = Quaternion.identity;
+            KeepConditionsClearOfRadarAndDrawer();
             _rectTransform.SetAsLastSibling();
+        }
+
+        // Conditions and the settings drawer are sibling panels. The drawer can be wider than the radar,
+        // so merely docking right of the scope lets the upper metric rows cover its gain/help controls.
+        private void KeepConditionsClearOfRadarAndDrawer()
+        {
+            Transform parent=_rectTransform.parent;
+            Rect expanded=_rectTransform.rect;
+            expanded.yMin=expanded.yMax-ExpandedHeight;
+            if(parent==null||!TryRectInParent(_rectTransform,parent,null,out Rect conditions,expanded))return;
+            if(TryRectInParent(radarRoot,parent,null,out Rect scope))
+            {
+                for(int i=0;i<2;i++)
+                {
+                    var plate=radarRoot.Find(i==0?"Radar Status Header":"Radar Status Footer") as RectTransform;
+                    if(plate==null||!plate.gameObject.activeInHierarchy||!TryRectInParent(plate,parent,null,out Rect box))continue;
+                    scope=Rect.MinMaxRect(Mathf.Min(scope.xMin,box.xMin),Mathf.Min(scope.yMin,box.yMin),
+                        Mathf.Max(scope.xMax,box.xMax),Mathf.Max(scope.yMax,box.yMax));
+                }
+                float right=scope.xMax+StripGap;
+                if(conditions.xMin<right)
+                {
+                    _rectTransform.anchoredPosition+=Vector2.right*(right-conditions.xMin);
+                    TryRectInParent(_rectTransform,parent,null,out conditions,expanded);
+                }
+            }
+            if(controlStrip==null||!controlStrip.gameObject.activeInHierarchy)return;
+            var drawer=controlStrip.GetComponent<FaaRadarConfigurationDrawer>();
+            var group=controlStrip.GetComponent<CanvasGroup>();
+            bool visible=drawer!=null?drawer.TargetVisible||drawer.Progress>.001f:group==null||group.alpha>.02f;
+            if(!visible)return;
+            // Reserve the final scale while the opening drawer is still at its smaller animation scale.
+            Vector3 scale=controlStrip.localScale;
+            scale.x=Mathf.Max(Mathf.Abs(scale.x),Mathf.Abs(_rectTransform.localScale.x));
+            scale.y=Mathf.Max(Mathf.Abs(scale.y),Mathf.Abs(_rectTransform.localScale.y));
+            if(TryRectInParent(controlStrip,parent,scale,out Rect settings)&&conditions.Overlaps(settings))
+                _rectTransform.anchoredPosition+=Vector2.down*(conditions.yMax-settings.yMin+StripGap);
+        }
+
+        // Compose local transforms rather than subtracting large world-space positions in a moving aircraft.
+        private static bool TryRectInParent(RectTransform source,Transform ancestor,Vector3? sourceScale,out Rect rect,Rect? sourceBounds=null)
+        {
+            rect=default;if(source==null||ancestor==null)return false;
+            Matrix4x4 matrix=Matrix4x4.identity;Transform cursor=source;
+            for(int depth=0;cursor!=null&&depth<128;depth++,cursor=cursor.parent)
+            {
+                if(cursor==ancestor)
+                {
+                    Vector2 minimum=new Vector2(float.PositiveInfinity,float.PositiveInfinity),maximum=-minimum;
+                    Rect bounds=sourceBounds??source.rect;
+                    for(int i=0;i<4;i++)
+                    {
+                        Vector3 point=matrix.MultiplyPoint3x4(new Vector3((i&1)==0?bounds.xMin:bounds.xMax,(i&2)==0?bounds.yMin:bounds.yMax,0f));
+                        minimum=Vector2.Min(minimum,point);maximum=Vector2.Max(maximum,point);
+                    }
+                    rect=Rect.MinMaxRect(minimum.x,minimum.y,maximum.x,maximum.y);return true;
+                }
+                Vector3 scale=cursor==source&&sourceScale.HasValue?sourceScale.Value:cursor.localScale;
+                matrix=Matrix4x4.TRS(cursor.localPosition,cursor.localRotation,scale)*matrix;
+            }
+            return false;
         }
 
         public static Vector2 CalculateRightSidePosition(

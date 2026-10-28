@@ -139,6 +139,8 @@ namespace FAA.Customization
         private Rect pixels, windowPx, zoneAnchor = new Rect(-2f, -2f, 0f, 0f);
         private Vector2 focal = Vector2.one, windowScreen;
         private bool windowReady, windowAnchored, isUnusual, classicLocal, nativeXr, glideslopeMode;
+        private Rect inspectionOcclusion;
+        private bool inspectionOcclusionActive;
         private int zoneFrame = -1, signatureLength, lastSignatureLength = -1, hoverCandidate = -1;
         private float zoneTime, rungStroke, primaryStroke, minorStroke, haloDegrees, capDegrees, capPixels, fpvRadius, waterlineUnit,
             fadeX, fadeY, rungOuter = RungOuterMax, intensity = 1f, ladderInner = 2.8f, strokePixels, haloPixels, occluderPad = 4f;
@@ -564,8 +566,15 @@ namespace FAA.Customization
 
         private void RefreshZones()
         {
+            Rect panel = default;
+            var workspace = FaaSpatialWorkspace.Current;
+            bool panelActive = !nativeXr && workspace != null && workspace.TryGetInspectedPanelRect(out panel) &&
+                FaaRotorcraftCueMath.FiniteRect(panel) && panel.width > 0f && panel.height > 0f;
+            bool panelChanged = panelActive != inspectionOcclusionActive || panelActive && !SameRect(panel, inspectionOcclusion, .01f);
+            inspectionOcclusionActive = panelActive;
+            inspectionOcclusion = panelActive ? panel : default;
             Rect anchorKey = waterlineValid && waterlineProjected ? waterlineBox : new Rect(-1f, -1f, 0f, 0f);
-            if (zoneFrame == Time.frameCount && windowReady && windowScreen == pixels.size && SameRect(anchorKey, zoneAnchor, .5f)) return;
+            if (!panelChanged && zoneFrame == Time.frameCount && windowReady && windowScreen == pixels.size && SameRect(anchorKey, zoneAnchor, .5f)) return;
             float dt = zoneFrame < 0 || zoneFrame == Time.frameCount ? 0f : Mathf.Max(0f, Time.unscaledTime - zoneTime);
             zoneFrame = Time.frameCount; zoneTime = Time.unscaledTime; zoneAnchor = anchorKey;
             bool angularHud = nativeXr && sourceCanvas != null && sourceCanvas.rootCanvas.renderMode == RenderMode.WorldSpace;
@@ -711,6 +720,7 @@ namespace FAA.Customization
             signatureLength = 0;
             Sig(viewRotation); Sig(view.fieldOfView); Sig(pixels); Sig(projection.m00); Sig(projection.m11); Sig(projection.m02); Sig(projection.m12);
             Sig(radius); Sig(windowPx); Sig(intensity); Sig(capDegrees); Sig(rungOuter); Sig(ladderInner);
+            Sig(inspectionOcclusionActive); Sig(inspectionOcclusion);
             float x0 = 0f, y0 = 0f, x1 = 0f, y1 = 0f;
             for (int i = 0; i < keepOuts.Count; i++) { Rect r = keepOuts[i]; x0 += r.xMin; y0 += r.yMin; x1 += r.xMax; y1 += r.yMax; }
             Sig(keepOuts.Count); Sig(x0); Sig(y0); Sig(x1); Sig(y1);
@@ -1164,8 +1174,8 @@ namespace FAA.Customization
             float em = capPixels / CapEm, hw = .5f * text.Length * GlyphAdvanceEm * em + .45f * em, hh = .85f * em;
             if (!FromPixel(pixel + new Vector2(-hw, -hh), out Vector3 a) || !FromPixel(pixel + new Vector2(hw, -hh), out Vector3 b) ||
                 !FromPixel(pixel + new Vector2(hw, hh), out Vector3 c) || !FromPixel(pixel + new Vector2(-hw, hh), out Vector3 d)) return;
-            Quad(a * radius, b * radius, color, color, primaryStroke, true); Quad(b * radius, c * radius, color, color, primaryStroke, true);
-            Quad(c * radius, d * radius, color, color, primaryStroke, true); Quad(d * radius, a * radius, color, color, primaryStroke, true);
+            EmitQuad(a * radius, b * radius, color, color, primaryStroke, true); EmitQuad(b * radius, c * radius, color, color, primaryStroke, true);
+            EmitQuad(c * radius, d * radius, color, color, primaryStroke, true); EmitQuad(d * radius, a * radius, color, color, primaryStroke, true);
         }
 
         // ---- Scene references and hover ----------------------------------------------------------
@@ -1404,6 +1414,52 @@ namespace FAA.Customization
         /// <summary>Constant-angular-width quad between two eye-relative points; alpha follows the inspection dimming.</summary>
         private void Quad(Vector3 a, Vector3 b, Color ta, Color tb, float widthDegrees, bool halo)
         {
+            if (!inspectionOcclusionActive || nativeXr)
+            { EmitQuad(a, b, ta, tb, widthDegrees, halo); return; }
+            if (!ToPixel(a, out Vector2 pa) || !ToPixel(b, out Vector2 pb)) return;
+            Vector2 delta = pb - pa;
+            float squared = delta.sqrMagnitude;
+            if (!(squared > 1e-4f)) return;
+            // Use the actual projected outer corners, including halo, so a thick stroke cannot enter the panel
+            // even when its centreline is clear. No shared Segment scratch arrays or recursive Quad calls.
+            Vector3 side = Vector3.Cross(b - a, (a + b) * .5f).normalized;
+            float tangent = Mathf.Tan((widthDegrees * .5f + (halo ? haloDegrees : 0f)) * Mathf.Deg2Rad);
+            float margin = 1f;
+            for (int end = 0; end < 2; end++)
+            {
+                Vector3 point = end == 0 ? a : b; Vector2 center = end == 0 ? pa : pb;
+                Vector3 offset = side * Mathf.Max(view.nearClipPlane, point.magnitude) * tangent;
+                if (!ToPixel(point + offset, out Vector2 plus) || !ToPixel(point - offset, out Vector2 minus)) return;
+                margin = Mathf.Max(margin, 1f + Mathf.Max(Mathf.Max(Mathf.Abs(plus.x - center.x), Mathf.Abs(plus.y - center.y)),
+                    Mathf.Max(Mathf.Abs(minus.x - center.x), Mathf.Abs(minus.y - center.y))));
+            }
+            Rect cut = Rect.MinMaxRect(inspectionOcclusion.xMin - margin, inspectionOcclusion.yMin - margin,
+                inspectionOcclusion.xMax + margin, inspectionOcclusion.yMax + margin);
+            Vector2 enter = pa, exit = pb;
+            if (!FaaHudKeepOut.ClipSegment(cut, ref enter, ref exit))
+            { EmitQuad(a, b, ta, tb, widthDegrees, halo); return; }
+            float start = Param(enter, pa, delta, squared), finish = Param(exit, pa, delta, squared);
+            float crumb = 1.5f / Mathf.Sqrt(squared);
+            if (start > crumb && InspectionCutPoint(a, b, enter, start, out Vector3 left))
+                EmitQuad(a, left, ta, Color.Lerp(ta, tb, start), widthDegrees, halo);
+            if (1f - finish > crumb && InspectionCutPoint(a, b, exit, finish, out Vector3 right))
+                EmitQuad(right, b, Color.Lerp(ta, tb, finish), tb, widthDegrees, halo);
+        }
+
+        private bool InspectionCutPoint(Vector3 a, Vector3 b, Vector2 pixel, float t, out Vector3 point)
+        {
+            point = default;
+            if (!FromPixel(pixel, out Vector3 ray)) return false;
+            // Perspective-correct depth keeps geographic strokes on their original segment as well as their angular ray.
+            float za = (inverseViewRotation * a).z, zb = (inverseViewRotation * b).z, zr = (inverseViewRotation * ray).z;
+            if (za <= 0f || zb <= 0f || zr <= 0f) return false;
+            float depth = 1f / ((1f - t) / za + t / zb);
+            point = ray * (depth / zr);
+            return FaaRotorcraftCueMath.Finite(point);
+        }
+
+        private void EmitQuad(Vector3 a, Vector3 b, Color ta, Color tb, float widthDegrees, bool halo)
+        {
             if (!FaaRotorcraftCueMath.Finite(a) || !FaaRotorcraftCueMath.Finite(b)) return;
             Vector3 segment = b - a;
             if (segment.sqrMagnitude < .000001f) return;
@@ -1451,6 +1507,13 @@ namespace FAA.Customization
             float rad = rollDegrees * Mathf.Deg2Rad, cs = Mathf.Abs(Mathf.Cos(rad)), sn = Mathf.Abs(Mathf.Sin(rad));
             float bw = w * cs + h * sn, bh = w * sn + h * cs;
             box = new Rect(p.x - bw * .5f, p.y - bh * .5f, bw, bh);
+            if (zone != Zone.Flag && inspectionOcclusionActive && !nativeXr)
+            {
+                float margin = Mathf.Max(1f, haloPixels);
+                Rect cut = Rect.MinMaxRect(inspectionOcclusion.xMin - margin, inspectionOcclusion.yMin - margin,
+                    inspectionOcclusion.xMax + margin, inspectionOcclusion.yMax + margin);
+                if (cut.Overlaps(box)) return false;
+            }
             if (zone == Zone.Window && !FaaRotorcraftCueMath.Contains(windowPx, box)) return false;
             if (zone == Zone.KeepOut && FaaRotorcraftCueMath.Overlaps(box, keepOuts)) return false;
             if (zone != Zone.Flag)
