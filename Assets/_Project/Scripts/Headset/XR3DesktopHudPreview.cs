@@ -35,6 +35,10 @@ namespace FAA.Headset
                 ? SynchronizePointerCamera(active.preview) : canvas != null && canvas.renderMode != RenderMode.ScreenSpaceOverlay ? canvas.worldCamera : null;
         }
 
+        /// <summary>Read-only diagnostic access; does not refresh or reconfigure a camera.</summary>
+        public static Camera OwnedDesktopCameraForAudit => active != null && active.isActiveAndEnabled && active.capturedMirror &&
+            active.preview != null && active.preview.enabled ? active.preview : null;
+
         /// <summary>Input may run after the head moves but before this owner's LateUpdate.</summary>
         public static Camera SynchronizePointerCamera(Camera candidate)
         {

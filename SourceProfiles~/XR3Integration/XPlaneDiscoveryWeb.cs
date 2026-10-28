@@ -19,10 +19,18 @@ namespace FAA.XPlaneIntegration.Runtime
         public static async Task Run(string endpoint,Action<XPlaneDiscoveredFrame> publish,Action<string> diagnostic,CancellationToken token)
         {
             var uri=new Uri(endpoint);bool local=XPlaneSourceConfig.IsLoopback(uri.Host);
+            string lastStatus=null;
+            void Status(string stage,string detail)
+            {
+                string message="Native Web API "+uri.Authority+" ["+stage+"] "+detail;
+                if(message==lastStatus)return;lastStatus=message;diagnostic(message);
+            }
             while(!token.IsCancellationRequested)
             {
+                string stage="identity";
                 try
                 {
+                    Status(stage,"probing X-Plane identity");
                     using(var handler=new HttpClientHandler{UseProxy=false,AllowAutoRedirect=false})
                     using(var http=new HttpClient(handler){Timeout=TimeSpan.FromSeconds(2),MaxResponseContentBufferSize=131072})
                     {
@@ -31,10 +39,12 @@ namespace FAA.XPlaneIntegration.Runtime
                         // Fail one cheap identity lookup before issuing the bounded catalog requests.
                         using(var probe=await http.GetAsync(endpoint+"/api/v1/datarefs?filter%5Bname%5D=sim%2Fversion%2Fxplane_internal_version&limit=1",token))
                         {
+                            if(!probe.IsSuccessStatusCode)stage="identity HTTP "+(int)probe.StatusCode;
                             probe.EnsureSuccessStatusCode();
                             string identity=await probe.Content.ReadAsStringAsync();
                             if(!identity.Contains("sim/version/xplane_internal_version"))throw new InvalidDataException("Not an X-Plane dataref API.");
                         }
+                        stage="catalog";Status(stage,"resolving required flight datarefs");
                         var ids=new Dictionary<string,string>(StringComparer.Ordinal);var known=new HashSet<string>(names,StringComparer.Ordinal);
                         // Exact filters discover session-specific IDs; never reuse IDs across simulator restarts.
                         // Native API 1 is supported by every version exposing the Web API.
@@ -50,6 +60,7 @@ namespace FAA.XPlaneIntegration.Runtime
                                     using(var response=await http.GetAsync(endpoint+"/api/v1/datarefs?filter%5Bname%5D="+Uri.EscapeDataString(name)+"&limit=4",lookupTimeout.Token))
                                     {
                                         if(response.StatusCode==HttpStatusCode.NotFound)return;
+                                        if(!response.IsSuccessStatusCode)stage="catalog HTTP "+(int)response.StatusCode;
                                         response.EnsureSuccessStatusCode();
                                         string text=await response.Content.ReadAsStringAsync();
                                         using(var reader=new JsonTextReader(new StringReader(text)){MaxDepth=6})
@@ -67,6 +78,7 @@ namespace FAA.XPlaneIntegration.Runtime
                         }
                         if(!XPlaneDiscoveryData.Core.All(n=>ids.Values.Contains(n))||!ids.Values.Contains(XPlaneDiscoveryData.Clock)||!ids.Values.Contains(XPlaneDiscoveryData.Version))
                             throw new InvalidDataException("Native API lacks required flight identity/datarefs.");
+                        stage="websocket connect";Status(stage,"resolved "+ids.Count+" datarefs; connecting");
                         using(var socket=new ClientWebSocket())
                         using(var lifecycle=CancellationTokenSource.CreateLinkedTokenSource(token))
                         {
@@ -74,8 +86,10 @@ namespace FAA.XPlaneIntegration.Runtime
                             lifecycle.CancelAfter(TimeSpan.FromSeconds(4));
                             var ws=new UriBuilder(uri){Scheme=uri.Scheme=="https"?"wss":"ws",Path=uri.AbsolutePath.TrimEnd('/')+"/api/v1"};
                             await socket.ConnectAsync(ws.Uri,lifecycle.Token);lifecycle.CancelAfter(Timeout.Infinite);
+                            stage="subscribe";
                             var request=new JObject{["req_id"]=1,["type"]="dataref_subscribe_values",["params"]=new JObject{["datarefs"]=new JArray(ids.Keys.Select(id=>(JToken)new JObject{["id"]=long.Parse(id,CultureInfo.InvariantCulture)}))}};
                             byte[] bytes=Encoding.UTF8.GetBytes(request.ToString(Formatting.None));await socket.SendAsync(new ArraySegment<byte>(bytes),WebSocketMessageType.Text,true,token);
+                            stage="stream read";Status(stage,"waiting for validated flight data");
                             var values=new Dictionary<string,double>(StringComparer.Ordinal);var timestamps=new Dictionary<string,double>(StringComparer.Ordinal);double lastClock=-1;byte[] buffer=new byte[131072];
                             try
                             {
@@ -112,9 +126,11 @@ namespace FAA.XPlaneIntegration.Runtime
                                 XPlaneDiscoveryData.MergeNativeTrafficDelta(values,timestamps,delta,invalid,XPlaneDiscoveryData.Now);
                                 // Unchanged datarefs are valid until this websocket session ends; native API sends deltas.
                                 bool paused=values.TryGetValue("sim/time/paused",out double pause)&&pause==1;
-                                if(!values.TryGetValue(XPlaneDiscoveryData.Clock,out double clock)||!paused&&clock<=lastClock||!values.TryGetValue(XPlaneDiscoveryData.Version,out double version)||version<120000||version>=130000||!XPlaneDiscoveryData.CoreValid(values))continue;
+                                if(!values.TryGetValue(XPlaneDiscoveryData.Clock,out double clock)||!paused&&clock<=lastClock||!values.TryGetValue(XPlaneDiscoveryData.Version,out double version)||version<120000||version>=130000||!XPlaneDiscoveryData.CoreValid(values))
+                                {Status("flight validation",WaitingReason(values,lastClock));continue;}
                                 lastClock=clock;
                                 double now=XPlaneDiscoveryData.Now;
+                                Status("live",paused?"validated paused flight data":"validated advancing flight data");
                                 publish(new XPlaneDiscoveredFrame{Id="native-web:"+endpoint,Label=(local?"LOCAL X-PLANE WEB ":"CONFIGURED X-PLANE WEB ")+uri.Authority+(paused?" [PAUSED]":""),Transport="Native Web API",Priority=local?110:85,Received=now,Values=XPlaneDiscoveryData.FreshTrafficPose(values,timestamps,now),Signature=paused?"paused:"+now.ToString("R",CultureInfo.InvariantCulture):"clock:"+clock.ToString("R",CultureInfo.InvariantCulture),LocalProcessVerified=true});
                             }
                             }
@@ -123,9 +139,17 @@ namespace FAA.XPlaneIntegration.Runtime
                     }
                 }
                 catch(Exception e) when(e is HttpRequestException||e is WebSocketException||e is IOException||e is JsonException||e is OperationCanceledException||e is ObjectDisposedException||e is FormatException)
-                {if(token.IsCancellationRequested)break;diagnostic("Native Web API unavailable or awaiting flight data at "+uri.Authority);}
+                {if(token.IsCancellationRequested)break;Status(stage,e.GetType().Name+"; retry in 12s");}
                 try{await Task.Delay(12000,token);}catch(OperationCanceledException){break;}
             }
+        }
+        internal static string WaitingReason(Dictionary<string,double> values,double lastClock)
+        {
+            if(!values.TryGetValue(XPlaneDiscoveryData.Clock,out double clock))return "awaiting simulator clock";
+            bool paused=values.TryGetValue("sim/time/paused",out double pause)&&pause==1;
+            if(!paused&&clock<=lastClock)return "awaiting advancing simulator clock";
+            if(!values.TryGetValue(XPlaneDiscoveryData.Version,out double version)||version<120000||version>=130000)return "awaiting valid X-Plane 12 identity";
+            return "awaiting complete valid flight core";
         }
     }
 }

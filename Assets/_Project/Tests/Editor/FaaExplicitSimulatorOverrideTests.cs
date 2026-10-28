@@ -132,6 +132,95 @@ namespace FAA.Customization.Tests
         }
 
         [Test]
+        public void ExplicitStartupSuppressesConfiguredProviderBeforeAnyInitializeCall()
+        {
+            var manager = ScriptableObject.CreateInstance<XRManagerSettings>();
+            var loader = ScriptableObject.CreateInstance<FaaSimulatorOverrideTestLoader>();
+            try
+            {
+                Assert.That(manager.TryAddLoader(loader), Is.True);
+                Assert.That(Invoke("TrySuppressApplicationXrBeforeInitialization", manager, true), Is.True);
+                Assert.That(manager.activeLoaders, Is.Empty);
+                manager.InitializeLoaderSync();
+                CollectionAssert.IsEmpty(loader.Calls);
+                Assert.That(manager.activeLoader, Is.Null);
+                Assert.That(Invoke("CanActivateExplicitSimulator", true, manager, false), Is.True);
+            }
+            finally { UnityEngine.Object.DestroyImmediate(manager); UnityEngine.Object.DestroyImmediate(loader); }
+        }
+
+        [Test]
+        public void SuppressionRejectsAnInitializedProviderWithoutStoppingOrDeinitializingIt()
+        {
+            var manager = ScriptableObject.CreateInstance<XRManagerSettings>();
+            var loader = ScriptableObject.CreateInstance<FaaSimulatorOverrideTestLoader>();
+            try
+            {
+                Assert.That(manager.TryAddLoader(loader), Is.True);
+                manager.InitializeLoaderSync();
+                CollectionAssert.AreEqual(new[] { "Initialize" }, loader.Calls);
+                loader.Calls.Clear();
+                Assert.That(Invoke("TrySuppressApplicationXrBeforeInitialization", manager, true), Is.False);
+                Assert.That(manager.activeLoader, Is.SameAs(loader));
+                CollectionAssert.AreEqual(new[] { loader }, manager.activeLoaders);
+                CollectionAssert.IsEmpty(loader.Calls);
+                Assert.That(Invoke("CanActivateExplicitSimulator", true, manager, false), Is.False);
+            }
+            finally
+            {
+                if (manager.activeLoader != null) manager.DeinitializeLoader();
+                UnityEngine.Object.DestroyImmediate(manager); UnityEngine.Object.DestroyImmediate(loader);
+            }
+        }
+
+        [Test]
+        public void NoExplicitFlagLeavesConfiguredProviderAndNormalInitializationUntouched()
+        {
+            var manager = ScriptableObject.CreateInstance<XRManagerSettings>();
+            var loader = ScriptableObject.CreateInstance<FaaSimulatorOverrideTestLoader>();
+            try
+            {
+                Assert.That(manager.TryAddLoader(loader), Is.True);
+                Assert.That(Invoke("TrySuppressApplicationXrBeforeInitialization", manager, false), Is.False);
+                CollectionAssert.AreEqual(new[] { loader }, manager.activeLoaders);
+                manager.InitializeLoaderSync();
+                Assert.That(manager.activeLoader, Is.SameAs(loader));
+                CollectionAssert.AreEqual(new[] { "Initialize" }, loader.Calls);
+            }
+            finally
+            {
+                if (manager.activeLoader != null) manager.DeinitializeLoader();
+                UnityEngine.Object.DestroyImmediate(manager); UnityEngine.Object.DestroyImmediate(loader);
+            }
+        }
+
+        [Test]
+        public void ExplicitSimulatorFailsClosedWhenEarlySuppressionWasMissedOrNativeDisplayIsActive()
+        {
+            Assert.That(Invoke("TrySuppressApplicationXrBeforeInitialization", null, true), Is.False);
+            Assert.That(Invoke("CanActivateExplicitSimulator", false, null, false), Is.False);
+            Assert.That(Invoke("CanActivateExplicitSimulator", true, null, true), Is.False);
+            var manager = ScriptableObject.CreateInstance<XRManagerSettings>();
+            var loader = ScriptableObject.CreateInstance<FaaSimulatorOverrideTestLoader>();
+            try
+            {
+                Assert.That(manager.TryAddLoader(loader), Is.True);
+                Assert.That(Invoke("CanActivateExplicitSimulator", true, manager, false), Is.False);
+                CollectionAssert.IsEmpty(loader.Calls);
+            }
+            finally { UnityEngine.Object.DestroyImmediate(manager); UnityEngine.Object.DestroyImmediate(loader); }
+        }
+
+        [Test]
+        public void ProviderSuppressionIsRegisteredBeforeXrManagementInitialization()
+        {
+            MethodInfo method = Compatibility.GetMethod("SuppressExplicitSimulatorXrStartup", BindingFlags.NonPublic | BindingFlags.Static);
+            var timing = method.GetCustomAttribute<RuntimeInitializeOnLoadMethodAttribute>();
+            Assert.That(timing, Is.Not.Null);
+            Assert.That(timing.loadType, Is.EqualTo(RuntimeInitializeLoadType.SubsystemRegistration));
+        }
+
+        [Test]
         public void NullAndUninitializedManagersAreNoOps()
         {
             Assert.That(Invoke("StopApplicationXr", new object[] { null }), Is.False);

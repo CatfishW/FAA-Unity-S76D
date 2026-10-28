@@ -478,7 +478,7 @@ namespace FAA.Explanations
                 horizontal.childControlWidth = horizontal.childControlHeight = horizontal.childForceExpandWidth = horizontal.childForceExpandHeight = true;
                 var images = Rect(toggles, "Image sharing"); Plate(images, Card, false);
                 var imagesButton = Action(images, ToggleImageSharing); imagesButton.interactable = !controller.IsBusy;
-                var imageLabel = Label(images, "Label", "Chart / radar images " + (controller.IncludeImages ? "ON" : "OFF"), 11, controller.IncludeImages ? Accent : Muted);
+                var imageLabel = Label(images, "Label", "IMAGES " + (controller.IncludeImages ? "ON" : "OFF"), 11, controller.IncludeImages ? Accent : Muted);
                 Fill(imageLabel.rectTransform, 8);
                 var motion = Rect(toggles, "Motion preference"); Plate(motion, Card, false); Action(motion, ToggleMotion);
                 var motionLabel = Label(motion, "Label", ReducedMotion ? "Motion OFF" : "Motion ON", 11, Muted); Fill(motionLabel.rectTransform, 8);

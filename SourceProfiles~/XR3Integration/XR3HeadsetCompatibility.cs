@@ -163,12 +163,75 @@ namespace FAA.Headset
             return manager.activeLoader == null;
         }
 
+        private static bool s_ExplicitSimulatorStartupSuppressed;
+        private static bool s_ExplicitSimulatorStartupFailureReported;
+
+        /// <summary>Suppress configured providers before XR Management initializes them. Never tears down a live session.</summary>
+        public static bool TrySuppressApplicationXrBeforeInitialization(XRManagerSettings manager, bool explicitSimulator)
+        {
+            if (!explicitSimulator || manager == null || manager.isInitializationComplete || manager.activeLoader != null)
+                return false;
+            return manager.TrySetLoaders(new List<XRLoader>());
+        }
+
+        public static bool CanActivateExplicitSimulator(bool startupSuppressed, XRManagerSettings manager, bool nativeActive)
+            => startupSuppressed && !nativeActive && (manager == null ||
+                !manager.isInitializationComplete && manager.activeLoader == null && manager.activeLoaders.Count == 0);
+
+        private static XRGeneralSettings[] ApplicationXrSettings()
+        {
+            XRGeneralSettings settings = XRGeneralSettings.Instance;
+            return settings != null ? new[] { settings } : Resources.FindObjectsOfTypeAll<XRGeneralSettings>();
+        }
+
+        // XR Management initializes at AfterAssembliesLoaded and starts before the splash screen.
+        // Clearing the supported loader list here prevents provider initialization instead of releasing live eye textures.
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        private static void SuppressExplicitSimulatorXrStartup()
+        {
+            s_ExplicitSimulatorStartupSuppressed = false;
+            s_ExplicitSimulatorStartupFailureReported = false;
+            if (!ExplicitSimulatorRequested) return;
+            XRGeneralSettings[] settings = ApplicationXrSettings();
+            bool suppressed = settings.Length > 0;
+            var managers = new HashSet<XRManagerSettings>();
+            foreach (XRGeneralSettings setting in settings)
+            {
+                XRManagerSettings manager = setting != null ? setting.Manager : null;
+                if (manager != null && managers.Add(manager) && !TrySuppressApplicationXrBeforeInitialization(manager, true))
+                    suppressed = false;
+            }
+            s_ExplicitSimulatorStartupSuppressed = suppressed;
+            if (suppressed)
+                Debug.Log($"[FAA XR] Explicit desktop simulator requested; suppressed {managers.Count} application XR manager(s) before provider initialization.");
+        }
+
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
         private static void ApplyExplicitSimulatorStartup()
         {
-            if (!ExplicitSimulatorRequested) return;
-            StopApplicationXr(XRGeneralSettings.Instance != null ? XRGeneralSettings.Instance.Manager : null);
-            Debug.Log("[FAA XR] Explicit desktop simulator requested; this application's XR loader is released. Varjo Base services are unchanged.");
+            if (ExplicitSimulatorRequested) VerifyExplicitSimulatorStartup();
+        }
+
+        private static bool VerifyExplicitSimulatorStartup()
+        {
+            if (!ExplicitSimulatorRequested) return true;
+            XRGeneralSettings[] settings = ApplicationXrSettings();
+            bool safe = s_ExplicitSimulatorStartupSuppressed && settings.Length > 0;
+            bool nativeActive = IsNativeXrActive();
+            foreach (XRGeneralSettings setting in settings)
+                safe &= CanActivateExplicitSimulator(s_ExplicitSimulatorStartupSuppressed,
+                    setting != null ? setting.Manager : null, nativeActive);
+            if (safe) return true;
+            if (!s_ExplicitSimulatorStartupFailureReported)
+            {
+                s_ExplicitSimulatorStartupFailureReported = true;
+                Debug.LogError("[FAA XR] --xr3-sim configuration error: early XR suppression was missed or a native loader/display is active. " +
+                    "Desktop simulator activation is refused; the player will exit with code 78. Correct the startup policy before launching again.");
+#if !UNITY_EDITOR
+                Application.Quit(78);
+#endif
+            }
+            return false;
         }
 
         private static bool HasArgument(string[] arguments, params string[] flags)
@@ -460,7 +523,7 @@ namespace FAA.Headset
 
         private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
         {
-            if (ExplicitSimulatorRequested) StopApplicationXr(XRGeneralSettings.Instance != null ? XRGeneralSettings.Instance.Manager : null);
+            if (ExplicitSimulatorRequested && !VerifyExplicitSimulatorStartup()) return;
             if (_active)
             {
                 _simulatorInputSelectionLayoutConfigured = false;
@@ -507,7 +570,7 @@ namespace FAA.Headset
 
         private void EvaluateActivation()
         {
-            if (ExplicitSimulatorRequested) StopApplicationXr(XRGeneralSettings.Instance != null ? XRGeneralSettings.Instance.Manager : null);
+            if (ExplicitSimulatorRequested && !VerifyExplicitSimulatorStartup()) return;
             ActivationMode requested = ResolveActivationMode(activationMode, autoDetectNativeXr, IsNativeXrActive(),
                 enableEditorSimulator, enableSimulatorInPlayer, Application.isEditor, Environment.GetCommandLineArgs());
             if (requested != ActivationMode.Auto) Activate(requested, requested == ActivationMode.UnitySimulator);
@@ -532,7 +595,7 @@ namespace FAA.Headset
         {
             if (ExplicitSimulatorRequested)
             {
-                StopApplicationXr(XRGeneralSettings.Instance != null ? XRGeneralSettings.Instance.Manager : null);
+                if (!VerifyExplicitSimulatorStartup()) return;
                 mode = ActivationMode.UnitySimulator; startSimulator = true;
             }
             bool modeChanged = _active && _activeMode != mode;

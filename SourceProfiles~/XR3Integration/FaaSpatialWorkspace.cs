@@ -176,6 +176,10 @@ namespace FAA.Customization
             if(CurrentSymbology==FaaSymbologyVersion.Digital)fixedInstrumentLayout?.Apply(View);
             UpdateControlCanvasPose();
             UpdateSelectionFrame();
+            // Desktop inspection is a temporary presentation of the original UI, never a tracked-head pose change.
+            // Apply after normal cockpit poses (including before-render refresh), so animated drawers fit as one upright group.
+            if(InspectionZoomAllowed&&InspectedPanelId!=null)
+                GetPanel(InspectedPanelId)?.ApplyDesktopInspection(View,LastInspectionFrame.ScreenRect,false);
         }
 
         private bool TryBind()
