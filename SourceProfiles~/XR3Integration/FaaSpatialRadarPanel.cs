@@ -64,6 +64,9 @@ namespace FAA.Customization
         private readonly List<Graphic> boundsGraphics = new();
         private readonly List<CanvasGroup> boundsGroups = new();
         private readonly List<TMP_Text> textScratch = new();
+        private readonly List<Rect> desktopProtected=new();
+        private Rect desktopPreferred,desktopSafe,desktopContent,desktopPresentation;
+        private bool desktopFitValid;
 
         private struct CanvasState
         {
@@ -221,7 +224,7 @@ namespace FAA.Customization
                 boundsGraphics.Clear(); Canvas.GetComponentsInChildren(false, boundsGraphics);
                 foreach (var g in boundsGraphics)
                 {
-                    if (g == null || !g.isActiveAndEnabled || g.color.a <= .02f || g.transform.IsChildOf(Radar) || Masked(g.transform) || ChainAlpha(g.transform) <= .02f) continue;
+                    if (g == null || !g.isActiveAndEnabled || g.color.a <= .02f || Masked(g.transform) || ChainAlpha(g.transform) <= .02f) continue;
                     g.rectTransform.GetWorldCorners(corners);
                     if (Vector3.Distance(corners[0], corners[2]) > limit) continue;
                     for (int i = 0; i < 4; i++) b.Add(corners[i]);
@@ -247,7 +250,7 @@ namespace FAA.Customization
             foreach(var graphic in boundsGraphics)
             {
                 if(graphic==null||!graphic.isActiveAndEnabled||graphic.color.a<=.02f||
-                    graphic.transform.IsChildOf(Radar)||Masked(graphic.transform)||ChainAlpha(graphic.transform)<=.02f||
+                    Masked(graphic.transform)||ChainAlpha(graphic.transform)<=.02f||
                     !FaaCanvasLocalGeometry.TryMatrix(graphic.rectTransform,canvasRect,out var matrix))continue;
                 Rect box=FaaCanvasLocalGeometry.TransformRect(graphic.rectTransform.rect,matrix);
                 if(box.width>limit||box.height>limit)continue;
@@ -259,7 +262,7 @@ namespace FAA.Customization
 
         /// <summary>Temporary untracked desktop inspection pose: the complete visible radar UI is upright and on screen.
         /// The saved cockpit layout is unchanged; the next ordinary Apply restores the authored spatial pose.</summary>
-        public bool ApplyDesktopInspection(Camera view,Rect screenTarget,bool nativeXr)
+        public bool ApplyDesktopInspection(Camera view,Rect screenTarget,bool nativeXr,IReadOnlyList<Rect> protectedRects=null)
         {
             if(nativeXr||IsUtility||!IsSpatial||view==null||view.stereoEnabled||UnityEngine.XR.XRSettings.isDeviceActive)return false;
 #if ENABLE_INPUT_SYSTEM
@@ -273,9 +276,19 @@ namespace FAA.Customization
                 width-12f*k,height-92f*k);
             if(!(screenTarget.width>1f&&screenTarget.height>1f)||
                 !FaaSpatialLayoutMath.Finite(screenTarget.center.x)||!FaaSpatialLayoutMath.Finite(screenTarget.center.y))screenTarget=safe;
-            Vector2 size=new Vector2(Mathf.Min(screenTarget.width,safe.width),Mathf.Min(screenTarget.height,safe.height));
-            Vector2 centre=new Vector2(Mathf.Clamp(screenTarget.center.x,safe.xMin+size.x*.5f,safe.xMax-size.x*.5f),
-                Mathf.Clamp(screenTarget.center.y,safe.yMin+size.y*.5f,safe.yMax-size.y*.5f));
+            bool changed=!desktopFitValid||desktopPreferred!=screenTarget||desktopSafe!=safe||desktopContent!=content||
+                desktopProtected.Count!=(protectedRects!=null?protectedRects.Count:0);
+            if(!changed&&protectedRects!=null)for(int i=0;i<protectedRects.Count;i++)
+                if(desktopProtected[i]!=protectedRects[i]){changed=true;break;}
+            if(changed)
+            {
+                desktopPresentation=FitDesktopInspectionRect(screenTarget,content.size,safe,protectedRects);
+                desktopPreferred=screenTarget;desktopSafe=safe;desktopContent=content;desktopFitValid=true;
+                desktopProtected.Clear();if(protectedRects!=null)for(int i=0;i<protectedRects.Count;i++)desktopProtected.Add(protectedRects[i]);
+            }
+            Rect presentation=desktopPresentation;
+            if(presentation.width<=0f||presentation.height<=0f)return false;
+            Vector2 size=presentation.size,centre=presentation.center;
             float depth=Mathf.Max(view.nearClipPlane+.1f,Layout.distance);
             float pixelsPerMetre=height/(2f*depth*Mathf.Tan(view.fieldOfView*.5f*Mathf.Deg2Rad));
             float metresPerUnit=Mathf.Min(size.x/content.width,size.y/content.height)/pixelsPerMetre;
@@ -286,6 +299,58 @@ namespace FAA.Customization
             Vector3 at=view.ScreenToWorldPoint(new Vector3(centre.x,centre.y,depth));
             canvasRect.position=at-canvasRect.TransformVector(content.center);
             return true;
+        }
+
+        /// <summary>Largest uniform desktop presentation within the requested size that clears awareness readouts.
+        /// A clipped or overlapping angular-fit fallback cannot become the final camera-aligned panel rectangle.</summary>
+        public static Rect FitDesktopInspectionRect(Rect preferred,Vector2 contentSize,Rect safe,IReadOnlyList<Rect> protectedRects)
+        {
+            float w=Mathf.Max(1f,contentSize.x),h=Mathf.Max(1f,contentSize.y);
+            float maximum=Mathf.Max(.001f,Mathf.Min(Mathf.Min(preferred.width/w,preferred.height/h),Mathf.Min(safe.width/w,safe.height/h)));
+            int count=protectedRects!=null?protectedRects.Count:0;
+            var xs=new float[3+2*count];var ys=new float[3+2*count];
+            if(TryPlaceDesktop(w*maximum,h*maximum,preferred.center,safe,protectedRects,xs,ys,out Rect result))return result;
+            float lo=0f,hi=maximum;Rect best=default;
+            // The clear-placement predicate is monotonic as a uniformly scaled rectangle shrinks.
+            for(int i=0;i<14;i++)
+            {
+                float scale=(lo+hi)*.5f;
+                if(TryPlaceDesktop(w*scale,h*scale,preferred.center,safe,protectedRects,xs,ys,out result)){lo=scale;best=result;}
+                else hi=scale;
+            }
+            return lo>0f?best:new Rect(safe.center,Vector2.zero);
+        }
+
+        private static bool TryPlaceDesktop(float width,float height,Vector2 preferred,Rect safe,IReadOnlyList<Rect> protectedRects,
+            float[] xs,float[] ys,out Rect result)
+        {
+            result=default;
+            if(width>safe.width||height>safe.height)return false;
+            float hw=width*.5f,hh=height*.5f;
+            int nx=0,ny=0;
+            xs[nx++]=Mathf.Clamp(preferred.x,safe.xMin+hw,safe.xMax-hw);
+            ys[ny++]=Mathf.Clamp(preferred.y,safe.yMin+hh,safe.yMax-hh);
+            xs[nx++]=safe.xMin+hw;xs[nx++]=safe.xMax-hw;
+            ys[ny++]=safe.yMin+hh;ys[ny++]=safe.yMax-hh;
+            if(protectedRects!=null)for(int i=0;i<protectedRects.Count;i++)
+            {
+                Rect o=protectedRects[i];
+                xs[nx++]=o.xMin-hw-.5f;xs[nx++]=o.xMax+hw+.5f;
+                ys[ny++]=o.yMin-hh-.5f;ys[ny++]=o.yMax+hh+.5f;
+            }
+            float distance=float.PositiveInfinity;
+            for(int x=0;x<nx;x++)for(int y=0;y<ny;y++)
+            {
+                var candidate=new Rect(xs[x]-hw,ys[y]-hh,width,height);
+                if(candidate.xMin<safe.xMin-.001f||candidate.xMax>safe.xMax+.001f||candidate.yMin<safe.yMin-.001f||candidate.yMax>safe.yMax+.001f)continue;
+                bool clear=true;
+                if(protectedRects!=null)for(int i=0;i<protectedRects.Count;i++)if(candidate.Overlaps(protectedRects[i])){clear=false;break;}
+                if(!clear)continue;
+                float score=(candidate.center-preferred).sqrMagnitude;
+                if(score>=distance)continue;
+                distance=score;result=candidate;
+            }
+            return !float.IsInfinity(distance);
         }
 
         /// <summary>

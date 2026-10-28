@@ -239,7 +239,7 @@ namespace FAA.Customization
     /// hidden when it would sit on a protected HUD area, the inspected panel or the screen edge. On desktop the view also zooms so
     /// the inspected panel's text is legible. One owner decides the FaaHudInspection state each frame.
     /// </summary>
-    public sealed partial class FaaSpatialWorkspace
+    public sealed partial class FaaSpatialWorkspace : FaaHudKeepOut.IRegion
     {
         public const string OffAxisInspectionId="off-axis";
         /// <summary>Alpha of panels that are not the inspected one (when they are clear of the HUD and the inspected panel).</summary>
@@ -269,6 +269,14 @@ namespace FAA.Customization
         /// HUD and panel text never interleave. False when no panel is inspected.
         /// </summary>
         public bool TryGetInspectedPanelRect(out Rect rect){rect=inspectedScreenRect;return InspectedPanelId!=null&&inspectedScreenRectValid;}
+        private const string InspectionKeepOutId="panel:inspection";
+        string FaaHudKeepOut.IRegion.Id=>InspectionKeepOutId;
+        FaaKeepOutKind FaaHudKeepOut.IRegion.Kind=>FaaKeepOutKind.Chrome;
+        bool FaaHudKeepOut.IRegion.TryGetScreenRect(out Rect rect)
+        {
+            rect=default;
+            return Initialized&&InspectionZoomAllowed&&TryGetInspectedPanelRect(out rect);
+        }
         private readonly List<Rect> framingKeepOuts=new();
         /// <summary>Protected areas that do not constrain inspection framing: deviation scales are secondary and dimmed while inspecting.</summary>
         private static readonly HashSet<string> FramingIgnoredKeepOuts=new(System.StringComparer.Ordinal)
@@ -417,8 +425,10 @@ namespace FAA.Customization
             for(int i=0;i<regions.Count;i++)
             {
                 var r=regions[i];
-                if(r==null||r is Object o&&o==null||r.Kind==FaaKeepOutKind.AttitudeWindow||r.Id!=null&&FramingIgnoredKeepOuts.Contains(r.Id))continue;
+                if(r==null||r is Object o&&o==null||r.Kind==FaaKeepOutKind.AttitudeWindow||r.Id==InspectionKeepOutId||r.Id!=null&&FramingIgnoredKeepOuts.Contains(r.Id))continue;
                 if(!r.TryGetScreenRect(out var rect)||rect.width<=0f||rect.height<=0f)continue;
+                float margin=FaaInspectionFraming.ClearanceReference*height/FaaInspectionFraming.ReferenceHeight;
+                rect.xMin-=margin;rect.xMax+=margin;rect.yMin-=margin;rect.yMax+=margin;
                 framingKeepOuts.Add(rect);if(r.Kind==FaaKeepOutKind.Symbology)symbology++;
             }
             if(symbology==0)FaaInspectionFraming.DefaultKeepOuts(width,height,framingKeepOuts);

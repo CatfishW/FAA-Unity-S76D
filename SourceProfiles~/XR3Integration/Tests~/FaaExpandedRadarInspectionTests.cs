@@ -67,7 +67,7 @@ namespace FAA.Customization.Tests
             public RectTransform AddGraphic(string name, Transform parent, Vector2 position, Vector2 size) => ImageRect(name, parent, position, size);
             public object Call(string method, params object[] args) => PanelType.GetMethod(method, Any).Invoke(Panel, args);
             public void ApplyNormal() => Call("Apply", Cockpit, View, false);
-            public bool Inspect(bool nativeXr = false) => (bool)Call("ApplyDesktopInspection", View, RequestedTarget, nativeXr);
+            public bool Inspect(bool nativeXr = false) => (bool)Call("ApplyDesktopInspection", View, RequestedTarget, nativeXr,null);
             public Rect VisibleRect()
             {
                 object[] args = { default(Rect) };
@@ -112,6 +112,68 @@ namespace FAA.Customization.Tests
                 UnityEngine.Object.DestroyImmediate(CameraHost);
                 UnityEngine.Object.DestroyImmediate(CockpitHost);
                 UnityEngine.Object.DestroyImmediate(Target);
+            }
+        }
+
+        [Test]
+        public void UnmaskedHeaderAndFooterChildrenOutsideScopeContributeTheirTrueReadableExtent()
+        {
+            using(var f=new Fixture())
+            {
+                Rect original=f.VisibleRect();
+                RectTransform footer=f.AddGraphic("Actual Radar Status Footer",f.Radar,new Vector2(0f,-250f),new Vector2(400f,100f));
+                RectTransform header=f.AddGraphic("Actual Radar Status Header",f.Radar,new Vector2(0f,300f),new Vector2(400f,120f));
+                Rect expanded=f.VisibleRect();
+                Assert.That(expanded.yMin,Is.LessThan(original.yMin-100f),"Real footer plates are descendants of Radar and exceed the obsolete 25-unit estimate.");
+                Assert.That(f.Inspect(),Is.True);
+                var corners=new Vector3[4];footer.GetWorldCorners(corners);
+                foreach(var corner in corners)
+                {
+                    Vector3 p=f.View.WorldToScreenPoint(corner);
+                    Assert.That(p.y,Is.InRange(RequestedTarget.yMin-.5f,RequestedTarget.yMax+.5f));
+                }
+                footer.gameObject.SetActive(false);header.gameObject.SetActive(false);
+                Assert.That(f.VisibleRect(),Is.EqualTo(original));
+            }
+        }
+
+        [Test]
+        public void TallDesktopDrawerFitsClearAreaInsteadOfTheOverlappingAngularFallback()
+        {
+            Rect safe=new Rect(10f,65f,1580f,760f);
+            var obstacles=new[]
+            {
+                new Rect(378f,350f,160f,120f),new Rect(390f,150f,150f,200f),
+                new Rect(1070f,350f,170f,130f),new Rect(1080f,150f,150f,200f),
+                new Rect(650f,125f,340f,80f),new Rect(650f,730f,340f,95f)
+            };
+            Rect preferred=new Rect(60f,60f,460f,800f);
+            Rect actual=(Rect)PanelType.GetMethod("FitDesktopInspectionRect",Any).Invoke(null,
+                new object[]{preferred,new Vector2(460f,800f),safe,obstacles});
+            Assert.That(actual.width,Is.GreaterThan(300f),"Use the largest clear placement, not an unreadable postage stamp.");
+            Assert.That(actual.width/actual.height,Is.EqualTo(460f/800f).Within(.0001f));
+            Assert.That(actual.xMin,Is.GreaterThanOrEqualTo(safe.xMin-.01f));
+            Assert.That(actual.xMax,Is.LessThanOrEqualTo(safe.xMax+.01f));
+            Assert.That(actual.yMin,Is.GreaterThanOrEqualTo(safe.yMin-.01f));
+            Assert.That(actual.yMax,Is.LessThanOrEqualTo(safe.yMax+.01f));
+            foreach(var obstacle in obstacles)Assert.That(actual.Overlaps(obstacle),Is.False);
+            Assert.That(actual.xMin<378f&&actual.xMax<=378f||actual.xMin>=538f,Is.True,"Do not interleave the IAS plate and radar controls.");
+        }
+
+        [Test]
+        public void PhysicalChildFooterAndProtectedAwarenessRectsFitThroughFinalDesktopProjection()
+        {
+            using(var f=new Fixture())
+            {
+                RectTransform footer=f.AddGraphic("Traffic two-row footer",f.Radar,new Vector2(0f,-260f),new Vector2(480f,120f));
+                var obstacles=new[]{new Rect(80f,80f,500f,500f),new Rect(1300f,400f,350f,200f)};
+                Assert.That((bool)f.Call("ApplyDesktopInspection",f.View,new Rect(100f,100f,1400f,850f),false,obstacles),Is.True);
+                object[] args={f.View,default(Rect)};
+                Assert.That((bool)PanelType.GetMethod("TryScreenRect",Any).Invoke(f.Panel,args),Is.True);
+                Rect projected=(Rect)args[1];
+                foreach(var obstacle in obstacles)Assert.That(projected.Overlaps(obstacle),Is.False);
+                var corners=new Vector3[4];footer.GetWorldCorners(corners);
+                foreach(var corner in corners)Assert.That(f.View.WorldToScreenPoint(corner).y,Is.GreaterThan(62f));
             }
         }
 
@@ -169,7 +231,7 @@ namespace FAA.Customization.Tests
                 Rect visibleArea = Rect.MinMaxRect(0f, chromeTop, f.View.pixelWidth, f.View.pixelHeight - 80f);
                 foreach (Rect target in new[] { new Rect(-4000f, -3000f, 6000f, 5000f), new Rect(3000f, 2000f, 200f, 150f) })
                 {
-                    Assert.That((bool)f.Call("ApplyDesktopInspection", f.View, target, false), Is.True);
+                    Assert.That((bool)f.Call("ApplyDesktopInspection", f.View, target, false,null), Is.True);
                     f.AssertRenderedCompositeFits(visibleArea);
                     object[] args = { f.View, default(Rect) };
                     Assert.That((bool)PanelType.GetMethod("TryScreenRect", Any).Invoke(f.Panel, args), Is.True);
