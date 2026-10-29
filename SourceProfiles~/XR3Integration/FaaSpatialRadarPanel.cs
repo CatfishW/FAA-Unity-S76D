@@ -285,6 +285,7 @@ namespace FAA.Customization
         {
             if(!DesktopCameraAllowed(view,nativeXr)||IsUtility&&Id!="settings"||!IsSpatial)
             {EndDesktopInspection();return false;}
+            if(desktopCameraPresentation)CaptureDesktopChildren();
             if(!TryVisibleCanvasRect(out Rect content))return false;
             float width=view.pixelWidth,height=view.pixelHeight,k=height/1080f;
             if(width<16f||height<16f)return false;
@@ -360,15 +361,13 @@ namespace FAA.Customization
                     desktopRoot.gameObject.layer=Canvas.gameObject.layer;desktopRoot.SetParent(canvasRect,false);
                 }
                 desktopRoot.SetParent(canvasRect,false);
+                var marker=desktopRoot.GetComponent<TrafficRadar.DesktopCanvasLayoutRoot>()??desktopRoot.gameObject.AddComponent<TrafficRadar.DesktopCanvasLayoutRoot>();
+                marker.Configure(Canvas);
                 desktopRoot.anchorMin=desktopRoot.anchorMax=desktopRoot.pivot=new Vector2(.5f,.5f);
                 desktopRoot.sizeDelta=canvasRect.rect.size;desktopRoot.localRotation=Quaternion.identity;desktopRoot.gameObject.SetActive(true);
             }
             // Move the same originals, preserving authored RectTransform coordinates; no UI/telemetry copies or new camera.
-            desktopIncoming.Clear();
-            for(int i=0;i<canvasRect.childCount;i++)if(canvasRect.GetChild(i) is RectTransform child&&child!=desktopRoot)
-                desktopIncoming.Add(new DesktopChild{transform=child,sibling=desktopCameraPresentation?desktopOriginalChildCount++:i});
-            foreach(var child in desktopIncoming){desktopChildren.Add(child);MoveLayout(child.transform,desktopRoot);}
-            desktopIncoming.Clear();
+            CaptureDesktopChildren();
             desktopCameraPresentation=true;
             if(scaler!=null)scaler.enabled=false;
             if(Canvas.renderMode!=RenderMode.ScreenSpaceCamera)Canvas.renderMode=RenderMode.ScreenSpaceCamera;
@@ -376,6 +375,19 @@ namespace FAA.Customization
             // A larger mono-only camera plane reduces float cancellation at flight-world coordinates and stays within pointer reach.
             float depth=Mathf.Clamp(8f,view.nearClipPlane+.1f,Mathf.Max(view.nearClipPlane+.1f,view.farClipPlane-.1f));if(Canvas.planeDistance!=depth)Canvas.planeDistance=depth;
             if(Canvas.scaleFactor!=1f)Canvas.scaleFactor=1f;
+        }
+        private void CaptureDesktopChildren()
+        {
+            desktopIncoming.Clear();
+            for(int i=0;i<canvasRect.childCount;i++)if(canvasRect.GetChild(i) is RectTransform child&&child!=desktopRoot)
+                desktopIncoming.Add(new DesktopChild{transform=child,sibling=desktopCameraPresentation?desktopOriginalChildCount++:i});
+            foreach(var child in desktopIncoming)
+            {
+                bool known=false;foreach(var original in desktopChildren)if(original.transform==child.transform){known=true;break;}
+                if(!known)desktopChildren.Add(child);
+                MoveLayout(child.transform,desktopRoot);
+            }
+            desktopIncoming.Clear();
         }
         private void EndDesktopInspection()
         {

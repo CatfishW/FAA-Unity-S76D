@@ -2070,6 +2070,8 @@ namespace TrafficRadar
                 return null;
             }
 
+            RectTransform desktopLayout=DesktopCanvasLayoutRoot.Resolve(root);
+            if(desktopLayout!=null)return desktopLayout;
             Canvas canvas = root.GetComponentInParent<Canvas>();
             if (canvas == null)
             {
@@ -2096,7 +2098,7 @@ namespace TrafficRadar
         private void CaptureFullscreenLayout(RectTransform root)
         {
             _fullscreenRoot = root;
-            _fullscreenOriginalParent = root.parent;
+            _fullscreenOriginalParent = DesktopCanvasLayoutRoot.AuthoredParent(root.parent);
             _fullscreenOriginalSiblingIndex = root.GetSiblingIndex();
             _fullscreenOriginalAnchorMin = root.anchorMin;
             _fullscreenOriginalAnchorMax = root.anchorMax;
@@ -2135,7 +2137,8 @@ namespace TrafficRadar
             }
 
             bool rootActive = root.gameObject.activeInHierarchy;
-            bool parentActive = _fullscreenOriginalParent == null || _fullscreenOriginalParent.gameObject.activeInHierarchy;
+            Transform restoreParent=DesktopCanvasLayoutRoot.CurrentParent(_fullscreenOriginalParent);
+            bool parentActive = restoreParent == null || restoreParent.gameObject.activeInHierarchy;
             if (!rootActive || !parentActive)
             {
                 if (allowDefer)
@@ -2160,9 +2163,9 @@ namespace TrafficRadar
             _updatingFullscreenLayout = true;
             try
             {
-                if (_fullscreenOriginalParent != null && root.parent != _fullscreenOriginalParent)
+                if (restoreParent != null && root.parent != restoreParent)
                 {
-                    root.SetParent(_fullscreenOriginalParent, false);
+                    root.SetParent(restoreParent, false);
                 }
 
                 root.anchorMin = _fullscreenOriginalAnchorMin;
