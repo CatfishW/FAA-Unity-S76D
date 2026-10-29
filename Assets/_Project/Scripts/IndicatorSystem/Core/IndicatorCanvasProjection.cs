@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using UnityEngine;
 
 namespace IndicatorSystem.Core
@@ -6,6 +7,9 @@ namespace IndicatorSystem.Core
     public static class IndicatorCanvasProjection
     {
         private static bool Finite(float value)=>!float.IsNaN(value)&&!float.IsInfinity(value);
+        // Diagnostic JIT isolation for the captured Windows Mono frame/copy failure.
+        // Keep the hierarchy math unchanged while comparing generated code and native runs.
+        [MethodImpl(MethodImplOptions.NoOptimization | MethodImplOptions.NoInlining)]
         private static bool ToAncestor(Transform child,Transform ancestor,out Matrix4x4 matrix)
         {
             matrix=Matrix4x4.identity;
