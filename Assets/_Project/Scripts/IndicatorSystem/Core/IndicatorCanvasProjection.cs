@@ -1,4 +1,3 @@
-using System.Runtime.CompilerServices;
 using UnityEngine;
 
 namespace IndicatorSystem.Core
@@ -7,17 +6,16 @@ namespace IndicatorSystem.Core
     public static class IndicatorCanvasProjection
     {
         private static bool Finite(float value)=>!float.IsNaN(value)&&!float.IsInfinity(value);
-        // Diagnostic JIT isolation for the captured Windows Mono frame/copy failure.
-        // Keep the hierarchy math unchanged while comparing generated code and native runs.
-        [MethodImpl(MethodImplOptions.NoOptimization | MethodImplOptions.NoInlining)]
         private static bool ToAncestor(Transform child,Transform ancestor,out Matrix4x4 matrix)
         {
-            matrix=Matrix4x4.identity;
+            // Keep the working product local across native TRS calls; publish it only on return.
+            Matrix4x4 accumulated=Matrix4x4.identity;
             for(int depth=0;child!=null&&depth<128;depth++,child=child.parent)
             {
-                if(child==ancestor)return true;
-                matrix=Matrix4x4.TRS(child.localPosition,child.localRotation,child.localScale)*matrix;
+                if(child==ancestor){matrix=accumulated;return true;}
+                accumulated=Matrix4x4.TRS(child.localPosition,child.localRotation,child.localScale)*accumulated;
             }
+            matrix=accumulated;
             return false;
         }
         private static bool TryRelative(Transform reference,Transform view,out Matrix4x4 matrix)
