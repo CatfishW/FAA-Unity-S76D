@@ -133,7 +133,7 @@ namespace FAA.Customization
                 for(int i=0;i<6;i++){float mid=.5f*(lo+hi);if(TryPlace(mid,alpha,beta,w,h,m,keepOuts,centre,out var p)){lo=mid;best=p;}else hi=mid;}
                 f=lo;
             }
-            if(!clear){f=baseF;best=LeastOverlap(f,alpha,beta,w,h,m,keepOuts,centre);}
+            if(!clear){f=baseF;best=LeastOverlap(f,alpha,beta,w,h,m,keepOuts,centre,allowZoom);}
             float dx=best.x-centre.x,dy=best.y-centre.y;
             float pitchOffset=Mathf.Atan(dy/f);
             float elevation=elC-pitchOffset*Mathf.Rad2Deg;
@@ -201,13 +201,23 @@ namespace FAA.Customization
         /// </summary>
         private static float Edge(float edge,float f,float halfRadians,float size)=>
             .5f*size+f*Mathf.Tan(Mathf.Clamp(Mathf.Atan((edge-.5f*size)/f)+halfRadians,-1.5f,1.5f));
-        /// <summary>When nothing is clear even at the base FOV: the grid placement with the least protected area covered.</summary>
-        private static Vector2 LeastOverlap(float f,float alpha,float beta,float w,float h,float m,IReadOnlyList<Rect> keepOuts,Vector2 centre)
+        /// <summary>When nothing is clear at the base FOV: minimise protected-area overlap. Desktop screen edges remain hard
+        /// constraints, so avoiding a dial can never clip the panel title or controls. Native aim/no-zoom behaviour is unchanged.</summary>
+        private static Vector2 LeastOverlap(float f,float alpha,float beta,float w,float h,float m,IReadOnlyList<Rect> keepOuts,Vector2 centre,bool keepOnScreen)
         {
             Vector2 best=centre;float bestCost=float.PositiveInfinity;
+            float xMin=m,xMax=w-m,yMin=m,yMax=h-m;
+            if(keepOnScreen)
+            {
+                // Solve the admissible centre interval from the complete tangent-projected panel edges, not just its centre.
+                // A physically oversized panel cannot fit by aiming alone; keep it centred rather than hiding its far edge.
+                xMin=Edge(m+.01f,f,alpha*Mathf.Deg2Rad,w);xMax=Edge(w-m-.01f,f,-alpha*Mathf.Deg2Rad,w);
+                yMin=Edge(m+.01f,f,beta*Mathf.Deg2Rad,h);yMax=Edge(h-m-.01f,f,-beta*Mathf.Deg2Rad,h);
+                if(xMin>xMax||yMin>yMax)return centre;
+            }
             for(int iy=0;iy<GridY;iy++)for(int ix=0;ix<GridX;ix++)
             {
-                var p=new Vector2(Mathf.Lerp(m,w-m,(ix+.5f)/GridX),Mathf.Lerp(m,h-m,(iy+.5f)/GridY));
+                var p=new Vector2(Mathf.Lerp(xMin,xMax,(ix+.5f)/GridX),Mathf.Lerp(yMin,yMax,(iy+.5f)/GridY));
                 Rect r=PanelRect(f,p,alpha,beta,w,h);float cost=0f;
                 if(keepOuts!=null)for(int i=0;i<keepOuts.Count;i++)cost+=Overlap(r,keepOuts[i]);
                 cost+=1e-4f*(p-centre).sqrMagnitude;

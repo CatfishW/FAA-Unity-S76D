@@ -579,6 +579,82 @@ namespace FAA.Customization.Tests
             Assert.That(w.yMax-centre.y,Is.LessThan(arc*Mathf.Cos(60f*Mathf.Deg2Rad)-1f),"Attitude window top below the roll-scale end marks");
         }
 
+        [TestCase(false,.4f)]
+        [TestCase(false,.6f)]
+        [TestCase(false,.8f)]
+        [TestCase(false,1f)]
+        [TestCase(true,.4f)]
+        [TestCase(true,.6f)]
+        [TestCase(true,.8f)]
+        [TestCase(true,1f)]
+        public void WorkspaceBrightnessReachesBothClassicPalettesAndSurvivesPresentationRefresh(bool pilotPalette,float opacity)
+        {
+            const BindingFlags any=BindingFlags.Public|BindingFlags.NonPublic|BindingFlags.Instance|BindingFlags.Static;
+            var workspaceGo=new GameObject("Inactive Classic brightness workspace");workspaceGo.SetActive(false);
+            var managerGo=new GameObject("Inactive actual symbology color manager");managerGo.SetActive(false);
+            Component workspace=null;
+            try
+            {
+                Type workspaceType=T("FaaSpatialWorkspace"),managerType=T("SymbologyColorManager");
+                workspace=workspaceGo.AddComponent(workspaceType);
+                workspaceType.GetProperty("PersistChanges").SetValue(workspace,false);
+                workspaceType.GetProperty("ClassicHud",any).SetValue(workspace,hud);
+                workspaceType.GetProperty("CurrentSymbology",any).SetValue(workspace,Enum.Parse(T("FaaSymbologyVersion"),"ClassicAnalog"));
+                workspaceType.GetProperty("UsePilotSymbologyColor",any).SetValue(workspace,pilotPalette);
+                var manager=managerGo.AddComponent(managerType);
+                managerType.GetField("symbologyRoots",any).SetValue(manager,new List<Transform>{hud.transform});
+                managerType.GetMethod("Initialize").Invoke(manager,null);
+                Color pilot=new Color(.2f,.75f,1f,1f);
+                managerType.GetMethod("ApplyColorImmediate").Invoke(manager,new object[]{pilot});
+                managerType.GetMethod("SetOpacity").Invoke(manager,new object[]{opacity});
+                workspaceType.GetField("colorManager",any).SetValue(workspace,manager);
+                Color expected=pilotPalette?pilot:(Color)hudType.GetField("DefaultReferenceGreen").GetValue(null);
+                var apply=workspaceType.GetMethod("ApplySymbologyPresentation",any);
+                foreach(float forward in new[]{1f,.16f})
+                {
+                    Intensity(forward);
+                    float awareness=forward==1f?1f:.65f;
+                    for(int refresh=0;refresh<3;refresh++)
+                    {
+                        apply.Invoke(workspace,null);Present(Sample());Layout();
+                        Color actual=Prop<Color>(hud,"ReferenceGreen");
+                        Assert.That(actual.r,Is.EqualTo(expected.r).Within(.001f),"Brightness must not recolor the selected palette.");
+                        Assert.That(actual.g,Is.EqualTo(expected.g).Within(.001f));Assert.That(actual.b,Is.EqualTo(expected.b).Within(.001f));
+                        Assert.That(actual.a,Is.EqualTo(opacity).Within(.001f),"A later workspace/Present pass must not restore full brightness.");
+                        Assert.That(hud.GetComponent<CanvasGroup>().alpha,Is.EqualTo(1f).Within(.001f),"Global brightness is applied once, not again on the root.");
+                        foreach(string id in new[]{"airspeed","altitude","torque","nr"})
+                        {
+                            Assert.That(Text(id,"Live Value").color.a,Is.EqualTo(opacity*awareness).Within(.001f),id+" readout");
+                            Assert.That(Text(id,"Scale 0").color.a,Is.EqualTo(opacity*forward).Within(.001f),id+" scale");
+                            Component gauge=Graphic(id,"FaaClassicGaugeGraphic");
+                            Assert.That(((Graphic)gauge).color.a,Is.EqualTo(opacity*forward).Within(.001f),id+" vector tint");
+                            var populate=gauge.GetType().GetMethod("OnPopulateMesh",any,null,new[]{typeof(VertexHelper)},null);
+                            using(var mesh=new VertexHelper())
+                            {
+                                populate.Invoke(gauge,new object[]{mesh});
+                                Assert.That(mesh.currentVertCount,Is.GreaterThan(0));
+                                int maximum=0;bool forwardStroke=false;UIVertex vertex=default;
+                                for(int i=0;i<mesh.currentVertCount;i++)
+                                {
+                                    mesh.PopulateUIVertex(ref vertex,i);maximum=Mathf.Max(maximum,vertex.color.a);
+                                    if(Mathf.Abs(vertex.color.a-opacity*forward*255f)<1.5f)forwardStroke=true;
+                                }
+                                Assert.That(forwardStroke,Is.True,id+" actual mesh must contain dimmed strokes.");
+                                Assert.That(maximum,Is.LessThanOrEqualTo(Mathf.CeilToInt(opacity*awareness*255f)+1),id+" mesh opacity must respect global brightness.");
+                            }
+                        }
+                        Assert.That(Text("heading","Roll mode").color.a,Is.EqualTo(opacity*awareness).Within(.001f),"FMA");
+                        Assert.That(((Graphic)Graphic("attitude","FaaClassicAttitudeGraphic")).color.a,Is.EqualTo(opacity*forward).Within(.001f),"Inset");
+                    }
+                }
+            }
+            finally
+            {
+                if(workspace!=null)T("FaaSpatialWorkspace").GetProperty("ClassicHud",any).SetValue(workspace,null);
+                UnityEngine.Object.DestroyImmediate(workspaceGo);UnityEngine.Object.DestroyImmediate(managerGo);
+            }
+        }
+
         [Test]
         public void LegacyReferenceGreenSelectsTheBrighterDefault()
         {
