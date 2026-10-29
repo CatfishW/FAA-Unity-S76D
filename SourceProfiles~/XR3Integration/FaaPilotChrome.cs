@@ -80,6 +80,8 @@ namespace FAA.Customization
         public RectTransform FlyoutRoot=>flyouts;
         public bool Compact=>compact;
         public string OpenFlyoutId=>openFlyout??"";
+        /// <summary>Current flyout origin, including additional rows in a narrow chrome bar.</summary>
+        public float CurrentFlyoutBottom=>BarBottom+(bar!=null?bar.rect.height:BarHeight)+8f;
         /// <summary>True while open flyouts are hidden because an unusual attitude is annunciated.</summary>
         public bool FlyoutsDecluttered=>flyoutsDecluttered;
 
@@ -290,7 +292,7 @@ namespace FAA.Customization
         private static void SetAnchors(Entry e)
         {
             float x=e.cluster==FaaChromeCluster.Left?0:1;
-            e.rect.anchorMin=e.rect.anchorMax=new Vector2(x,.5f);e.rect.pivot=new Vector2(x,.5f);
+            e.rect.anchorMin=e.rect.anchorMax=new Vector2(x,0);e.rect.pivot=new Vector2(x,.5f);
         }
         private static void ApplyActive(Entry e)
         {
@@ -318,55 +320,111 @@ namespace FAA.Customization
             // Full captions first; fall back to short captions only when the clusters would meet.
             float need=ClusterWidth(FaaChromeCluster.Left,false)+ClusterWidth(FaaChromeCluster.Right,false)+2*Inset+MinCenterGap;
             compact=need>barWidth;
-            Place(FaaChromeCluster.Left);Place(FaaChromeCluster.Right);
+            float available=Mathf.Max(1,barWidth-2*Inset);
+            bool statusRow=ClusterWidth(FaaChromeCluster.Left,compact)+ClusterWidth(FaaChromeCluster.Right,compact)+MinCenterGap>available;
+            float height;
+            if(!statusRow)
+            {
+                Place(FaaChromeCluster.Left);Place(FaaChromeCluster.Right);
+                PlaceStatus(StatusMaxWidth,Inset);
+                height=2*Inset+StatusHeight(StatusMaxWidth);
+            }
+            else
+            {
+                // Preserve full alerts and labelled click targets. If short captions still cannot share one row,
+                // wrap controls into deterministic rows; live status wording/visibility does not participate.
+                float controlNeed=ControlClusterWidth(FaaChromeCluster.Left)+ControlClusterWidth(FaaChromeCluster.Right)+MinCenterGap;
+                int rows;
+                if(controlNeed<=available)
+                {
+                    Place(FaaChromeCluster.Left,true);Place(FaaChromeCluster.Right,true);rows=1;
+                }
+                else
+                {
+                    int leftRows=PlaceWrapped(FaaChromeCluster.Left,0,available);
+                    rows=leftRows+PlaceWrapped(FaaChromeCluster.Right,leftRows*(ButtonHeight+Gap),available);
+                }
+                float controlsHeight=rows>0?rows*ButtonHeight+(rows-1)*Gap:0;
+                float statusBottom=Inset+controlsHeight+(rows>0?Gap:0);
+                PlaceStatus(available,statusBottom);
+                height=statusBottom+StatusHeight(available)+Inset;
+            }
+            bar.offsetMax=new Vector2(-Gutter,BarBottom+Mathf.Max(BarHeight,height));
+            // Commands, help and cues keep their authored slot relative to this shared parent.
+            flyouts.anchoredPosition=new Vector2(0,Mathf.Max(0,height-BarHeight));
         }
-        /// <summary>Total width of a cluster's visible buttons including gaps.</summary>
+        /// <summary>Occupied cluster width, including gaps and the status slot reserved while its caption is hidden.</summary>
         public float ClusterExtent(FaaChromeCluster cluster)=>ClusterWidth(cluster,compact);
         private float ClusterWidth(FaaChromeCluster cluster,bool shortCaptions)
         {
             float total=0;int count=0;
-            foreach(var e in entries){if(e.cluster!=cluster||!e.visible)continue;total+=Measure(e,shortCaptions);count++;}
+            foreach(var e in entries){if(e.cluster!=cluster||(!e.visible&&e.id!=StatusId))continue;total+=Measure(e,shortCaptions);count++;}
             return total+Mathf.Max(0,count-1)*Gap;
         }
         private float Measure(Entry e,bool shortCaption)
         {
-            if(e.id==StatusId)return statusWidth;
+            if(e.id==StatusId)return StatusMaxWidth;
             string text=shortCaption?e.shortCaption:e.fullCaption;
             float caption=TextWidth(e.caption,text);
             float badge=e.badge!=null?Gap+TextWidth(e.badgeText,e.badge):0;
             float key=e.keycap!=null?TextWidth(e.keyText,e.keycap)+2*KeycapPadding:0;
             return Mathf.Max(MinButtonWidth,Mathf.Ceil(CaptionPadding+caption+badge+(e.keycap!=null?Gap+Mathf.Max(KeycapHeight,key):0)+CaptionPadding));
         }
-        private void Place(FaaChromeCluster cluster)
+        private float ControlClusterWidth(FaaChromeCluster cluster)
+        {
+            float total=0;int count=0;
+            foreach(var e in entries)if(e.cluster==cluster&&e.visible&&e.id!=StatusId){total+=Measure(e,compact);count++;}
+            return total+Mathf.Max(0,count-1)*Gap;
+        }
+        private void Place(FaaChromeCluster cluster,bool skipStatus=false)
         {
             float x=Inset;bool left=cluster==FaaChromeCluster.Left;
             var list=Sorted(cluster);
             if(!left)list.Reverse();
             foreach(var e in list)
             {
-                if(!e.visible)continue;
+                if((!e.visible&&e.id!=StatusId)||(skipStatus&&e.id==StatusId))continue;
                 float w=Measure(e,compact);e.width=w;
-                if(e.id!=StatusId)
-                {
-                    string text=compact?e.shortCaption:e.fullCaption;
-                    if(e.shown!=text){e.shown=text;e.caption.text=text;}
-                    float cw=TextWidth(e.caption,text)+2;
-                    e.caption.rectTransform.sizeDelta=new Vector2(cw,0);
-                    if(e.badge!=null&&e.badgeText!=null)
-                    {
-                        var bt=e.badgeText.rectTransform;bt.anchoredPosition=new Vector2(CaptionPadding+cw-2+Gap,0);
-                        bt.sizeDelta=new Vector2(TextWidth(e.badgeText,e.badge)+2,0);
-                    }
-                    if(e.keycap!=null)
-                    {
-                        float kw=Mathf.Max(KeycapHeight,TextWidth(e.keyText,e.keycap)+2*KeycapPadding);
-                        e.keyBox.sizeDelta=new Vector2(kw,KeycapHeight);e.keyBox.anchoredPosition=new Vector2(-CaptionPadding,0);
-                    }
-                }
-                e.rect.sizeDelta=new Vector2(w,ButtonHeight);
-                e.rect.anchoredPosition=new Vector2(left?x:-x,0);
+                PlaceEntry(e,w,left?x:-x,Inset+ButtonHeight*.5f);
                 x+=w+Gap;
             }
+        }
+        private int PlaceWrapped(FaaChromeCluster cluster,float bottom,float available)
+        {
+            float x=0;int row=0,count=0;bool left=cluster==FaaChromeCluster.Left;
+            var list=Sorted(cluster);if(!left)list.Reverse();
+            foreach(var e in list)
+            {
+                if(!e.visible||e.id==StatusId)continue;
+                float w=Measure(e,compact);
+                if(x>0&&x+w>available){row++;x=0;}
+                PlaceEntry(e,w,left?Inset+x:-Inset-x,Inset+ButtonHeight*.5f+bottom+row*(ButtonHeight+Gap));
+                x+=w+Gap;count++;
+            }
+            return count>0?row+1:0;
+        }
+        private void PlaceEntry(Entry e,float w,float x,float y)
+        {
+            SetAnchors(e);e.width=w;
+            if(e.id!=StatusId)
+            {
+                string text=compact?e.shortCaption:e.fullCaption;
+                if(e.shown!=text){e.shown=text;e.caption.text=text;}
+                float cw=TextWidth(e.caption,text)+2;
+                e.caption.rectTransform.sizeDelta=new Vector2(cw,0);
+                if(e.badge!=null&&e.badgeText!=null)
+                {
+                    var bt=e.badgeText.rectTransform;bt.anchoredPosition=new Vector2(CaptionPadding+cw-2+Gap,0);
+                    bt.sizeDelta=new Vector2(TextWidth(e.badgeText,e.badge)+2,0);
+                }
+                if(e.keycap!=null)
+                {
+                    float kw=Mathf.Max(KeycapHeight,TextWidth(e.keyText,e.keycap)+2*KeycapPadding);
+                    e.keyBox.sizeDelta=new Vector2(kw,KeycapHeight);e.keyBox.anchoredPosition=new Vector2(-CaptionPadding,0);
+                }
+            }
+            e.rect.sizeDelta=new Vector2(w,ButtonHeight);
+            e.rect.anchoredPosition=new Vector2(x,y);
         }
         private float CanvasWidth()
         {
@@ -422,7 +480,7 @@ namespace FAA.Customization
             float width=Mathf.Min(preferred>0?preferred:FlyoutMaxWidth,FlyoutMaxWidth);
             float scale=canvas!=null?Mathf.Max(.01f,canvas.scaleFactor):1f;
             keepOutScratch.Clear();FaaHudKeepOut.Collect(keepOutScratch,false); // Symbology regions only (no chrome, no attitude window)
-            float limit=FlyoutAvailableWidth(keepOutScratch,scale,Screen.width,height);
+            float limit=FlyoutAvailableWidthAt(keepOutScratch,scale,Screen.width,height,CurrentFlyoutBottom);
             return Mathf.Max(MinFlyoutWidth,Mathf.Min(width,limit));
         }
         /// <summary>
@@ -432,11 +490,13 @@ namespace FAA.Customization
         /// height overlaps the flyout band, or float.MaxValue when nothing limits it.
         /// </summary>
         public static float FlyoutAvailableWidth(IReadOnlyList<Rect> flightRects,float scale,float screenWidth,float height)
+            =>FlyoutAvailableWidthAt(flightRects,scale,screenWidth,height,FlyoutBottom);
+        private static float FlyoutAvailableWidthAt(IReadOnlyList<Rect> flightRects,float scale,float screenWidth,float height,float bottom)
         {
             float limit=float.MaxValue;
             if(flightRects==null)return limit;
             scale=Mathf.Max(.01f,scale);
-            float bandBottom=FlyoutBottom*scale,bandTop=(FlyoutBottom+Mathf.Max(0,height))*scale,left=(FlyoutLeft+MinFlyoutWidth*.5f)*scale;
+            float bandBottom=bottom*scale,bandTop=(bottom+Mathf.Max(0,height))*scale,left=(FlyoutLeft+MinFlyoutWidth*.5f)*scale;
             for(int i=0;i<flightRects.Count;i++)
             {
                 var rect=flightRects[i];
