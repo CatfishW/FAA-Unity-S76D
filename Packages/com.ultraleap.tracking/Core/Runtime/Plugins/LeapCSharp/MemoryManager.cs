@@ -53,6 +53,7 @@ namespace LeapInternal
         [MonoPInvokeCallback(typeof(Allocate))]
         public static IntPtr Pin(UInt32 size, eLeapAllocatorType typeHint, IntPtr state)
         {
+            GCHandle handle = default(GCHandle);
             try
             {
                 //Construct a key to identify the desired allocation
@@ -63,21 +64,11 @@ namespace LeapInternal
                 };
 
                 //Attempt to find the pool that holds this type of allocation
-                ConcurrentQueue<object> pool;
-                if (!_pooledMemory.TryGetValue(key, out pool))
-                {
-                    //Construct a new pool if none exists yet
-                    pool = new ConcurrentQueue<object>();
-                    _pooledMemory[key] = pool;
-                }
+                ConcurrentQueue<object> pool = _pooledMemory.GetOrAdd(key, _ => new ConcurrentQueue<object>());
 
-                //Attempt to get an object from the pool
-                object memory;
-                if (EnablePooling && pool.Count > MinPoolSize)
-                {
-                    pool.TryDequeue(out memory);
-                }
-                else
+                //Count is only advisory: another allocator can empty the queue before TryDequeue.
+                object memory = null;
+                if (!EnablePooling || pool.Count <= MinPoolSize || !pool.TryDequeue(out memory) || memory == null)
                 {
                     //If the pool is empty, we need to construct a new object
                     switch (typeHint)
@@ -87,28 +78,40 @@ namespace LeapInternal
                             memory = new byte[size];
                             break;
                         case eLeapAllocatorType.eLeapAllocatorType_Float:
-                            memory = new float[(size + sizeof(float) - 1) / sizeof(float)];
+                            memory = new float[size / sizeof(float) + (size % sizeof(float) == 0 ? 0U : 1U)];
                             break;
                     }
                 }
 
                 //Pin the object so its address will not change
-                GCHandle handle = GCHandle.Alloc(memory, GCHandleType.Pinned);
+                handle = GCHandle.Alloc(memory, GCHandleType.Pinned);
                 IntPtr ptr = handle.AddrOfPinnedObject();
+                if (ptr == IntPtr.Zero) return IntPtr.Zero;
 
                 //Put the information about the newly pinned allocation into the
                 //active memory map so it can be retrieved and freed layer.
-                _activeMemory.TryAdd(ptr, new ActiveMemoryInfo()
+                if (!_activeMemory.TryAdd(ptr, new ActiveMemoryInfo()
                 {
                     handle = handle,
-                    key = key
-                });
+                    key = key,
+                    memory = memory
+                }))
+                {
+                    //A duplicate address must not replace another allocation's ownership.
+                    return IntPtr.Zero;
+                }
 
+                //The active map now owns this handle; failure cleanup must not free it.
+                handle = default(GCHandle);
                 return ptr;
             }
             catch (Exception e)
             {
                 UnityEngine.Debug.LogException(e);
+            }
+            finally
+            {
+                if (handle.IsAllocated) handle.Free();
             }
 
             return IntPtr.Zero;
@@ -119,22 +122,18 @@ namespace LeapInternal
         {
             try
             {
-                //Grab the info for the given pointer
-                ActiveMemoryInfo info = _activeMemory[ptr];
-
-                //First we return the object back to its pool
-                if (EnablePooling)
-                {
-                    _pooledMemory[info.key].Enqueue(info.handle.Target);
-                }
-
-                //Then we remove the pointer from the active memory map
-                ActiveMemoryInfo value;
-
-                _activeMemory.TryRemove(ptr, out value);
-
-                //Finally we unpin the memory
+                //Remove ownership before making the buffer reusable. Only the successful remover may free it.
+                ActiveMemoryInfo info;
+                if (!_activeMemory.TryRemove(ptr, out info)) return;
+                object memory = info.memory;
                 info.handle.Free();
+
+                //Publishing before Free lets another allocation reuse the same address while the old
+                //release can still remove its new ownership record or expose a movable native buffer.
+                if (EnablePooling && memory != null)
+                {
+                    _pooledMemory.GetOrAdd(info.key, _ => new ConcurrentQueue<object>()).Enqueue(memory);
+                }
             }
             catch (Exception e)
             {
@@ -144,12 +143,10 @@ namespace LeapInternal
 
         public static object GetPinnedObject(IntPtr ptr)
         {
-            try
-            {
-                return _activeMemory[ptr].handle.Target;
-            }
-            catch (Exception) { }
-            return null;
+            //The managed reference remains safe even if Unpin concurrently frees/recycles the GCHandle.
+            //Never read Target from a handle copied before its ownership was removed.
+            ActiveMemoryInfo info;
+            return _activeMemory.TryGetValue(ptr, out info) ? info.memory : null;
         }
 
         private struct PoolKey : IEquatable<PoolKey>
@@ -185,6 +182,7 @@ namespace LeapInternal
         {
             public GCHandle handle;
             public PoolKey key;
+            public object memory;
         }
     }
 }
