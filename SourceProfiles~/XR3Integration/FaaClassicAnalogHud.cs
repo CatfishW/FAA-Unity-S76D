@@ -18,7 +18,7 @@ namespace FAA.Customization
     /// Failure flags are boxed amber mnemonics at the data they replace; a stale feed gives one centred NO FLIGHT DATA flag.
     /// Inspection intensity: essential awareness readouts (dial windows, VS readout, FMA, heading readout, flags) use
     /// max(ForwardIntensityFor(t), AwarenessHudIntensity); everything else uses ForwardIntensityFor(t). The dimming is applied to the
-    /// colours, so the root CanvasGroup only carries visibility and the legacy <see cref="PanelInspectionOpacity"/>.
+    /// colours, so the root CanvasGroup carries visibility, pilot brightness not already inherited, and legacy <see cref="PanelInspectionOpacity"/>.
     /// </summary>
     [DefaultExecutionOrder(12480),DisallowMultipleComponent]
     public sealed class FaaClassicAnalogHud:MonoBehaviour
@@ -57,6 +57,9 @@ namespace FAA.Customization
         /// <summary>Legacy desktop inspection opacity: a uniform multiplier on the whole Classic root. The workspace leaves it at 1 because
         /// the shared FaaHudInspection fade (with the awareness floor) is applied per element.</summary>
         public float PanelInspectionOpacity {get;set;}=1f;
+        /// <summary>Pilot brightness not already supplied by an ancestor CanvasGroup; independent of visibility and inspection.</summary>
+        public float GlobalOpacity {get;set;}=1f;
+        private float RootOpacity=>Mathf.Clamp01(PanelInspectionOpacity)*Mathf.Clamp01(GlobalOpacity);
         /// <summary>Optional floor for the awareness readouts while dimmed. NaN (default) follows FaaHudInspection.AwarenessHudIntensity.</summary>
         public float AwarenessFloor {get;set;}=float.NaN;
         /// <summary>Instrument id held at full intensity (for example the one being resized from Settings), in addition to FaaSpatialWorkspace.ForwardIntensityFor.</summary>
@@ -306,7 +309,7 @@ namespace FAA.Customization
         {
             bool changed=Visible!=visible;
             if(changed){Animation.Reset();fmaTracker.Reset();}Visible=visible;
-            if(group!=null&&(changed||!visible))group.alpha=visible?Mathf.Clamp01(PanelInspectionOpacity):0;
+            if(group!=null&&(changed||!visible))group.alpha=visible?RootOpacity:0;
             if(enabled!=visible)enabled=visible;
             if(changed&&visible)
             {
@@ -373,7 +376,7 @@ namespace FAA.Customization
             ApplyTextFloors(fit,k);
             bool valid=Visible&&flightCanvas.isActiveAndEnabled&&sourceRoot!=null&&sourceRoot.gameObject.activeInHierarchy;
             if(valid){sourceRoot.GetComponentsInParent(true,sourceGroups);foreach(var cg in sourceGroups)if(cg.alpha<=.001f)valid=false;}
-            float alpha=valid?Mathf.Clamp01(PanelInspectionOpacity):0;
+            float alpha=valid?RootOpacity:0;
             if(group!=null&&Mathf.Abs(group.alpha-alpha)>.0005f)group.alpha=alpha;
             if(InstrumentRoots.TryGetValue("attitude",out var center)&&center.gameObject.activeSelf!=LocalAttitude)center.gameObject.SetActive(LocalAttitude);
         }

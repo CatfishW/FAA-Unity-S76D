@@ -17,6 +17,8 @@ namespace FAA.Customization
         private readonly Dictionary<string,Transform> classicSourceRoots=new();
         private readonly Dictionary<string,HUDControl.Core.HUDElementBase> classicSourceElements=new();
         private SymbologyColorManager colorManager;
+        private FaaHudOpacityController pilotOpacityController;
+        private float nextPilotOpacitySearch;
         private string symbologyKey;
         private Transform digitalRoot;private int gatedChildCount=-1;
         // Classic dims itself per element (FaaClassicAnalogHud: awareness readouts at max(ForwardIntensityFor, AwarenessHudIntensity),
@@ -89,6 +91,7 @@ namespace FAA.Customization
             foreach(var pair in ClassicHud.InstrumentRoots)
                 classicModules.Add(new FaaNonConformalScaleTarget(pair.Key,ClassicHud.Captions[pair.Key],pair.Value,1f));
             colorManager=FindFirstObjectByType<SymbologyColorManager>();
+            pilotOpacityController=FindAnyObjectByType<FaaHudOpacityController>();
             symbologyKey=profileKey+".Symbology.v1";
             var selected=FaaSymbologyVersion.Digital;
             ClassicInstrumentAttitude=true;ReducedSymbologyMotion=false;UsePilotSymbologyColor=false;
@@ -168,6 +171,9 @@ namespace FAA.Customization
             // multiplier stays at 1. Native hooks: the previewed dial stays at full intensity; deviation scales follow the shared
             // unusual-attitude declutter.
             ClassicHud.PanelInspectionOpacity=1f;
+            if(pilotOpacityController==null&&Application.isPlaying&&Time.unscaledTime>=nextPilotOpacitySearch)
+            {nextPilotOpacitySearch=Time.unscaledTime+1f;pilotOpacityController=FindAnyObjectByType<FaaHudOpacityController>();}
+            ClassicHud.GlobalOpacity=pilotOpacityController!=null?pilotOpacityController.OpacityForDetachedRoot(ClassicHud.transform):1f;
             string classicPreview=ClassicPreviewId(classic,InspectionPreviewId);
             if(!string.Equals(ClassicHud.PreviewInstrumentId,classicPreview))ClassicHud.PreviewInstrumentId=classicPreview;
             if(ClassicHud.DeclutterDeviation!=unusual)ClassicHud.DeclutterDeviation=unusual;

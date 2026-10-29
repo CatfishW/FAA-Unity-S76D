@@ -40,6 +40,21 @@ namespace FAA.Customization
         public int OpacityPercent => Mathf.RoundToInt(opacity * 100f);
         public string OpacityLabel => $"HUD {OpacityPercent}%";
 
+        /// <summary>Additional opacity for an independently rendered flight-HUD root. A controlled ancestor
+        /// already contributes pilot opacity; a display's own visibility group remains display-owned.</summary>
+        public float OpacityForDetachedRoot(Transform root)
+        {
+            if(root==null)return 1f;
+            for(Transform current=root;current!=null;current=current.parent)
+            {
+                var group=current.GetComponent<CanvasGroup>();
+                if(group==null||!group.isActiveAndEnabled)continue;
+                if(current!=root&&canvasGroups.Contains(group))return 1f;
+                if(group.ignoreParentGroups)break;
+            }
+            return opacity;
+        }
+
         private void Awake()
         {
             ResolveHudRoots();
