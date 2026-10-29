@@ -11,6 +11,9 @@ namespace IndicatorSystem.Display
     /// </summary>
     public class IndicatorPool : MonoBehaviour
     {
+        // Conformal geometry/text use 5040/5041. Screen-cue readouts must cover
+        // those strokes. The default floor stays below pilot chrome and flyouts.
+        public const int PresentationSortingOrder = 5080;
         #region Inspector Fields
         
         [Header("Pool Settings")]
@@ -75,6 +78,8 @@ namespace IndicatorSystem.Display
                 poolContainer = GetComponent<RectTransform>();
             }
             
+            EnsureCanvasPresentationOrder();
+
             // Initialize typed pools
             foreach (TrafficRadarDataManager.AircraftType type in 
                      System.Enum.GetValues(typeof(TrafficRadarDataManager.AircraftType)))
@@ -89,12 +94,25 @@ namespace IndicatorSystem.Display
             PrewarmPool();
         }
         
+        private void EnsureCanvasPresentationOrder()
+        {
+            if (poolContainer == null) return;
+            Canvas canvas = poolContainer.GetComponentInParent<Canvas>();
+            if (canvas == null) return;
+            // Nested canvases without overrideSorting inherit their root's order.
+            // Keep the same canvas hierarchy, camera and physical HUD geometry.
+            Canvas owner = canvas.isRootCanvas || canvas.overrideSorting ? canvas : canvas.rootCanvas;
+            if (owner != null && owner.sortingOrder < PresentationSortingOrder) owner.sortingOrder = PresentationSortingOrder;
+        }
+
         /// <summary>
         /// Get or create an indicator for the given ID and data.
         /// Uses aircraft type to select appropriate prefab.
         /// </summary>
         public IndicatorElement GetIndicator(string id, IndicatorData data)
         {
+            // A late HUD normalization can restore the authored order after initialization.
+            EnsureCanvasPresentationOrder();
             // Check if already active
             if (_activeIndicators.TryGetValue(id, out var existing))
             {
@@ -158,6 +176,7 @@ namespace IndicatorSystem.Display
         /// </summary>
         public IndicatorElement GetIndicator(string id)
         {
+            EnsureCanvasPresentationOrder();
             if (_activeIndicators.TryGetValue(id, out var existing))
             {
                 return existing;

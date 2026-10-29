@@ -915,7 +915,9 @@ namespace FAA.Customization
 
         private void NormalizeRadarPairLayout()
         {
-            EnsureOverlayCanvas(indicatorCanvasName, screenFlightHudSortingOrder + 20, false);
+            EnsureOverlayCanvas(indicatorCanvasName,
+                Mathf.Max(screenFlightHudSortingOrder + 20, IndicatorSystem.Display.IndicatorPool.PresentationSortingOrder),
+                false, true);
 
             Canvas weatherCanvas = EnsureOverlayCanvas(weatherRadarCanvasName, screenFlightHudSortingOrder + 25, true);
             GameObject weatherRoot = FindNamedRoot(weatherRadarRootName);
@@ -1172,7 +1174,7 @@ namespace FAA.Customization
             controls.Configure(weatherRoot != null ? weatherRoot.transform : null, trafficRoot != null ? trafficRoot.transform : null);
         }
 
-        private static Canvas EnsureOverlayCanvas(string objectName, int sortingOrder, bool raycasterEnabled)
+        private static Canvas EnsureOverlayCanvas(string objectName, int sortingOrder, bool raycasterEnabled, bool preserveHigherSortingOrder = false)
         {
             if (string.IsNullOrWhiteSpace(objectName))
             {
@@ -1218,7 +1220,7 @@ namespace FAA.Customization
             canvas.enabled = true;
             canvas.renderMode = RenderMode.ScreenSpaceOverlay;
             canvas.overrideSorting = true;
-            canvas.sortingOrder = sortingOrder;
+            if (!preserveHigherSortingOrder || canvas.sortingOrder < sortingOrder) canvas.sortingOrder = sortingOrder;
 
             RectTransform rectTransform = EnsureRectTransform(canvas.gameObject);
             rectTransform.anchorMin = Vector2.zero;
