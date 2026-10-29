@@ -593,6 +593,8 @@ namespace IndicatorSystem.Display
                 uiCamera = canvas.worldCamera != null ? canvas.worldCamera : Camera.main;
             }
 
+            if(canvas!=null&&canvas.renderMode==RenderMode.WorldSpace&&uiCamera!=null&&
+                IndicatorCanvasProjection.TryScreenToLocal(parentRect,screenPosition,uiCamera,out Vector2 precise))return precise;
             if (RectTransformUtility.ScreenPointToLocalPointInRectangle(
                     parentRect,
                     screenPosition,

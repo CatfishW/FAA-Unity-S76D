@@ -166,9 +166,19 @@ namespace FAA.Customization
                 else
                 {
                     Camera uiCamera = g.canvas.renderMode == RenderMode.ScreenSpaceOverlay ? null : g.canvas.worldCamera;
-                    g.rectTransform.GetWorldCorners(corners);
-                    a = RectTransformUtility.WorldToScreenPoint(uiCamera, corners[0]);
-                    b = RectTransformUtility.WorldToScreenPoint(uiCamera, corners[2]);
+                    if(g.canvas.rootCanvas.renderMode==RenderMode.WorldSpace&&uiCamera!=null)
+                    {
+                        g.rectTransform.GetLocalCorners(corners);
+                        if(!IndicatorSystem.Core.IndicatorCanvasProjection.TryProjectLocal(g.rectTransform,corners[0],uiCamera,out var first)||
+                            !IndicatorSystem.Core.IndicatorCanvasProjection.TryProjectLocal(g.rectTransform,corners[2],uiCamera,out var last))continue;
+                        a=first;b=last;
+                    }
+                    else
+                    {
+                        g.rectTransform.GetWorldCorners(corners);
+                        a = RectTransformUtility.WorldToScreenPoint(uiCamera, corners[0]);
+                        b = RectTransformUtility.WorldToScreenPoint(uiCamera, corners[2]);
+                    }
                 }
                 if (Mathf.Abs(b.x - a.x) > view.pixelWidth || Mathf.Abs(b.y - a.y) > view.pixelHeight) continue;
                 minimum = Vector2.Min(minimum, Vector2.Min(a, b)); maximum = Vector2.Max(maximum, Vector2.Max(a, b)); any = true;

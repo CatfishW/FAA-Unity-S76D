@@ -256,7 +256,13 @@ namespace FAA.Headset
             float pixel = meters.x / ReferenceSize.x;
             rect.localScale = new Vector3(pixel / Mathf.Max(.0001f, Mathf.Abs(parentScale.x)),
                 pixel / Mathf.Max(.0001f, Mathf.Abs(parentScale.y)), pixel / Mathf.Max(.0001f, Mathf.Abs(parentScale.z)));
-            rect.SetPositionAndRotation(camera.transform.position + camera.transform.forward * DefaultDistanceMeters, camera.transform.rotation);
+            // This canvas is already parented to the eye. Writing a world position and converting it back into
+            // millimetre HUD coordinates loses precision at flight-scale origins and makes the native UI swim.
+            // A scaled camera still keeps the original physical distance, without a world-origin round trip.
+            Vector3 localPosition=parentScale==Vector3.one?new Vector3(0,0,DefaultDistanceMeters):
+                camera.transform.InverseTransformVector(camera.transform.forward*DefaultDistanceMeters);
+            if(!rect.localPosition.Equals(localPosition))rect.localPosition=localPosition;
+            if(!rect.localRotation.Equals(Quaternion.identity))rect.localRotation=Quaternion.identity;
         }
 
         private void OnDisable()

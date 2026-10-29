@@ -8,7 +8,8 @@ namespace FAA.Customization
 {
     /// <summary>
     /// Moves the ORIGINAL radar canvas, including controls, status and drawers. No duplicated radar/telemetry.
-    /// The original hierarchy is untouched; disabled/native->desktop restores the captured Canvas exactly.
+    /// Desktop inspection temporarily frames the same original children in camera-canvas coordinates. Their authored
+    /// hierarchy/layout is restored before native/tracked placement, on close and when disabled.
     /// </summary>
     public sealed class FaaSpatialRadarPanel
     {
@@ -67,6 +68,14 @@ namespace FAA.Customization
         private readonly List<Rect> desktopProtected=new();
         private Rect desktopPreferred,desktopSafe,desktopContent,desktopPresentation;
         private bool desktopFitValid;
+        private RectTransform desktopRoot;
+        private bool desktopCameraPresentation;
+        private CanvasState desktopOriginal;
+        private readonly List<DesktopChild> desktopChildren=new();
+        private readonly List<DesktopChild> desktopIncoming=new();
+        private int desktopOriginalChildCount;
+        private struct DesktopChild { public RectTransform transform;public int sibling; }
+        private Transform ContentRoot=>desktopCameraPresentation&&desktopRoot!=null?desktopRoot:canvasRect;
         private const float DesktopFitReserveReference=1.5f;
         private const float DesktopFitToleranceReference=1f;
 
@@ -75,8 +84,9 @@ namespace FAA.Customization
             public RenderMode mode;
             public Camera camera;
             public Vector2 anchorMin, anchorMax, pivot, size, anchored;
-            public Vector3 position, rotationEuler, scale;
-            public float planeDistance;
+            public Vector3 position, scale;
+            public Quaternion rotation;
+            public float planeDistance,scaleFactor;
             public bool scalerEnabled;
         }
 
@@ -109,7 +119,7 @@ namespace FAA.Customization
                     mode = Canvas.renderMode, camera = Canvas.worldCamera, planeDistance = Canvas.planeDistance,
                     anchorMin = canvasRect.anchorMin, anchorMax = canvasRect.anchorMax, pivot = canvasRect.pivot,
                     size = canvasRect.sizeDelta, anchored = canvasRect.anchoredPosition,
-                    position = canvasRect.localPosition, rotationEuler = canvasRect.localEulerAngles, scale = canvasRect.localScale,
+                    position = canvasRect.localPosition, rotation = canvasRect.localRotation, scale = canvasRect.localScale, scaleFactor=Canvas.scaleFactor,
                     scalerEnabled = scaler != null && scaler.enabled
                 };
                 trackedRaycaster = Canvas.GetComponent<TrackedDeviceGraphicRaycaster>();
@@ -125,12 +135,13 @@ namespace FAA.Customization
 
         private void RestoreCanvas()
         {
+            EndDesktopInspection();
             if (Canvas == null) return;
             Canvas.renderMode = original.mode; Canvas.worldCamera = original.camera; Canvas.planeDistance = original.planeDistance;
             canvasRect.anchorMin = original.anchorMin; canvasRect.anchorMax = original.anchorMax;
             canvasRect.pivot = original.pivot; canvasRect.sizeDelta = original.size;
             canvasRect.anchoredPosition = original.anchored; canvasRect.localPosition = original.position;
-            canvasRect.localEulerAngles = original.rotationEuler; canvasRect.localScale = original.scale;
+            canvasRect.localRotation = original.rotation; canvasRect.localScale = original.scale;Canvas.scaleFactor=original.scaleFactor;
             if (scaler != null) scaler.enabled = original.scalerEnabled;
             if (ownsTrackedRaycaster && trackedRaycaster != null) Object.Destroy(trackedRaycaster);
             ownsTrackedRaycaster = false;
@@ -139,7 +150,10 @@ namespace FAA.Customization
         public void Apply(Transform cockpit, Camera view, bool editing)
         {
             if (Canvas == null || Radar == null) return;
-            // A new inspection starts fresh; repeated normal/before-render refreshes of the inspected panel keep its fit.
+            // Keep a desktop camera-canvas presentation through both normal and before-render updates. Restore before
+            // a close, late native loader, tracked camera or ordinary spatial placement uses the original hierarchy.
+            bool keepDesktop=desktopCameraPresentation&&owner!=null&&owner.InspectedPanelId==Id&&owner.InspectionZoomAllowed&&DesktopCameraAllowed(view,false);
+            if(desktopCameraPresentation&&!keepDesktop)EndDesktopInspection();
             if(owner!=null&&owner.InspectedPanelId!=Id)desktopFitValid=false;
             ProtectedPhysicalSize = IsUtility ? new Vector2(physicalWidth, PhysicalHeight) : footprint.Measure(Canvas, Radar) * (2f * physicalWidth);
             // Utilities also stay inside a comfortable elevation band (no extreme look-down onto terrain when inspected).
@@ -151,7 +165,7 @@ namespace FAA.Customization
                 handle.sizeDelta = new Vector2(IsUtility ? Radar.rect.width-32f : Mathf.Max(180f, Radar.rect.width), 30f);
                 handle.SetAsLastSibling();
             }
-            if (!IsSpatial || cockpit == null || view == null) return;
+            if (!IsSpatial || cockpit == null || view == null||keepDesktop) return;
             if (scaler != null) scaler.enabled = false;
             if(Canvas.renderMode != RenderMode.WorldSpace)Canvas.renderMode = RenderMode.WorldSpace;
             if(Canvas.worldCamera != view)Canvas.worldCamera = view;
@@ -189,7 +203,7 @@ namespace FAA.Customization
             if (FocusAlpha < .5f) return false;
             foreach (var group in visibility)
                 if (group != null && group.isActiveAndEnabled && group.alpha <= .001f) return false;
-            if (IsSpatial)
+            if (IsSpatial&&!desktopCameraPresentation)
             {
                 var plane = new Plane(Radar.forward, WorldCenter);
                 if (!plane.Raycast(ray, out distance) || distance <= 0f || distance > 10f) return false;
@@ -245,7 +259,7 @@ namespace FAA.Customization
         {
             rect=default;
             if(Canvas==null||Radar==null||!Radar.gameObject.activeInHierarchy||
-                !FaaCanvasLocalGeometry.TryMatrix(Radar,canvasRect,out var radarMatrix))return false;
+                !FaaCanvasLocalGeometry.TryMatrix(Radar,ContentRoot,out var radarMatrix))return false;
             Rect scope=Radar.rect;
             if(!IsUtility)scope=Rect.MinMaxRect(scope.xMin,scope.yMin-25f,scope.xMax,scope.yMax+105f);
             rect=FaaCanvasLocalGeometry.TransformRect(scope,radarMatrix);
@@ -256,7 +270,7 @@ namespace FAA.Customization
             {
                 if(graphic==null||!graphic.isActiveAndEnabled||graphic.color.a<=.02f||
                     Masked(graphic.transform)||ChainAlpha(graphic.transform)<=.02f||
-                    !FaaCanvasLocalGeometry.TryMatrix(graphic.rectTransform,canvasRect,out var matrix))continue;
+                    !FaaCanvasLocalGeometry.TryMatrix(graphic.rectTransform,ContentRoot,out var matrix))continue;
                 Rect box=FaaCanvasLocalGeometry.TransformRect(graphic.rectTransform.rect,matrix);
                 if(box.width>limit||box.height>limit)continue;
                 rect=Rect.MinMaxRect(Mathf.Min(rect.xMin,box.xMin),Mathf.Min(rect.yMin,box.yMin),
@@ -269,11 +283,8 @@ namespace FAA.Customization
         /// The saved cockpit layout is unchanged; the next ordinary Apply restores the authored spatial pose.</summary>
         public bool ApplyDesktopInspection(Camera view,Rect screenTarget,bool nativeXr,IReadOnlyList<Rect> protectedRects=null)
         {
-            if(nativeXr||IsUtility||!IsSpatial||view==null||view.stereoEnabled||UnityEngine.XR.XRSettings.isDeviceActive)return false;
-#if ENABLE_INPUT_SYSTEM
-            var tracking=view.GetComponent<UnityEngine.InputSystem.XR.TrackedPoseDriver>();
-            if(tracking!=null&&tracking.isActiveAndEnabled)return false;
-#endif
+            if(!DesktopCameraAllowed(view,nativeXr)||IsUtility&&Id!="settings"||!IsSpatial)
+            {EndDesktopInspection();return false;}
             if(!TryVisibleCanvasRect(out Rect content))return false;
             float width=view.pixelWidth,height=view.pixelHeight,k=height/1080f;
             if(width<16f||height<16f)return false;
@@ -299,22 +310,83 @@ namespace FAA.Customization
                     reserve.xMin-=padding;reserve.xMax+=padding;reserve.yMin-=padding;reserve.yMax+=padding;
                     desktopProtected.Add(reserve);
                 }
-                desktopPresentation=FitDesktopInspectionRect(preferred,content.size,safe,desktopProtected);
+                // Settings already has an explicit inspection frame; preserve its intended rectangle.
+                desktopPresentation=IsUtility?screenTarget:FitDesktopInspectionRect(preferred,content.size,safe,desktopProtected);
                 desktopPreferred=screenTarget;desktopSafe=safe;desktopContent=content;desktopFitValid=true;
             }
             Rect presentation=desktopPresentation;
             if(presentation.width<=0f||presentation.height<=0f)return false;
             Vector2 size=presentation.size,centre=presentation.center;
-            float depth=Mathf.Max(view.nearClipPlane+.1f,Layout.distance);
-            float pixelsPerMetre=height/(2f*depth*Mathf.Tan(view.fieldOfView*.5f*Mathf.Deg2Rad));
-            float metresPerUnit=Mathf.Min(size.x/content.width,size.y/content.height)/pixelsPerMetre;
-            Vector3 parentScale=canvasRect.parent!=null?canvasRect.parent.lossyScale:Vector3.one;
-            canvasRect.rotation=view.transform.rotation;
-            canvasRect.localScale=new Vector3(metresPerUnit/Mathf.Max(.0001f,Mathf.Abs(parentScale.x)),
-                metresPerUnit/Mathf.Max(.0001f,Mathf.Abs(parentScale.y)),metresPerUnit/Mathf.Max(.0001f,Mathf.Abs(parentScale.z)));
-            Vector3 at=view.ScreenToWorldPoint(new Vector3(centre.x,centre.y,depth));
-            canvasRect.position=at-canvasRect.TransformVector(content.center);
+            BeginDesktopInspection(view);
+            float pixelScale=Mathf.Min(size.x/content.width,size.y/content.height);
+            Vector3 scale=Vector3.one*pixelScale;Vector2 at=centre-new Vector2(width*.5f,height*.5f)-content.center*pixelScale;
+            if(desktopRoot.localScale!=scale)desktopRoot.localScale=scale;
+            if(desktopRoot.anchoredPosition!=at)desktopRoot.anchoredPosition=at;
             return true;
+        }
+
+        private static bool DesktopCameraAllowed(Camera view,bool nativeXr)
+        {
+            if(nativeXr||view==null||view.stereoEnabled||UnityEngine.XR.XRSettings.isDeviceActive)return false;
+#if ENABLE_INPUT_SYSTEM
+            var tracking=view.GetComponent<UnityEngine.InputSystem.XR.TrackedPoseDriver>();
+            if(tracking!=null&&tracking.isActiveAndEnabled)return false;
+#endif
+            return true;
+        }
+        /// <summary>Explicit authored-pose measurement, independent of a temporary desktop presentation.</summary>
+        public void ApplyAuthoredPose(Transform cockpit,Camera view,bool editing)
+        {EndDesktopInspection();Apply(cockpit,view,editing);}
+        private CanvasState CaptureCanvasState()=>new CanvasState
+        {
+            mode=Canvas.renderMode,camera=Canvas.worldCamera,planeDistance=Canvas.planeDistance,scaleFactor=Canvas.scaleFactor,
+            anchorMin=canvasRect.anchorMin,anchorMax=canvasRect.anchorMax,pivot=canvasRect.pivot,size=canvasRect.sizeDelta,
+            anchored=canvasRect.anchoredPosition,position=canvasRect.localPosition,rotation=canvasRect.localRotation,scale=canvasRect.localScale,
+            scalerEnabled=scaler!=null&&scaler.enabled
+        };
+        private static void MoveLayout(RectTransform child,Transform parent)
+        {
+            Vector2 min=child.anchorMin,max=child.anchorMax,pivot=child.pivot,size=child.sizeDelta;Vector3 at=child.anchoredPosition3D,scale=child.localScale;Quaternion rotation=child.localRotation;
+            child.SetParent(parent,false);child.anchorMin=min;child.anchorMax=max;child.pivot=pivot;child.sizeDelta=size;child.anchoredPosition3D=at;child.localRotation=rotation;child.localScale=scale;
+        }
+        private void BeginDesktopInspection(Camera view)
+        {
+            if(!desktopCameraPresentation)
+            {
+                desktopOriginal=CaptureCanvasState();desktopOriginalChildCount=canvasRect.childCount-(desktopRoot!=null&&desktopRoot.parent==canvasRect?1:0);
+                if(desktopRoot==null)
+                {
+                    desktopRoot=(RectTransform)new GameObject("FAA temporary desktop presentation",typeof(RectTransform)).transform;
+                    desktopRoot.gameObject.layer=Canvas.gameObject.layer;desktopRoot.SetParent(canvasRect,false);
+                }
+                desktopRoot.SetParent(canvasRect,false);
+                desktopRoot.anchorMin=desktopRoot.anchorMax=desktopRoot.pivot=new Vector2(.5f,.5f);
+                desktopRoot.sizeDelta=canvasRect.rect.size;desktopRoot.localRotation=Quaternion.identity;desktopRoot.gameObject.SetActive(true);
+            }
+            // Move the same originals, preserving authored RectTransform coordinates; no UI/telemetry copies or new camera.
+            desktopIncoming.Clear();
+            for(int i=0;i<canvasRect.childCount;i++)if(canvasRect.GetChild(i) is RectTransform child&&child!=desktopRoot)
+                desktopIncoming.Add(new DesktopChild{transform=child,sibling=desktopCameraPresentation?desktopOriginalChildCount++:i});
+            foreach(var child in desktopIncoming){desktopChildren.Add(child);MoveLayout(child.transform,desktopRoot);}
+            desktopIncoming.Clear();
+            desktopCameraPresentation=true;
+            if(scaler!=null)scaler.enabled=false;
+            if(Canvas.renderMode!=RenderMode.ScreenSpaceCamera)Canvas.renderMode=RenderMode.ScreenSpaceCamera;
+            if(Canvas.worldCamera!=view)Canvas.worldCamera=view;
+            // A larger mono-only camera plane reduces float cancellation at flight-world coordinates and stays within pointer reach.
+            float depth=Mathf.Clamp(8f,view.nearClipPlane+.1f,Mathf.Max(view.nearClipPlane+.1f,view.farClipPlane-.1f));if(Canvas.planeDistance!=depth)Canvas.planeDistance=depth;
+            if(Canvas.scaleFactor!=1f)Canvas.scaleFactor=1f;
+        }
+        private void EndDesktopInspection()
+        {
+            if(!desktopCameraPresentation)return;
+            desktopCameraPresentation=false;
+            foreach(var child in desktopChildren)if(child.transform!=null){MoveLayout(child.transform,canvasRect);child.transform.SetSiblingIndex(child.sibling);}
+            desktopChildren.Clear();if(desktopRoot!=null){desktopRoot.gameObject.SetActive(false);desktopRoot.SetParent(null,false);}
+            Canvas.renderMode=desktopOriginal.mode;Canvas.worldCamera=desktopOriginal.camera;Canvas.planeDistance=desktopOriginal.planeDistance;Canvas.scaleFactor=desktopOriginal.scaleFactor;
+            canvasRect.anchorMin=desktopOriginal.anchorMin;canvasRect.anchorMax=desktopOriginal.anchorMax;canvasRect.pivot=desktopOriginal.pivot;canvasRect.sizeDelta=desktopOriginal.size;
+            canvasRect.anchoredPosition=desktopOriginal.anchored;canvasRect.localPosition=desktopOriginal.position;canvasRect.localRotation=desktopOriginal.rotation;canvasRect.localScale=desktopOriginal.scale;
+            if(scaler!=null)scaler.enabled=desktopOriginal.scalerEnabled;
         }
 
         private static bool RectsNear(Rect a,Rect b,float tolerance)=>
@@ -395,6 +467,8 @@ namespace FAA.Customization
         {
             rect = default;
             if (view == null || Radar == null || !Radar.gameObject.activeInHierarchy) return false;
+            if(desktopCameraPresentation&&Canvas.renderMode==RenderMode.ScreenSpaceCamera&&Canvas.worldCamera==view)
+            {rect=desktopPresentation;return rect.width>0f&&rect.height>0f;}
             if(!TryVisibleCanvasRect(out Rect r))return false;
             float x0 = float.PositiveInfinity, y0 = float.PositiveInfinity, x1 = float.NegativeInfinity, y1 = float.NegativeInfinity;
             for (int i = 0; i < 4; i++)
@@ -539,6 +613,7 @@ namespace FAA.Customization
         public void Dispose()
         {
             SetSpatial(false);
+            if(desktopRoot!=null){if(Application.isPlaying)Object.Destroy(desktopRoot.gameObject);else Object.DestroyImmediate(desktopRoot.gameObject);desktopRoot=null;}
             if (handle != null) Object.Destroy(handle.gameObject);
             foreach (var g in ownedFocus) if (g != null) Object.Destroy(g);
             ownedFocus.Clear(); focusGroups.Clear(); focusHierarchyCount = -1; FocusAlpha = 1f; focusLive = true; NeighbourHidden = false;

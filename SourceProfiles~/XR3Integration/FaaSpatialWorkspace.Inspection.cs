@@ -457,7 +457,7 @@ namespace FAA.Customization
             float w=View!=null?View.pixelWidth:1920f,h=View!=null?View.pixelHeight:1080f;
             Vector2 yaw,elevation;
             // Measure the saved cockpit pose, not the temporary camera-aligned desktop presentation from the last frame.
-            if(!panel.IsUtility&&InspectionZoomAllowed)panel.Apply(CockpitFrame,View,EditMode);
+            if(InspectionZoomAllowed&&(!panel.IsUtility||panel.Id=="settings"))panel.ApplyAuthoredPose(CockpitFrame,View,EditMode);
             panel.TryVisibleCanvasRect(out inspectedContent);
             if(CockpitFrame==null||!panel.TryVisibleAngularBounds(CockpitFrame,out yaw,out elevation))
             {

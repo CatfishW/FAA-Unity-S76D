@@ -14,7 +14,7 @@ namespace IndicatorSystem.Controller
     /// - Low Coupling: Receives targets via interface, no direct radar dependencies
     /// </summary>
     [AddComponentMenu("Indicator System/Indicator System Controller")]
-    [DefaultExecutionOrder(12000)]
+    [DefaultExecutionOrder(31950)]
     public class IndicatorSystemController : MonoBehaviour
     {
         #region Inspector Fields
@@ -65,6 +65,7 @@ namespace IndicatorSystem.Controller
         }
         private readonly Dictionary<string,CuePresentation> _presentation = new Dictionary<string,CuePresentation>();
         private readonly List<string> _presentationRemoved = new List<string>();
+        private string _projectionPhase="refresh";
         
         #endregion
         
@@ -101,7 +102,7 @@ namespace IndicatorSystem.Controller
                 if (settings.globalOpacity <= 0f) settings.globalOpacity = 1f;
             }
             RefreshSettings();
-            if (_isInitialized && settings.enabled && settings.globalOpacity > 0f) UpdateIndicators();
+            if (_isInitialized && settings.enabled && settings.globalOpacity > 0f){_projectionPhase="settings";UpdateIndicators();}
             else _pool?.ReleaseAll();
         }
         
@@ -142,7 +143,7 @@ namespace IndicatorSystem.Controller
                 return;
             }
             
-            UpdateIndicators();
+            _projectionPhase="late";UpdateIndicators();
         }
 
         private void OnDisable()
@@ -153,17 +154,20 @@ namespace IndicatorSystem.Controller
             _presentation.Clear();
         }
 
-        [BeforeRenderOrder(100)]
+        [BeforeRenderOrder(11000)]
         private void RefreshProjectionBeforeRender()
         {
             AircraftControl.Camera.RenderPhaseAudit.Mark("Indicators begin");
             if (_isInitialized && settings != null && settings.enabled && settings.globalOpacity > 0f)
-                UpdateIndicators();
+            {
+                _projectionPhase="before-render";UpdateIndicators();
+            }
             AircraftControl.Camera.RenderPhaseAudit.Mark("Indicators end");
         }
 
         private void OnDestroy()
         {
+            IndicatorLayoutAudit.Finish();
             if (_pool != null) DestroyOwnedObject(_pool.gameObject);
             if (_controlsPanel != null) DestroyOwnedObject(_controlsPanel.gameObject);
         }
@@ -655,7 +659,6 @@ namespace IndicatorSystem.Controller
 
         private Canvas ProjectionCanvas => targetCanvas != null ? targetCanvas :
             _pool != null && _pool.Container != null ? _pool.Container.GetComponentInParent<Canvas>() : null;
-        private static readonly Vector3[] ProjectionCorners = new Vector3[4];
 
         /// <summary>The physical HUD window in camera pixels; XR eye projection remains owned by the runtime.</summary>
         public static Rect GetProjectionRect(Canvas canvas, Camera view)
@@ -665,12 +668,12 @@ namespace IndicatorSystem.Controller
             if (canvas == null || canvas.renderMode != RenderMode.WorldSpace) return cameraRect;
             var rect = canvas.transform as RectTransform;
             if (rect == null) return cameraRect;
-            rect.GetWorldCorners(ProjectionCorners);
             Vector2 min = new Vector2(float.PositiveInfinity, float.PositiveInfinity);
             Vector2 max = new Vector2(float.NegativeInfinity, float.NegativeInfinity);
-            for (int i = 0; i < ProjectionCorners.Length; i++)
+            for (int i = 0; i < 4; i++)
             {
-                Vector3 point = view.WorldToScreenPoint(ProjectionCorners[i]);
+                Vector3 local=new Vector3((i&1)==0?rect.rect.xMin:rect.rect.xMax,(i&2)==0?rect.rect.yMin:rect.rect.yMax,0);
+                if(!IndicatorCanvasProjection.TryProjectLocal(rect,local,view,out Vector3 point))return cameraRect;
                 if (point.z <= 0 || !TrafficGlyphPolicy.Finite(point.x) || !TrafficGlyphPolicy.Finite(point.y) || !TrafficGlyphPolicy.Finite(point.z)) return cameraRect;
                 min = Vector2.Min(min, point); max = Vector2.Max(max, point);
             }
@@ -681,13 +684,9 @@ namespace IndicatorSystem.Controller
         public static float PixelsPerReferenceUnit(Canvas canvas, Camera view)
         {
             if (canvas == null) return 1f;
-            if (canvas.renderMode == RenderMode.ScreenSpaceOverlay || view == null) return Mathf.Max(.001f, canvas.scaleFactor);
-            Transform reference = canvas.rootCanvas.transform;
-            Vector3 origin = view.WorldToScreenPoint(reference.TransformPoint(Vector3.zero));
-            Vector3 right = view.WorldToScreenPoint(reference.TransformPoint(Vector3.right));
-            Vector3 up = view.WorldToScreenPoint(reference.TransformPoint(Vector3.up));
-            float value = Mathf.Max(Vector2.Distance(origin, right), Vector2.Distance(origin, up));
-            return origin.z > 0 && !float.IsNaN(value) && !float.IsInfinity(value) && value > .001f ? value : Mathf.Max(.001f, canvas.scaleFactor);
+            if (canvas.renderMode != RenderMode.WorldSpace || view == null) return Mathf.Max(.001f, canvas.scaleFactor);
+            return IndicatorCanvasProjection.TryPixelsPerReferenceUnit(canvas.rootCanvas.transform,view,out float pixels)
+                ? pixels:Mathf.Max(.001f,canvas.scaleFactor);
         }
 
         private void UpdateIndicators()
@@ -749,9 +748,11 @@ namespace IndicatorSystem.Controller
             for (int i = 0; i < _indicatorDataList.Count && _activeIds.Count < settings.maxIndicators; i++)
             {
                 var data = _indicatorDataList[i];
+                var raw=data;
                 if (settings.usePilotCueStyle)
                 {
-                    if(!TryLayoutPilotCue(ref data,canvasScale*settings.globalScale,out Rect bounds))continue;
+                    if(!TryLayoutPilotCue(ref data,canvasScale*settings.globalScale,out Rect bounds))
+                    {IndicatorLayoutAudit.Write(raw,data,canvasScale,_projectionPhase,"suppressed",_occupiedCueBounds.Count);continue;}
                     _occupiedCueBounds.Add(bounds);
                 }
                 
@@ -761,6 +762,7 @@ namespace IndicatorSystem.Controller
                 if (element != null)
                 {
                     element.UpdateIndicator(data, settings);
+                    IndicatorLayoutAudit.Write(raw,data,canvasScale,_projectionPhase,"shown",_occupiedCueBounds.Count);
                     _activeIds.Add(data.Id);
                     if (data.Type == IndicatorType.Traffic) _trafficVisible++;
                     if (data.Type == IndicatorType.Weather) _weatherVisible++;

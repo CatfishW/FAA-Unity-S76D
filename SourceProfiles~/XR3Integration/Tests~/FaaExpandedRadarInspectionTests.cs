@@ -67,7 +67,7 @@ namespace FAA.Customization.Tests
             public RectTransform AddGraphic(string name, Transform parent, Vector2 position, Vector2 size) => ImageRect(name, parent, position, size);
             public object Call(string method, params object[] args) => PanelType.GetMethod(method, Any).Invoke(Panel, args);
             public void ApplyNormal() => Call("Apply", Cockpit, View, false);
-            public bool Inspect(bool nativeXr = false) => (bool)Call("ApplyDesktopInspection", View, RequestedTarget, nativeXr,null);
+            public bool Inspect(bool nativeXr = false) {bool result=(bool)Call("ApplyDesktopInspection", View, RequestedTarget, nativeXr,null);Canvas.ForceUpdateCanvases();return result;}
             public Rect VisibleRect()
             {
                 object[] args = { default(Rect) };
@@ -86,6 +86,7 @@ namespace FAA.Customization.Tests
 
             public void AssertRenderedCompositeFits(Rect expectedBounds)
             {
+                Canvas.ForceUpdateCanvases();
                 Assert.That(View.pixelWidth, Is.EqualTo(1920));
                 Assert.That(View.pixelHeight, Is.EqualTo(1080));
                 Assert.That(Quaternion.Angle(CanvasRect.rotation, View.transform.rotation), Is.LessThan(.01f),
