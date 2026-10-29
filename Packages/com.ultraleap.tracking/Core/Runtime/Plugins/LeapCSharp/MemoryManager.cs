@@ -6,6 +6,9 @@
  * between Ultraleap and you, your company or other organization.             *
  ******************************************************************************/
 
+// FAA local modification (2026-10-29): make pooled buffer release and pin ownership
+// safe across concurrent allocator callbacks; retain managed references for lookups.
+
 using AOT;
 using System;
 using System.Collections.Concurrent;
