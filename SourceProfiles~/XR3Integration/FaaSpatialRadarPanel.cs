@@ -67,6 +67,8 @@ namespace FAA.Customization
         private readonly List<Rect> desktopProtected=new();
         private Rect desktopPreferred,desktopSafe,desktopContent,desktopPresentation;
         private bool desktopFitValid;
+        private const float DesktopFitReserveReference=1.5f;
+        private const float DesktopFitToleranceReference=1f;
 
         private struct CanvasState
         {
@@ -99,6 +101,7 @@ namespace FAA.Customization
         public void SetSpatial(bool value)
         {
             if (Canvas == null || Radar == null || IsSpatial == value) return;
+            desktopFitValid=false;
             if (value)
             {
                 original = new CanvasState
@@ -136,6 +139,8 @@ namespace FAA.Customization
         public void Apply(Transform cockpit, Camera view, bool editing)
         {
             if (Canvas == null || Radar == null) return;
+            // A new inspection starts fresh; repeated normal/before-render refreshes of the inspected panel keep its fit.
+            if(owner!=null&&owner.InspectedPanelId!=Id)desktopFitValid=false;
             ProtectedPhysicalSize = IsUtility ? new Vector2(physicalWidth, PhysicalHeight) : footprint.Measure(Canvas, Radar) * (2f * physicalWidth);
             // Utilities also stay inside a comfortable elevation band (no extreme look-down onto terrain when inspected).
             if (IsUtility) FaaPeripheralPanelLayout.ProtectUtility(Layout,ProtectedPhysicalSize.x,ProtectedPhysicalSize.y,DefaultLayout.yaw);
@@ -276,15 +281,26 @@ namespace FAA.Customization
                 width-12f*k,height-92f*k);
             if(!(screenTarget.width>1f&&screenTarget.height>1f)||
                 !FaaSpatialLayoutMath.Finite(screenTarget.center.x)||!FaaSpatialLayoutMath.Finite(screenTarget.center.y))screenTarget=safe;
-            bool changed=!desktopFitValid||desktopPreferred!=screenTarget||desktopSafe!=safe||desktopContent!=content||
-                desktopProtected.Count!=(protectedRects!=null?protectedRects.Count:0);
-            if(!changed&&protectedRects!=null)for(int i=0;i<protectedRects.Count;i++)
-                if(desktopProtected[i]!=protectedRects[i]){changed=true;break;}
-            if(changed)
+            float tolerance=DesktopFitToleranceReference*k;
+            bool sameTarget=desktopFitValid&&RectsNear(desktopPreferred,screenTarget,tolerance);
+            bool sameSafe=desktopFitValid&&RectsNear(desktopSafe,safe,.01f);
+            bool sameContent=desktopFitValid&&DesktopContentNear(content,tolerance);
+            // Readout bounds can vary by fractions of a pixel as live text and the camera refresh. Re-solving the
+            // global nearest fit on every variation can alternate between equally good slots on opposite sides.
+            // Keep a still-safe presentation; content, viewport and real collisions still reflow immediately.
+            if(!desktopFitValid||!sameTarget||!sameSafe||!sameContent||!DesktopPresentationClear(desktopPresentation,safe,protectedRects))
             {
-                desktopPresentation=FitDesktopInspectionRect(screenTarget,content.size,safe,protectedRects);
+                Rect preferred=screenTarget;
+                if(desktopFitValid&&sameTarget&&sameSafe)preferred.center=desktopPresentation.center;
+                desktopProtected.Clear();
+                if(protectedRects!=null)for(int i=0;i<protectedRects.Count;i++)
+                {
+                    Rect reserve=protectedRects[i];float padding=DesktopFitReserveReference*k;
+                    reserve.xMin-=padding;reserve.xMax+=padding;reserve.yMin-=padding;reserve.yMax+=padding;
+                    desktopProtected.Add(reserve);
+                }
+                desktopPresentation=FitDesktopInspectionRect(preferred,content.size,safe,desktopProtected);
                 desktopPreferred=screenTarget;desktopSafe=safe;desktopContent=content;desktopFitValid=true;
-                desktopProtected.Clear();if(protectedRects!=null)for(int i=0;i<protectedRects.Count;i++)desktopProtected.Add(protectedRects[i]);
             }
             Rect presentation=desktopPresentation;
             if(presentation.width<=0f||presentation.height<=0f)return false;
@@ -298,6 +314,24 @@ namespace FAA.Customization
                 metresPerUnit/Mathf.Max(.0001f,Mathf.Abs(parentScale.y)),metresPerUnit/Mathf.Max(.0001f,Mathf.Abs(parentScale.z)));
             Vector3 at=view.ScreenToWorldPoint(new Vector3(centre.x,centre.y,depth));
             canvasRect.position=at-canvasRect.TransformVector(content.center);
+            return true;
+        }
+
+        private static bool RectsNear(Rect a,Rect b,float tolerance)=>
+            Mathf.Abs(a.xMin-b.xMin)<=tolerance&&Mathf.Abs(a.xMax-b.xMax)<=tolerance&&
+            Mathf.Abs(a.yMin-b.yMin)<=tolerance&&Mathf.Abs(a.yMax-b.yMax)<=tolerance;
+        private bool DesktopContentNear(Rect content,float pixelTolerance)
+        {
+            float x=desktopPresentation.width/Mathf.Max(.001f,desktopContent.width);
+            float y=desktopPresentation.height/Mathf.Max(.001f,desktopContent.height);
+            return Mathf.Abs(content.xMin-desktopContent.xMin)*x<=pixelTolerance&&Mathf.Abs(content.xMax-desktopContent.xMax)*x<=pixelTolerance&&
+                Mathf.Abs(content.yMin-desktopContent.yMin)*y<=pixelTolerance&&Mathf.Abs(content.yMax-desktopContent.yMax)*y<=pixelTolerance;
+        }
+        private static bool DesktopPresentationClear(Rect presentation,Rect safe,IReadOnlyList<Rect> protectedRects)
+        {
+            if(presentation.width<=0f||presentation.height<=0f||presentation.xMin<safe.xMin-.01f||presentation.xMax>safe.xMax+.01f||
+                presentation.yMin<safe.yMin-.01f||presentation.yMax>safe.yMax+.01f)return false;
+            if(protectedRects!=null)for(int i=0;i<protectedRects.Count;i++)if(presentation.Overlaps(protectedRects[i]))return false;
             return true;
         }
 

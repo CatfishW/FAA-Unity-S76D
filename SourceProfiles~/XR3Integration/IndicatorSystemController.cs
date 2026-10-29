@@ -57,6 +57,14 @@ namespace IndicatorSystem.Controller
         private IndicatorControlsPanel _controlsPanel;
         private CanvasGroup _cueGroup;
         private int _trafficVisible, _weatherVisible, _onScreenVisible, _offScreenVisible;
+        private sealed class CuePresentation
+        {
+            public bool HasSide, Left, HasEdgePosition, Displaced, Suppressed;
+            public float EdgeY, Scale;
+            public Rect Region;
+        }
+        private readonly Dictionary<string,CuePresentation> _presentation = new Dictionary<string,CuePresentation>();
+        private readonly List<string> _presentationRemoved = new List<string>();
         
         #endregion
         
@@ -142,6 +150,7 @@ namespace IndicatorSystem.Controller
             Application.onBeforeRender -= RefreshProjectionBeforeRender;
             _pool?.ReleaseAll();
             _trafficVisible = _weatherVisible = _onScreenVisible = _offScreenVisible = 0;
+            _presentation.Clear();
         }
 
         [BeforeRenderOrder(100)]
@@ -324,6 +333,10 @@ namespace IndicatorSystem.Controller
         {
             _targets.Clear();
             AddOrUpdateTargets(targets);
+            _presentationRemoved.Clear();
+            foreach(var pair in _presentation)if(!_targets.ContainsKey(pair.Key))_presentationRemoved.Add(pair.Key);
+            foreach(string id in _presentationRemoved)_presentation.Remove(id);
+            _presentationRemoved.Clear();
         }
 
         /// <summary>
@@ -369,6 +382,7 @@ namespace IndicatorSystem.Controller
         /// </summary>
         public void RemoveTarget(string id)
         {
+            _presentation.Remove(id);
             if (_targets.Remove(id))
             {
                 _pool?.ReleaseIndicator(id);
@@ -381,6 +395,7 @@ namespace IndicatorSystem.Controller
         public void ClearAll()
         {
             _targets.Clear();
+            _presentation.Clear();
             _pool?.ReleaseAll();
         }
         
@@ -519,6 +534,10 @@ namespace IndicatorSystem.Controller
         /// <summary>Move only an edge cue's vertical anchor to the nearest clear slot inside its physical HUD.</summary>
         public static bool TryPlaceOffscreenCue(ref IndicatorData data, float pixelScale, IndicatorSettings cueSettings,
             IReadOnlyList<Rect> occupied, out Rect bounds)
+            => TryPlaceOffscreenCueNearest(ref data,pixelScale,cueSettings,occupied,data.ScreenPosition.y,0f,out bounds);
+
+        private static bool TryPlaceOffscreenCueNearest(ref IndicatorData data,float pixelScale,IndicatorSettings cueSettings,
+            IReadOnlyList<Rect> occupied,float preferredY,float clearance,out Rect bounds)
         {
             IndicatorData original = data;
             bounds = PilotIndicatorCue.ScreenBoundsForSettings(original, pixelScale, cueSettings);
@@ -545,8 +564,8 @@ namespace IndicatorSystem.Controller
                 Rect trial = PilotIndicatorCue.ScreenBoundsForSettings(candidate, pixelScale, cueSettings);
                 if (trial.xMin < region.xMin - .01f || trial.xMax > region.xMax + .01f ||
                     trial.yMin < region.yMin - .01f || trial.yMax > region.yMax + .01f) return;
-                if (occupied != null) for (int i = 0; i < occupied.Count; i++) if (occupied[i].Overlaps(trial)) return;
-                float distance = Mathf.Abs(y - original.ScreenPosition.y);
+                if (!ClearWithMargin(trial,occupied,clearance)) return;
+                float distance = Mathf.Abs(y - preferredY);
                 if (distance > bestDistance || Mathf.Approximately(distance, bestDistance) && y >= best.ScreenPosition.y) return;
                 bestDistance = distance; best = candidate; bestBounds = trial;
             }
@@ -555,12 +574,63 @@ namespace IndicatorSystem.Controller
                 for (int i = 0; i < occupied.Count; i++)
                 {
                     Rect obstacle = occupied[i];
-                    if (obstacle.xMax <= centerBounds.xMin || obstacle.xMin >= centerBounds.xMax) continue;
-                    Consider(obstacle.yMin - halfHeight - 2f);
-                    Consider(obstacle.yMax + halfHeight + 2f);
+                    if (obstacle.xMax <= centerBounds.xMin-clearance || obstacle.xMin >= centerBounds.xMax+clearance) continue;
+                    float gap=Mathf.Max(2f,clearance+2f);
+                    Consider(obstacle.yMin - halfHeight - gap);
+                    Consider(obstacle.yMax + halfHeight + gap);
                 }
             if (float.IsPositiveInfinity(bestDistance)) return false;
             data = best; bounds = bestBounds; return true;
+        }
+
+        private static bool ClearWithMargin(Rect bounds,IReadOnlyList<Rect> occupied,float margin)
+        {
+            bounds=Rect.MinMaxRect(bounds.xMin-margin,bounds.yMin-margin,bounds.xMax+margin,bounds.yMax+margin);
+            if(occupied!=null)for(int i=0;i<occupied.Count;i++)if(bounds.Overlaps(occupied[i]))return false;
+            return true;
+        }
+
+        // Keep decorative readouts and displaced edge lanes stable across tiny camera/telemetry changes.
+        // The real on-screen target anchor, arrow direction and geometric visibility are never filtered.
+        private bool TryLayoutPilotCue(ref IndicatorData data,float pixelScale,out Rect bounds)
+        {
+            string id=data.Id??string.Empty;
+            if(!_presentation.TryGetValue(id,out var state))_presentation[id]=state=new CuePresentation();
+            float scale=TrafficGlyphPolicy.Finite(pixelScale)&&pixelScale>.0001f?pixelScale:1f;
+            Rect region=data.ProjectionRect;
+            float centre=region.width>0?region.center.x:Screen.width*.5f;
+            float sideMargin=16f*scale;
+            if(!state.HasSide){state.Left=data.ScreenPosition.x>centre;state.HasSide=true;}
+            else if(state.Left&&data.ScreenPosition.x<centre-sideMargin)state.Left=false;
+            else if(!state.Left&&data.ScreenPosition.x>centre+sideMargin)state.Left=true;
+            data.HasReadoutSide=true;data.ReadoutOnLeft=state.Left;
+            bounds=PilotIndicatorCue.ScreenBoundsForSettings(data,scale,settings);
+            // A label always points inward at the physical viewport edges; the centre deadband cannot clip it.
+            if(bounds.xMin<region.xMin||bounds.xMax>region.xMax)
+            {
+                var alternate=data;alternate.ReadoutOnLeft=!data.ReadoutOnLeft;
+                Rect other=PilotIndicatorCue.ScreenBoundsForSettings(alternate,scale,settings);
+                if(other.xMin>=region.xMin&&other.xMax<=region.xMax)
+                {data=alternate;bounds=other;state.Left=data.ReadoutOnLeft;}
+            }
+            bool offscreen=data.Visibility!=IndicatorVisibility.OnScreen;
+            if(!offscreen){state.HasEdgePosition=false;state.Displaced=false;}
+            else
+            {
+                float originalY=data.ScreenPosition.y;
+                bool sameSpace=Mathf.Abs(state.Region.width-region.width)<1f&&Mathf.Abs(state.Region.height-region.height)<1f&&
+                    Vector2.Distance(state.Region.position,region.position)<4f&&Mathf.Abs(state.Scale-scale)<.01f;
+                float preferred=state.HasEdgePosition&&state.Displaced&&sameSpace&&!ClearWithMargin(bounds,_occupiedCueBounds,4f*scale)
+                    ?state.EdgeY:originalY;
+                if(!TryPlaceOffscreenCueNearest(ref data,scale,settings,_occupiedCueBounds,preferred,state.Suppressed?4f*scale:0f,out bounds))
+                {state.Suppressed=true;return false;}
+                state.EdgeY=data.ScreenPosition.y;state.HasEdgePosition=true;
+                state.Displaced=Mathf.Abs(state.EdgeY-originalY)>.5f;state.Region=region;state.Scale=scale;
+            }
+            if(OverlapsOccupied(bounds)){state.Suppressed=true;return false;}
+            // Hide immediately when unsafe; reacquire only after useful clearance, rather than flashing at a pixel boundary.
+            if(state.Suppressed&&!ClearWithMargin(bounds,_occupiedCueBounds,4f*scale))return false;
+            state.Suppressed=false;return true;
         }
 
         private bool OverlapsOccupied(Rect bounds)
@@ -681,10 +751,7 @@ namespace IndicatorSystem.Controller
                 var data = _indicatorDataList[i];
                 if (settings.usePilotCueStyle)
                 {
-                    Rect bounds = PilotIndicatorCue.ScreenBoundsForSettings(data, canvasScale * settings.globalScale, settings);
-                    if (data.Visibility != IndicatorVisibility.OnScreen &&
-                        !TryPlaceOffscreenCue(ref data, canvasScale * settings.globalScale, settings, _occupiedCueBounds, out bounds)) continue;
-                    if (OverlapsOccupied(bounds)) continue;
+                    if(!TryLayoutPilotCue(ref data,canvasScale*settings.globalScale,out Rect bounds))continue;
                     _occupiedCueBounds.Add(bounds);
                 }
                 

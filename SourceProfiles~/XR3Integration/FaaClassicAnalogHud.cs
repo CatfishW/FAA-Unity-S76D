@@ -410,15 +410,45 @@ namespace FAA.Customization
             float a=1;foreach(var cg in tapeGroups){if(cg==null||!cg.isActiveAndEnabled)continue;a*=cg.alpha;if(cg.ignoreParentGroups)break;}
             if(a<.05f)return false;
             visible=true;
-            var tapeRoot=tapeCanvas.rootCanvas;var myRoot=renderingCanvas.rootCanvas;
+            return TryProjectHeadingTapeFrameRect(tape,tapeCanvas,out frame);
+        }
+        private bool TryProjectHeadingTapeFrameRect(RectTransform headingTape,Canvas headingCanvas,out Rect frame)
+        {
+            frame=default;
+            var tapeRoot=headingCanvas.rootCanvas;var myRoot=renderingCanvas.rootCanvas;
             Camera tapeCamera=tapeRoot.renderMode==RenderMode.ScreenSpaceOverlay?null:tapeRoot.worldCamera;
             Camera myCamera=myRoot.renderMode==RenderMode.ScreenSpaceOverlay?null:myRoot.worldCamera;
-            tape.GetWorldCorners(corners);
+            // Unity refreshes screen-space canvas world poses after the camera has moved. Layout must use the
+            // current canvas coordinates, otherwise an old Classic plane makes a fixed heading tape appear to move
+            // and the lower dials repeatedly change their spacing. Native/world-space canvases keep physical projection.
+            var tapeFrame=tapeRoot.transform as RectTransform;var myFrame=myRoot.transform as RectTransform;
+            Matrix4x4 tapeMatrix=Matrix4x4.identity,myMatrix=Matrix4x4.identity;
+            bool screenFixed=myRoot.renderMode==RenderMode.ScreenSpaceCamera&&myCamera!=null&&!myCamera.stereoEnabled&&
+                !UnityEngine.XR.XRSettings.isDeviceActive&&tapeRoot.renderMode!=RenderMode.WorldSpace&&
+                (tapeCamera==null||!tapeCamera.stereoEnabled)&&tapeFrame!=null&&myFrame!=null&&
+                tapeFrame.rect.width>0f&&tapeFrame.rect.height>0f&&myFrame.rect.width>0f&&myFrame.rect.height>0f&&
+                tapeRoot.pixelRect.width>0f&&tapeRoot.pixelRect.height>0f&&myRoot.pixelRect.width>0f&&myRoot.pixelRect.height>0f&&
+                FaaCanvasLocalGeometry.TryMatrix(headingTape,tapeFrame,out tapeMatrix)&&FaaCanvasLocalGeometry.TryMatrix(Root,myFrame,out myMatrix);
+            if(screenFixed)headingTape.GetLocalCorners(corners);else headingTape.GetWorldCorners(corners);
+            Matrix4x4 canvasToFrame=screenFixed?myMatrix.inverse:Matrix4x4.identity;
             float xMin=float.MaxValue,yMin=float.MaxValue,xMax=float.MinValue,yMax=float.MinValue;
             for(int i=0;i<4;i++)
             {
-                Vector2 screen=RectTransformUtility.WorldToScreenPoint(tapeCamera,corners[i]);
-                if(!RectTransformUtility.ScreenPointToLocalPointInRectangle(Root,screen,myCamera,out var local))return false;
+                Vector2 local;
+                if(screenFixed)
+                {
+                    Vector3 tapeLocal=tapeMatrix.MultiplyPoint3x4(corners[i]);Rect from=tapeFrame.rect,to=myFrame.rect;
+                    Rect sourcePixels=tapeRoot.pixelRect,destinationPixels=myRoot.pixelRect;
+                    var screen=new Vector2(sourcePixels.xMin+(tapeLocal.x-from.xMin)*sourcePixels.width/from.width,
+                        sourcePixels.yMin+(tapeLocal.y-from.yMin)*sourcePixels.height/from.height);
+                    local=canvasToFrame.MultiplyPoint3x4(new Vector3(to.xMin+(screen.x-destinationPixels.xMin)*to.width/destinationPixels.width,
+                        to.yMin+(screen.y-destinationPixels.yMin)*to.height/destinationPixels.height,0));
+                }
+                else
+                {
+                    Vector2 screen=RectTransformUtility.WorldToScreenPoint(tapeCamera,corners[i]);
+                    if(!RectTransformUtility.ScreenPointToLocalPointInRectangle(Root,screen,myCamera,out local))return false;
+                }
                 float fx=local.x+480,fy=390-local.y;
                 xMin=Mathf.Min(xMin,fx);xMax=Mathf.Max(xMax,fx);yMin=Mathf.Min(yMin,fy);yMax=Mathf.Max(yMax,fy);
             }

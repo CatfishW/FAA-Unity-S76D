@@ -125,7 +125,7 @@ namespace IndicatorSystem.Display
             return "IN VIEW · TYPE SYMBOL";
         }
 
-        public static bool LabelOnLeft(IndicatorData data) => data.ScreenPosition.x >
+        public static bool LabelOnLeft(IndicatorData data) => data.HasReadoutSide ? data.ReadoutOnLeft : data.ScreenPosition.x >
             (data.ProjectionRect.width > 0 ? data.ProjectionRect.center.x : Screen.width * .5f);
 
         public static float SymbolHalfExtent(IndicatorData data, IndicatorSettings settings)

@@ -87,6 +87,8 @@ namespace IndicatorSystem.Core
         public float RelativeHeadingDegrees;
         public Quaternion ViewRelativeRotation;
         public Rect ProjectionRect;
+        // Controller-owned presentation choice. The projected target and its visibility stay geometric.
+        public bool HasReadoutSide, ReadoutOnLeft;
         
         /// <summary>Bearing from own aircraft to target in degrees</summary>
         public float BearingFromOwn;
