@@ -166,6 +166,24 @@ namespace AircraftControl.Camera
         private float _currentVerticalOffset;
         private Quaternion _aircraftReferenceRotation = Quaternion.identity;
         private readonly AircraftNativeXrOrigin _nativeXrOrigin = new AircraftNativeXrOrigin();
+        private bool _nearRenderSpaceRequested;
+        private Vector3 _appliedRenderWorldOffset;
+        public bool NearRenderSpaceActive => isActiveAndEnabled && _nearRenderSpaceRequested && NativeXrTrackingOrigin != null && aircraftTransform != null;
+        public Vector3 NativeRenderWorldOffset => NearRenderSpaceActive ? _appliedRenderWorldOffset : Vector3.zero;
+        public event System.Action<bool> NativeRenderSpaceChanged;
+
+        /// <summary>Requested only by the native passthrough owner. Does not change a tracked local pose or its projection.</summary>
+        public void SetNearRenderSpaceRequested(bool requested)
+        {
+            if (_nearRenderSpaceRequested == requested) return;
+            _nearRenderSpaceRequested = requested;
+            if (NativeXrTrackingOrigin != null && aircraftTransform != null)
+            {
+                bool tracked = NativeHeadTracked(out bool presenceAvailable, out bool userPresent);
+                ApplyNativeXrOriginPose(tracked, presenceAvailable, userPresent);
+            }
+            NativeRenderSpaceChanged?.Invoke(NearRenderSpaceActive);
+        }
         
         #endregion
         
@@ -204,7 +222,11 @@ namespace AircraftControl.Camera
         
         #region Unity Lifecycle
 
-        private void OnEnable() => Application.onBeforeRender += RefreshNativeXrOrigin;
+        private void OnEnable()
+        {
+            Application.onBeforeRender += RefreshNativeXrOrigin;
+            AircraftViewRenderSpace.Bind(GetComponent<UnityEngine.Camera>(), this);
+        }
         
         private void Start()
         {
@@ -278,6 +300,8 @@ namespace AircraftControl.Camera
         private void OnDisable()
         {
             Application.onBeforeRender -= RefreshNativeXrOrigin;
+            SetNearRenderSpaceRequested(false);
+            AircraftViewRenderSpace.Bind(GetComponent<UnityEngine.Camera>(), null);
             _nativeXrOrigin.Release();
         }
 
@@ -305,12 +329,22 @@ namespace AircraftControl.Camera
             bool firstPose = NativeXrTrackingOrigin == null;
             bool wasCalibrated = NativeXrSeatCalibrated;
             bool tracked = NativeHeadTracked(out bool presenceAvailable, out bool userPresent);
-            _nativeXrOrigin.Follow(transform, aircraftTransform.position, NativeAircraftRotation(), cockpitOffset,
-                tracked, presenceAvailable, userPresent);
+            ApplyNativeXrOriginPose(tracked, presenceAvailable, userPresent);
             if (firstPose) Debug.Log("[FAA XR] Aircraft tracking origin active; local HMD pose preserved, seat calibrated=" + NativeXrSeatCalibrated + ".", this);
             if (!wasCalibrated && NativeXrSeatCalibrated)
                 Debug.Log("[FAA XR] Native aircraft seat position/yaw calibrated from the first eligible tracked HMD sample (user presence required when reported).", this);
 #endif
+        }
+
+        private void ApplyNativeXrOriginPose(bool tracked, bool presenceAvailable, bool userPresent)
+        {
+            // Publish the translation with the pose it belongs to. A data-world transform may
+            // move between Update and before-render; never expose its newer offset with an older eye.
+            Vector3 dataPosition = aircraftTransform.position;
+            Vector3 offset = _nearRenderSpaceRequested ? dataPosition : Vector3.zero;
+            _nativeXrOrigin.Follow(transform, dataPosition - offset, NativeAircraftRotation(), cockpitOffset,
+                tracked, presenceAvailable, userPresent);
+            _appliedRenderWorldOffset = offset;
         }
 
         private static bool NativeHeadTracked(out bool presenceAvailable, out bool userPresent)
@@ -327,8 +361,11 @@ namespace AircraftControl.Camera
         {
             if (NativeXrTrackingOrigin == null || aircraftTransform == null) return false;
             bool tracked = NativeHeadTracked(out bool presenceAvailable, out bool userPresent);
-            if (!_nativeXrOrigin.Recenter(aircraftTransform.position, NativeAircraftRotation(), cockpitOffset,
+            Vector3 dataPosition = aircraftTransform.position;
+            Vector3 offset = _nearRenderSpaceRequested ? dataPosition : Vector3.zero;
+            if (!_nativeXrOrigin.Recenter(dataPosition - offset, NativeAircraftRotation(), cockpitOffset,
                 tracked, presenceAvailable, userPresent)) return false;
+            _appliedRenderWorldOffset = offset;
             Debug.Log("[FAA XR] Native aircraft seat recentered from the current tracked position and yaw.", this);
             return true;
         }

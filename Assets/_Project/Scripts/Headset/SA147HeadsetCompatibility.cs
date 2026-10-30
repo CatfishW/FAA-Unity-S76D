@@ -185,7 +185,7 @@ namespace FAA.Headset
 
         private void ConfigureOverlayCanvases()
         {
-            Canvas[] canvases = FindObjectsByType<Canvas>(FindObjectsInactive.Exclude);
+            Canvas[] canvases = FindObjectsByType<Canvas>(FindObjectsInactive.Exclude, UnityEngine.FindObjectsSortMode.None);
             List<Canvas> routedCanvases = new List<Canvas>();
             foreach (Canvas canvas in canvases)
             {

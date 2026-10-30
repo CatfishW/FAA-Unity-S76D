@@ -779,7 +779,7 @@ namespace VoiceControl.Adapters
 
             Canvas best = null;
             int bestScore = int.MinValue;
-            foreach (Canvas candidate in FindObjectsByType<Canvas>(FindObjectsInactive.Include))
+            foreach (Canvas candidate in FindObjectsByType<Canvas>(FindObjectsInactive.Include, UnityEngine.FindObjectsSortMode.None))
             {
                 if (!IsLoadedSceneCanvas(candidate) ||
                     !string.Equals(candidate.gameObject.name, DedicatedRadarCanvasName, System.StringComparison.Ordinal))

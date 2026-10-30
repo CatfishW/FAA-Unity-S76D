@@ -965,7 +965,7 @@ namespace FAA.Headset
         {
             bool enableFallback = simulatorActive && enableSimulatorWeatherFallback;
             XPlaneOriginalWeatherRadarProvider[] providers =
-                FindObjectsByType<XPlaneOriginalWeatherRadarProvider>(FindObjectsInactive.Include);
+                FindObjectsByType<XPlaneOriginalWeatherRadarProvider>(FindObjectsInactive.Include, UnityEngine.FindObjectsSortMode.None);
 
             foreach (XPlaneOriginalWeatherRadarProvider provider in providers)
             {

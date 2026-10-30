@@ -392,7 +392,7 @@ git lfs pull
 git lfs ls-files
 ~~~
 
-Open the repository root—not a parent folder—in Unity `6000.5.10f1`. Unity
+Open the repository root—not a parent folder—in Unity `6000.3.27f1`. Unity
 regenerates `Library`, `Temp`, `Logs`, `Obj`, and local user settings, so those
 directories are intentionally excluded from Git. Do not copy them from another
 workstation.
@@ -544,6 +544,9 @@ another lab-approved injection mechanism.
 
 ## Varjo XR-3 deployment
 
+The current project targets Unity **6000.3.27f1 LTS**. Native mixed-reality HUDs use a per-camera rendering origin to avoid flight-scale floating-point jitter while retaining geographic data and physics coordinates. See [XR-3 render-origin repair and validation](docs/XR3_RENDER_ORIGIN_STABILITY.md) for the coordinate contract, source profiles and current test limits.
+
+
 The Unity project pins the Varjo XR plugin to 3.7.3 and includes XR Management
 and XR Interaction Toolkit support. Use **FAA → Headset → Configure XR-3 +
 Simulator In FAA Scenes** to configure the Standalone Varjo loader and the FAA
@@ -643,7 +646,7 @@ X-Plane 12 / remote relay / mock source / web API
 
 | Requirement | Version or note |
 | --- | --- |
-| Unity Editor | **6000.5.10f1** (Unity 6.5 tech-stream editor; changeset 3bd4f66ad299). Use this version when reproducing scenes or tests. |
+| Unity Editor | **6000.3.27f1** (Unity 6.3 LTS editor; changeset 672d562a42a7). Use this version when reproducing scenes or tests. |
 | Git | Any recent Git with SSH or HTTPS access to the repository. |
 | Git LFS | Required for the large binary assets tracked by .gitattributes. Run git lfs pull after cloning. |
 | Desktop build module | Install the module for the target OS before building a player. The project is configured for standalone desktop development. |
@@ -685,7 +688,7 @@ Open the project with Unity Hub, or with the Unity CLI:
 
 ~~~bash
 unity --version
-unity open "$PWD" --editor-version 6000.5.10f1
+unity open "$PWD" --editor-version 6000.3.27f1
 ~~~
 
 If the CLI is not installed, open Unity Hub, choose **Add project**, and select
@@ -1564,13 +1567,13 @@ Run the editor tests with a reproducible report path:
 ~~~bash
 mkdir -p _artifacts/tests
 unity test "$PWD" \
-  --editor-version 6000.5.10f1 \
+  --editor-version 6000.3.27f1 \
   --mode EditMode \
   --report-format junit \
   --output _artifacts/tests/editmode.xml
 
 unity test "$PWD" \
-  --editor-version 6000.5.10f1 \
+  --editor-version 6000.3.27f1 \
   --mode PlayMode \
   --report-format junit \
   --output _artifacts/tests/playmode.xml
@@ -1589,7 +1592,7 @@ On macOS, a native Unity batch check can be run as follows (adjust the editor
 path for the installed platform):
 
 ~~~bash
-"/Applications/Unity/Hub/Editor/6000.5.10f1/Unity.app/Contents/MacOS/Unity" \
+"/Applications/Unity/Hub/Editor/6000.3.27f1/Unity.app/Contents/MacOS/Unity" \
   -batchmode \
   -quit \
   -nographics \
@@ -1612,7 +1615,7 @@ installed:
 ~~~bash
 mkdir -p Build
 unity build "$PWD" \
-  --editor-version 6000.5.10f1 \
+  --editor-version 6000.3.27f1 \
   --target StandaloneOSX \
   --output-path Build/FAA.app
 ~~~

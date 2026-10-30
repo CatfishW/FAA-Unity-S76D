@@ -73,6 +73,8 @@ namespace FAA.Headset
             desktop.cullingMask = 1 << XR3MixedRealityPresentation.HudLayer;
             desktop.allowHDR = false; desktop.allowMSAA = false;
             desktop.transform.SetPositionAndRotation(headset.transform.position, headset.transform.rotation);
+            var space = AircraftControl.Camera.AircraftViewRenderSpace.ForCamera(headset);
+            AircraftControl.Camera.AircraftViewRenderSpace.Bind(desktop, space != null ? space.Owner : null);
             desktop.ResetProjectionMatrix(); desktop.ResetWorldToCameraMatrix();
         }
 
@@ -151,7 +153,11 @@ namespace FAA.Headset
             foreach (var adapter in pointerRaycasters)
                 if (adapter != null) { adapter.Restore(); DestroyOwned(adapter); }
             pointerRaycasters.Clear();
-            if (preview != null) preview.enabled = false;
+            if (preview != null)
+            {
+                AircraftControl.Camera.AircraftViewRenderSpace.Bind(preview, null);
+                preview.enabled = false;
+            }
         }
 
         private void OnDisable()

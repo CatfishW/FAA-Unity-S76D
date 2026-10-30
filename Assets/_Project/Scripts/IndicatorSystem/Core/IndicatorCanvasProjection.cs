@@ -8,14 +8,12 @@ namespace IndicatorSystem.Core
         private static bool Finite(float value)=>!float.IsNaN(value)&&!float.IsInfinity(value);
         private static bool ToAncestor(Transform child,Transform ancestor,out Matrix4x4 matrix)
         {
-            // Keep the working product local across native TRS calls; publish it only on return.
-            Matrix4x4 accumulated=Matrix4x4.identity;
+            matrix=Matrix4x4.identity;
             for(int depth=0;child!=null&&depth<128;depth++,child=child.parent)
             {
-                if(child==ancestor){matrix=accumulated;return true;}
-                accumulated=Matrix4x4.TRS(child.localPosition,child.localRotation,child.localScale)*accumulated;
+                if(child==ancestor)return true;
+                matrix=Matrix4x4.TRS(child.localPosition,child.localRotation,child.localScale)*matrix;
             }
-            matrix=accumulated;
             return false;
         }
         private static bool TryRelative(Transform reference,Transform view,out Matrix4x4 matrix)

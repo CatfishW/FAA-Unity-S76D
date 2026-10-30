@@ -53,6 +53,42 @@ namespace FAA.Headset
         private readonly List<Canvas> releasedCanvases = new List<Canvas>();
         private static readonly Func<Canvas, bool> spatialCanvasOwner = ResolveSpatialCanvasOwner();
         private Camera view;
+        private AircraftControl.Camera.AircraftCameraController renderSpaceRig;
+        private static readonly Action refreshSpatialPose = ResolveSpatialPoseRefresh();
+
+        private static Action ResolveSpatialPoseRefresh()
+        {
+            Type type = Type.GetType("FAA.Customization.FaaSpatialWorkspace, Assembly-CSharp");
+            var current = type?.GetProperty("Current");
+            var refresh = type?.GetMethod("RefreshTransforms");
+            return current != null && refresh != null ? (Action)(() =>
+            {
+                object owner = current.GetValue(null);
+                if (owner != null) refresh.Invoke(owner, null);
+            }) : null;
+        }
+
+        private void ReleaseRenderSpace()
+        {
+            if (renderSpaceRig != null)
+            {
+                renderSpaceRig.SetNearRenderSpaceRequested(false);
+                refreshSpatialPose?.Invoke();
+            }
+            renderSpaceRig = null;
+        }
+
+        private void UpdateRenderSpace()
+        {
+            var next = view != null && PassthroughActive && view.cullingMask == (1 << HudLayer)
+                ? view.GetComponent<AircraftControl.Camera.AircraftCameraController>() : null;
+            if (next != null && !next.isActiveAndEnabled) next = null;
+            if (renderSpaceRig != next) { ReleaseRenderSpace(); renderSpaceRig = next; }
+            if (renderSpaceRig == null) return;
+            bool previous = renderSpaceRig.NearRenderSpaceActive;
+            renderSpaceRig.SetNearRenderSpaceRequested(true);
+            if (previous != renderSpaceRig.NearRenderSpaceActive) refreshSpatialPose?.Invoke();
+        }
         private float nextDiscovery, nextAttempt, reportAt;
         private bool reportedPresentation;
         private bool capturedOpaque, originalOpaque, reportedUnavailable;
@@ -113,7 +149,7 @@ namespace FAA.Headset
             Application.onBeforeRender += BeforeRender;
         }
 
-        private void OnSceneLoaded(Scene scene, LoadSceneMode mode) { view = null; nextDiscovery = 0; reportedPresentation = false; reportAt = Time.unscaledTime + 3f; }
+        private void OnSceneLoaded(Scene scene, LoadSceneMode mode) { ReleaseRenderSpace(); view = null; nextDiscovery = 0; reportedPresentation = false; reportAt = Time.unscaledTime + 3f; }
 
         private void LateUpdate()
         {
@@ -125,7 +161,7 @@ namespace FAA.Headset
                 nextAttempt = Time.unscaledTime + 1f;
                 TryStartPassthrough();
             }
-            if (!PassthroughActive) return;
+            if (!PassthroughActive) { ReleaseRenderSpace(); return; }
             if (Time.unscaledTime >= nextDiscovery)
             {
                 nextDiscovery = Time.unscaledTime + .5f;
@@ -161,7 +197,7 @@ namespace FAA.Headset
             VarjoRendering.SetOpaque(false);
             if (!VarjoMixedReality.StartRender()) { PassthroughActive = false; return; }
             view = Camera.main;
-            if (view == null) return;
+            if (view == null) { PassthroughActive = false; ReleaseRenderSpace(); return; }
             if (PassthroughActive) return;
             PassthroughActive = true;
             reportedUnavailable = false;
@@ -220,11 +256,11 @@ namespace FAA.Headset
         }
 
         [BeforeRenderOrder(10000)]
-        private void BeforeRender() { AircraftControl.Camera.RenderPhaseAudit.Mark("MR begin"); if (PassthroughActive) ApplyPresentation(); AircraftControl.Camera.RenderPhaseAudit.Mark("MR end"); }
+        private void BeforeRender() { AircraftControl.Camera.RenderPhaseAudit.Mark("MR begin"); if (PassthroughActive) ApplyPresentation(); else ReleaseRenderSpace(); AircraftControl.Camera.RenderPhaseAudit.Mark("MR end"); }
 
         private void ApplyPresentation()
         {
-            if (view == null) return;
+            if (view == null || !PassthroughActive) { ReleaseRenderSpace(); return; }
             foreach (CameraState state in cameras.Values)
                 if (state.camera != null && state.camera != view && !XR3DesktopHudPreview.IsPreviewCamera(state.camera)) state.camera.enabled = false;
             foreach (var state in effects) if (state.Key != null) state.Key.enabled = false;
@@ -232,6 +268,7 @@ namespace FAA.Headset
             view.backgroundColor = Color.clear;
             view.allowHDR = false;
             view.cullingMask = 1 << HudLayer;
+            UpdateRenderSpace();
             releasedCanvases.Clear();
             foreach (Canvas canvas in canvases.Keys)
                 if (canvas != null && spatialCanvasOwner != null && spatialCanvasOwner(canvas)) releasedCanvases.Add(canvas);
@@ -267,6 +304,7 @@ namespace FAA.Headset
 
         private void OnDisable()
         {
+            ReleaseRenderSpace();
             SceneManager.sceneLoaded -= OnSceneLoaded;
             Application.onBeforeRender -= BeforeRender;
             foreach (CanvasState state in canvases.Values)

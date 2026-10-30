@@ -268,13 +268,33 @@ namespace FAA.Customization
             label.enableAutoSizing = false;
             label.fontStyle = bold ? FontStyles.Bold : FontStyles.Normal;
             label.textWrappingMode = TextWrappingModes.NoWrap;
-            label.overflowMode = TextOverflowModes.Ellipsis;
+            label.overflowMode = SettingsOverflowMode(label);
             label.alignment = TextAlignmentOptions.MidlineLeft;
             label.color = color;
             label.faceColor = Color.white;
             label.canvasRenderer.SetColor(Color.white);
             label.raycastTarget = false;
             return label;
+        }
+
+        private static TextOverflowModes SettingsOverflowMode(TMP_Text label)
+        {
+            if (label == null) return TextOverflowModes.Truncate;
+            TMP_FontAsset font = label.font != null ? label.font : TMP_Settings.defaultFontAsset;
+            if (font == null) return TextOverflowModes.Truncate;
+            FontStyles style = label.fontStyle;
+            FontWeight weight = (style & FontStyles.Bold) != 0 ? FontWeight.Bold : label.fontWeight;
+            // TMP can render synthetic bold from the regular atlas yet fail its styled ellipsis
+            // lookup. Keep its already-effective Truncate mode instead of re-triggering that
+            // warning on every settings refresh. Font, style, size and wrapped help are unchanged.
+            TMP_Character character = TMP_FontAssetUtilities.GetCharacterFromFontAsset(0x2026, font, false, style, weight, out _);
+            if (character == null && font.fallbackFontAssetTable != null && font.fallbackFontAssetTable.Count > 0)
+                character = TMP_FontAssetUtilities.GetCharacterFromFontAssets(0x2026, font, font.fallbackFontAssetTable, true, style, weight, out _);
+            if (character == null && TMP_Settings.fallbackFontAssets != null && TMP_Settings.fallbackFontAssets.Count > 0)
+                character = TMP_FontAssetUtilities.GetCharacterFromFontAssets(0x2026, font, TMP_Settings.fallbackFontAssets, true, style, weight, out _);
+            if (character == null && TMP_Settings.defaultFontAsset != null)
+                character = TMP_FontAssetUtilities.GetCharacterFromFontAsset(0x2026, TMP_Settings.defaultFontAsset, true, style, weight, out _);
+            return character != null ? TextOverflowModes.Ellipsis : TextOverflowModes.Truncate;
         }
 
         private static void Place(RectTransform rect, Vector2 position, Vector2 size)
