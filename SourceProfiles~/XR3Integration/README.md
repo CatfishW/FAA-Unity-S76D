@@ -1,5 +1,12 @@
 # Full XR-3 integration source profile
 
+The complete source profile can now be prepared in a **new directory** with
+`Tools/prepare_xr3_profile.py`; see
+[the reproducibility guide](../../docs/XR3_REPRODUCIBLE_PROFILE.md). Its committed
+overlay includes the full dependency closure, authored Experiment scene and
+release build entry. The flattened snapshots below remain exact historical
+sources; copying those files alone into Assets is not a complete build recipe.
+
 This folder preserves corrected source from the archived full integration project used for the installed Windows release. The repository's standard scene profile uses earlier canvas-based conformal components and does not import the optional spatial-workspace dependencies of this implementation. Unity ignores the `SourceProfiles~` directory.
 
 `FaaRotorcraftConformalLayer.cs` is the exact implementation built for the deployed full integration profile. Its native mesh and world-text objects use the FAA HUD layer, and its camera callback admits the explicitly owned centered preview camera. These fixes preserve the terrain-free mixed-reality culling policy and the headset's calibrated stereo projection.
