@@ -1,21 +1,26 @@
 # Full XR-3 integration source profile
 
-The complete source profile can be prepared in a **new directory** with
+Prepare the complete source in a **new directory** with
 `Tools/prepare_xr3_profile.py`; see
 [the reproducibility guide](../../docs/XR3_REPRODUCIBLE_PROFILE.md). Its committed
-overlay includes the full dependency closure, authored Experiment scene and
-release build entry. It combines frozen 5f with the 24 reviewed lifecycle,
-Settings/input and traffic repair paths plus two Editor-only raster fixture paths; all 49 focused normal-graphics checks
-passed. The candidate full suite passed 1,632 tests with zero failures and ten
-explicit GPU/benchmark skips before that additive explicit fixture. Seven existing
-GPU methods passed; the new Settings raster capture is inconclusive because its
-independent known screen-camera marker was absent. Fresh materialized validation,
-player build and
-final Windows retest are pending. Ten affected flattened runtime sources and their original metadata are
-synchronized to that profile; copying the flattened files alone into Assets is
-not a complete build recipe.
+overlay contains the full dependency closure, authored Experiment scene and
+release build entry. Source commit `54fc2c03` includes 24 reviewed lifecycle,
+Settings/input and traffic repair paths plus two Editor-only raster fixture
+paths. Its freshly materialized project passed **1,632 tests, zero failures and
+11 explicit GPU/benchmark skips**, built for Windows with zero errors, and
+completed a normal 30-minute remote run on `4090` with the XR-3 runtime active.
+The shutdown review found no reproduced exception or camera teardown warning;
+residual font/network warnings remain documented. Separate 30-, six- and ten-minute S-76 phases passed their full journal audits
+and ended paused.
+[Validation and recording limits](../../docs/XR3_CLASSIC_REMOTE_VALIDATION.md)
+distinguish automated tests, the complete planned core UI recording, separate
+cue-visibility stills and unperformed physical wearer checks.
 
-This folder preserves source for the full integration profile, including the frozen installed baseline and reviewed repairs awaiting the next player build. The repository's standard scene profile uses earlier canvas-based conformal components and does not import the optional spatial-workspace dependencies of this implementation. Unity ignores the `SourceProfiles~` directory.
+Ten affected flattened runtime sources and their original metadata are
+synchronized to the complete profile. These source snapshots are preserved
+outside Unity import; copying the flattened files alone into Assets is not a
+complete build recipe. The repository's standard scene profile retains its own
+dependency graph. Unity ignores the `SourceProfiles~` directory.
 
 `FaaRotorcraftConformalLayer.cs` is the exact implementation built for the deployed full integration profile. Its native mesh and world-text objects use the FAA HUD layer, and its camera callback admits the explicitly owned centered preview camera. These fixes preserve the terrain-free mixed-reality culling policy and the headset's calibrated stereo projection.
 

@@ -23,14 +23,17 @@ selects the full `ExperimentScene`. The [complete profile guide](docs/XR3_REPROD
 also supports an existing pinned Cesium archive and explains the committed-input
 checks. The checkout's standard imported scene graph remains a separate profile.
 
-The full source contains the frozen 5f baseline plus the reviewed shutdown,
-desktop Settings/input and traffic-boundary repairs. All 49 focused normal-graphics
-checks passed. The candidate full suite passed 1,632 tests with zero failures and
-ten explicit GPU/benchmark skips. Seven existing dedicated GPU methods passed;
-the added Settings raster capture is inconclusive because its independent known
-screen-camera marker was absent. Fresh materialized validation, the Windows
-player build and final native retest remain pending; source preparation is not
-a crash-fix claim.
+The complete repaired profile at source commit `54fc2c03` was materialized and
+independently verified, passed **1,632 tests with zero failures**, and built a
+Windows x64 player with **zero build errors**. On `4090`, that player completed a
+normal 30-minute remote XR-3 run and exited cleanly. A complete recording of the
+planned core mouse/keyboard UI workflow and a frame audit confirmed steady
+Classic controls in the measured scope; the actual S-76 feed completed an independently audited 30-minute flight
+and separate six- and ten-minute continuations. Final log review found no reproduced
+exception or camera teardown warning; residual font/network warnings are listed
+in the validation note. See [the current validation and recording limits](docs/XR3_CLASSIC_REMOTE_VALIDATION.md).
+The original native corruption writer remains unresolved; this is a bounded
+remote result, with physical wearer checks still outstanding.
 
 > **Project status:** active integration/prototyping software. This repository is
 > not a certified flight instrument, navigation database, collision-avoidance

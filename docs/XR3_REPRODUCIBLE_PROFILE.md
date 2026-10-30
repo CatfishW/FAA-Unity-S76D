@@ -97,20 +97,41 @@ prepared output after extraction.
 
 ## Preparation and build are separate gates
 
-The baseline 5f source was materialized from a committed revision and independently
-verified against all 10,336 files, 812 directories and executable bits. The updated
-candidate contains the approved 24-path repair delta and two Editor-only raster
-fixture paths: shutdown-safe chrome/camera
-lifecycle, the original Settings UI hosted for real desktop pointer/keyboard
-intent with tracked-input restoration, and traffic visibility-boundary handling.
-Its combined focused normal-graphics run passed 49/49 with no skips. The candidate
-full suite passed 1,632 tests with zero failures and ten explicit GPU/benchmark
-skips. Seven existing dedicated normal-render GPU methods also passed. The added
+The complete repaired source at commit
+`54fc2c0351c092e5ab5501992985b07a07646312` was prepared through this materializer,
+then independently verified against all **10,348 files, 812 directories,
+4,007,105,954 bytes and executable flags**. All 26 approved source/test paths
+matched the reviewed candidate; private baseline probes were absent. Unity's
+Library was separately copied only as an import cache, outside the committed
+project-input inventory.
+
+That freshly materialized project passed **1,632 tests with zero failures and
+11 explicit GPU/benchmark skips**, exit code 0. The full input inventory remained
+pinned to that commit; the skipped methods are selected separately when their
+normal-render or benchmark requirements are available. The repaired candidate
+also passed all 49 focused lifecycle, desktop Settings/input and traffic-boundary
+checks, plus seven existing dedicated normal-render GPU methods. The new
 Settings raster fixture is separately **inconclusive**: ordinary display-camera
 readback did not contain its independent known screen-camera marker, so it makes
-no product pixel claim. The full-suite run preceded that additive explicit
-fixture; runtime and existing test bodies remained unchanged. Fresh materialized
-validation, player build and final Windows retest remain pending.
+no product pixel claim.
+
+The same materialized source produced a non-Development Windows x64 / Mono /
+Direct3D11 player: **Succeeded, zero errors and 257 warnings**. Its normal-user,
+zero-argument run on `4090` completed 30 minutes and closed with exit code
+`00000000`, without a debugger or forced termination. An audited 115.3-second desktop
+recording completes the planned core UI workflow, including the corrected Settings
+route, Data Sources closing and final baseline restoration;
+separate signed stills prove actual traffic glyph ON/OFF/ON. The live S-76 source
+also passed independent native-physics journal audits for a 1,800-second trial
+and separate 360- and 600-second continuations, all ending paused. Final log review
+found no reproduced access violation, managed exception or camera teardown
+warning. Residual font fallback and request-timeout warnings remain documented.
+
+See [the final remote validation note](XR3_CLASSIC_REMOTE_VALIDATION.md) for exact
+counts, timing, recording omissions and source/build identity. Successful bounded
+runs do not establish resolution of the original native corruption writer.
+Physical headset alignment, hand recognition and wearer comfort were outside the
+remote-only test scope.
 
 Preparation writes into its own temporary staging directory, verifies every
 resulting project file and executable bit, then publishes with an exclusive
@@ -137,7 +158,7 @@ UNITY_EDITOR -batchmode -projectPath ../FAA-XR3-Full-Profile \
 
 `UNITY_EDITOR` stands for the chosen editor executable. Native binaries need not
 be bit-identical across fresh imports/builds; the input inventory and recipe are
-the reproducibility contract. A fresh materialized Unity import/test/build must
-pass before this route is treated as validated. Source preservation does not
-claim that the separate native player crash is resolved, nor replace wearer
-checks for optics and physical hand interaction.
+the reproducibility contract. The fresh materialized import/test, Windows build
+and bounded remote runtime gates above passed. This preserves a demonstrated
+source-to-player route without claiming that the earlier native corruption is
+resolved or replacing physical wearer checks.
