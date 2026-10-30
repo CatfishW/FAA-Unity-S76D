@@ -34,7 +34,7 @@ As of2026-10-30UTC:
 
 Across120normal-render samples per arm, the original/restored gauge center ranged561–565px with3.5px maximum adjacent movement. The repaired presentation stayed exactly563px with zero measured movement. Local headset pose and asymmetric projection were asserted unchanged.
 
-Native Windows validation is ongoing. The frozen LTS control completed a20-minute diagnostic interval with no captured access violation, but its final minutes lost live flight data when the simulator's guard paused. That is not the final native crash/endurance or input-acceptance result. Physical wearer optics, hands and comfort have not been tested.
+Native Windows validation is ongoing. A subsequent normal-user LTS run reproduced the runtime access violation after about 58 minutes with the flight source paused. The LTS migration is therefore not a verified crash repair. The first-fault investigation is tracing an incorrect managed receiver across intervening calls; its cause remains unresolved. The UI repairs above are independently validated. The earlier 20-minute LTS control captured no access violation, but lost live flight data in its final minutes when the simulator's guard paused. Neither run establishes final crash, endurance or live-flight acceptance. Physical wearer optics, hands and comfort have not been tested.
 
 ## Diagnostics
 
