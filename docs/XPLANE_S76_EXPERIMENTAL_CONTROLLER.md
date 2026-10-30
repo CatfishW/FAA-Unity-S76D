@@ -202,11 +202,18 @@ recovery/transport runs reported two completed 300-second phases with verified
 pause and closed read workers. Their live snapshot width was about 0.200 s median
 and 0.271 s maximum, compared with roughly 1.2 s for the earlier serial snapshots.
 
-A later normal continuation reported completion of 1800 native seconds and a
-verified paused end. Its full-journal independent audit is pending; this reported
-completion is separate from the independently audited 1200.26-second result.
-The earlier V7 continuation that stopped after about 1419 seconds at its vertical
-guard remains a failed run.
+The paired private V9 controller later completed a normal 1800-second
+continuation. An independent audit streamed all 13,567 journal lines: 4,523 samples,
+4,522 timing events, 4,521 controls and one terminal event. Every recorded strict
+flight envelope, mode/input ownership and override check passed. IAS ranged from
+95.48 to 103.16 kt; vertical speed ranged from -1.59 to +2.49 m/s. Recomputed PD and
+heading commands matched the frozen source, with heading rate at most 0.5 degrees
+per native second and lead at most 4.11 degrees. The aircraft made about 1.65 left
+turns, with maximum great-circle radial error 210.14 m. The final receipt recorded
+pause at 1800.225 native seconds, including sampled stop latency, and closed read
+workers. These checks cover recorded samples; independent GETs are timed and
+bracketed rather than an atomic simulator snapshot. The earlier V7 continuation
+that stopped after about 1419 seconds at its vertical guard remains a failed run.
 
 The private V9 candidate has 160 offline checks; this public integration has 98
 regressions, including the unchanged 50 indexed/legacy checks and a three-file
