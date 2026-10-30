@@ -1,0 +1,159 @@
+{
+    "engine": "6000.3.27f1",
+    "graphics": "Apple M5 Pro",
+    "qualification": "MacEditor actualWorldSpace modulebounds;24registeredroots/24dynamicGraphics, normalenabledcamera; legacy2mayunderestimate rotatedbounds, correct4andbatched4equivalent; noWindowsFPS/crashclaim.",
+    "registeredRoots": 24,
+    "frames": 24,
+    "graphicsPerModule": 24,
+    "repetitions": 4,
+    "legacyTwoMedian": 103.7,
+    "legacyFourMedian": 197.925,
+    "batchedFourMedian": 51.425,
+    "proofViewCaptures": 648,
+    "samples": [
+        {
+            "frame": 0,
+            "legacyTwo": 99.35,
+            "legacyFour": 195.425,
+            "batchedFour": 51.45
+        },
+        {
+            "frame": 1,
+            "legacyTwo": 100.05,
+            "legacyFour": 204.5,
+            "batchedFour": 55.3
+        },
+        {
+            "frame": 2,
+            "legacyTwo": 100.375,
+            "legacyFour": 202.525,
+            "batchedFour": 52.375
+        },
+        {
+            "frame": 3,
+            "legacyTwo": 105.725,
+            "legacyFour": 207.6,
+            "batchedFour": 51.4
+        },
+        {
+            "frame": 4,
+            "legacyTwo": 101.425,
+            "legacyFour": 197.975,
+            "batchedFour": 58.5
+        },
+        {
+            "frame": 5,
+            "legacyTwo": 113.15,
+            "legacyFour": 199.5,
+            "batchedFour": 50.55
+        },
+        {
+            "frame": 6,
+            "legacyTwo": 99.7,
+            "legacyFour": 197.925,
+            "batchedFour": 50.9
+        },
+        {
+            "frame": 7,
+            "legacyTwo": 99.875,
+            "legacyFour": 200.2,
+            "batchedFour": 51.05
+        },
+        {
+            "frame": 8,
+            "legacyTwo": 103.8,
+            "legacyFour": 194.425,
+            "batchedFour": 53.875
+        },
+        {
+            "frame": 9,
+            "legacyTwo": 103.7,
+            "legacyFour": 193.775,
+            "batchedFour": 50.35
+        },
+        {
+            "frame": 10,
+            "legacyTwo": 104.1,
+            "legacyFour": 193.075,
+            "batchedFour": 50.35
+        },
+        {
+            "frame": 11,
+            "legacyTwo": 105.275,
+            "legacyFour": 199.35,
+            "batchedFour": 50.6
+        },
+        {
+            "frame": 12,
+            "legacyTwo": 100.575,
+            "legacyFour": 197.05,
+            "batchedFour": 51.3
+        },
+        {
+            "frame": 13,
+            "legacyTwo": 106.5,
+            "legacyFour": 194.2,
+            "batchedFour": 51.775
+        },
+        {
+            "frame": 14,
+            "legacyTwo": 105.05,
+            "legacyFour": 197.875,
+            "batchedFour": 52.925
+        },
+        {
+            "frame": 15,
+            "legacyTwo": 103.7,
+            "legacyFour": 199.15,
+            "batchedFour": 50.425
+        },
+        {
+            "frame": 16,
+            "legacyTwo": 107.425,
+            "legacyFour": 197.55,
+            "batchedFour": 52.55
+        },
+        {
+            "frame": 17,
+            "legacyTwo": 107.1,
+            "legacyFour": 198.3,
+            "batchedFour": 55.125
+        },
+        {
+            "frame": 18,
+            "legacyTwo": 110.85,
+            "legacyFour": 195.8,
+            "batchedFour": 51.425
+        },
+        {
+            "frame": 19,
+            "legacyTwo": 103.575,
+            "legacyFour": 194.05,
+            "batchedFour": 50.7
+        },
+        {
+            "frame": 20,
+            "legacyTwo": 100.475,
+            "legacyFour": 197.4,
+            "batchedFour": 50.975
+        },
+        {
+            "frame": 21,
+            "legacyTwo": 99.55,
+            "legacyFour": 197.875,
+            "batchedFour": 50.35
+        },
+        {
+            "frame": 22,
+            "legacyTwo": 100.175,
+            "legacyFour": 208.8,
+            "batchedFour": 51.45
+        },
+        {
+            "frame": 23,
+            "legacyTwo": 102.6,
+            "legacyFour": 207.7,
+            "batchedFour": 58.7
+        }
+    ]
+}

@@ -51,6 +51,8 @@ namespace FAA.Headset
         private readonly Dictionary<Camera, CameraState> cameras = new Dictionary<Camera, CameraState>();
         private readonly Dictionary<Behaviour, bool> effects = new Dictionary<Behaviour, bool>();
         private readonly List<Canvas> releasedCanvases = new List<Canvas>();
+        private readonly Dictionary<Transform, Camera> registeredRenderRoots = new Dictionary<Transform, Camera>();
+        private readonly HashSet<Canvas> spatialRenderCanvases = new HashSet<Canvas>();
         private static readonly Func<Canvas, bool> spatialCanvasOwner = ResolveSpatialCanvasOwner();
         private Camera view;
         private AircraftControl.Camera.AircraftCameraController renderSpaceRig;
@@ -70,6 +72,9 @@ namespace FAA.Headset
 
         private void ReleaseRenderSpace()
         {
+            foreach (var root in registeredRenderRoots)
+                AircraftControl.Camera.AircraftViewRenderSpace.ReleaseRenderRoot(root.Key, root.Value);
+            registeredRenderRoots.Clear();
             if (renderSpaceRig != null)
             {
                 renderSpaceRig.SetNearRenderSpaceRequested(false);
@@ -103,6 +108,12 @@ namespace FAA.Headset
 
         public void ReleaseHeadlockedCanvas(Canvas canvas)
         {
+            if (canvas != null)
+            {
+                registeredRenderRoots.TryGetValue(canvas.transform, out Camera registrationView);
+                AircraftControl.Camera.AircraftViewRenderSpace.ReleaseRenderRoot(canvas.transform, registrationView != null ? registrationView : view);
+                registeredRenderRoots.Remove(canvas.transform);
+            }
             if (canvas == null || !canvases.TryGetValue(canvas, out CanvasState state)) return;
             // The spatial owner already placed the canvas. Preserve that world pose while
             // releasing the camera parent installed during early XR startup.
@@ -239,7 +250,13 @@ namespace FAA.Headset
                 if (spatialCanvasOwner != null && spatialCanvasOwner(canvas))
                 {
                     ReleaseHeadlockedCanvas(canvas);
+                    spatialRenderCanvases.Add(canvas);
                     continue;
+                }
+                if (spatialRenderCanvases.Remove(canvas))
+                {
+                    AircraftControl.Camera.AircraftViewRenderSpace.ReleaseRenderRoot(canvas.transform, view);
+                    registeredRenderRoots.Remove(canvas.transform);
                 }
                 if (!canvas.isRootCanvas || canvas.renderMode == RenderMode.WorldSpace || canvases.ContainsKey(canvas)) continue;
                 var rect = (RectTransform)canvas.transform;
@@ -274,7 +291,32 @@ namespace FAA.Headset
                 if (canvas != null && spatialCanvasOwner != null && spatialCanvasOwner(canvas)) releasedCanvases.Add(canvas);
             foreach (Canvas canvas in releasedCanvases) ReleaseHeadlockedCanvas(canvas);
             foreach (CanvasState state in canvases.Values)
-                if (state.canvas != null) FitHeadlockedCanvas(state.canvas, view, state.scaler);
+                if (state.canvas != null)
+                {
+                    FitHeadlockedCanvas(state.canvas, view, state.scaler);
+                    RegisterRenderCanvas(state.canvas);
+                }
+            releasedCanvases.Clear();
+            foreach (Canvas canvas in spatialRenderCanvases)
+            {
+                if (canvas != null && spatialCanvasOwner != null && spatialCanvasOwner(canvas)) RegisterRenderCanvas(canvas);
+                else
+                {
+                    if (canvas != null)
+                    {
+                        AircraftControl.Camera.AircraftViewRenderSpace.ReleaseRenderRoot(canvas.transform, view);
+                        registeredRenderRoots.Remove(canvas.transform);
+                    }
+                    releasedCanvases.Add(canvas);
+                }
+            }
+            foreach (Canvas canvas in releasedCanvases) spatialRenderCanvases.Remove(canvas);
+        }
+
+        private void RegisterRenderCanvas(Canvas canvas)
+        {
+            if (AircraftControl.Camera.AircraftViewRenderSpace.RegisterRenderRoot(canvas.transform, view))
+                registeredRenderRoots[canvas.transform] = view;
         }
 
         public static void FitHeadlockedCanvas(Canvas canvas, Camera camera, UnityCanvasScaler scaler = null)
@@ -300,6 +342,7 @@ namespace FAA.Headset
                 camera.transform.InverseTransformVector(camera.transform.forward*DefaultDistanceMeters);
             if(!rect.localPosition.Equals(localPosition))rect.localPosition=localPosition;
             if(!rect.localRotation.Equals(Quaternion.identity))rect.localRotation=Quaternion.identity;
+            AircraftControl.Camera.AircraftViewRenderSpace.RegisterRenderRoot(rect, camera);
         }
 
         private void OnDisable()
@@ -334,7 +377,7 @@ namespace FAA.Headset
                 VarjoRendering.SetOpaque(originalOpaque);
             }
             PassthroughActive = false;
-            canvases.Clear(); layers.Clear(); cameras.Clear(); effects.Clear();
+            canvases.Clear(); layers.Clear(); cameras.Clear(); effects.Clear(); spatialRenderCanvases.Clear();
             capturedOpaque = false; reportedPresentation = false; reportedUnavailable = false;
             nextAttempt = nextDiscovery = 0f;
             view = null;

@@ -31,6 +31,7 @@ namespace IndicatorSystem.Core
         {
             matrix=Matrix4x4.identity;originalProjection=false;
             if(reference==null||view==null)return false;
+            if(AircraftControl.Camera.AircraftViewRenderSpace.TryGetNearViewMatrix(reference,view,out matrix))return true;
             if(TryRelative(reference,view.transform,out var relative))
             {
                 // Use the camera's actual view rotation/handedness and ignore only the cancelled world translation.
@@ -83,6 +84,39 @@ namespace IndicatorSystem.Core
             screen=new Vector3(pixels.x+(clip.x/clip.w*.5f+.5f)*pixels.width,
                 pixels.y+(clip.y/clip.w*.5f+.5f)*pixels.height,-eye.z);
             return Finite(screen.x)&&Finite(screen.y)&&Finite(screen.z);
+        }
+        /// <summary>One per-call projection capture for all four corners; no cross-frame geometry cache.</summary>
+        public static bool TryProjectLocalBounds(Transform reference,Rect localRect,Camera view,out Rect bounds,bool rejectBehind=false)
+        {
+            bounds=default;
+            if(!TryViewMatrix(reference,view,out var relative,out bool originalProjection))return false;
+            Matrix4x4 projection=originalProjection?Matrix4x4.identity:view.projectionMatrix;
+            Rect pixels=originalProjection?default:view.pixelRect;
+            Vector2 minimum=new Vector2(float.PositiveInfinity,float.PositiveInfinity),maximum=-minimum;
+            for(int i=0;i<4;i++)
+            {
+                Vector3 local=new Vector3(i<2?localRect.xMin:localRect.xMax,(i==0||i==3)?localRect.yMin:localRect.yMax,0);
+                Vector3 screen;
+                if(originalProjection)
+                {
+                    // Retain the exact engine fallback used by single-point projection for
+                    // independent roots/custom legacy views; only the expensive helper lookup is shared.
+                    screen=view.WorldToScreenPoint(reference.TransformPoint(local));
+                }
+                else
+                {
+                    Vector3 eye=relative.MultiplyPoint3x4(local);
+                    // Scalar projection avoids passing additional Matrix4x4 arguments by value.
+                    float x=projection.m00*eye.x+projection.m01*eye.y+projection.m02*eye.z+projection.m03;
+                    float y=projection.m10*eye.x+projection.m11*eye.y+projection.m12*eye.z+projection.m13;
+                    float w=projection.m30*eye.x+projection.m31*eye.y+projection.m32*eye.z+projection.m33;
+                    if(!Finite(w)||Mathf.Abs(w)<1e-8f)return false;
+                    screen=new Vector3(pixels.x+(x/w*.5f+.5f)*pixels.width,pixels.y+(y/w*.5f+.5f)*pixels.height,-eye.z);
+                }
+                if(!Finite(screen.x)||!Finite(screen.y)||!Finite(screen.z)||(rejectBehind&&screen.z<0f))return false;
+                minimum=Vector2.Min(minimum,screen);maximum=Vector2.Max(maximum,screen);
+            }
+            bounds=Rect.MinMaxRect(minimum.x,minimum.y,maximum.x,maximum.y);return true;
         }
         public static bool TryPixelsPerReferenceUnit(Transform reference,Camera view,out float pixels)
         {
