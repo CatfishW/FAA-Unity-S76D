@@ -22,7 +22,7 @@ from urllib.request import Request, urlopen
 
 SCOPES = ('Assets', 'Packages', 'ProjectSettings')
 MANIFEST_PATH = 'SourceProfiles~/XR3Integration/project-overlay/profile-manifest.json'
-MANIFEST_SHA256 = '8709c44678916bf4e757a5f92d449c551ad201231556809ba160077a7d2d9f95'
+MANIFEST_SHA256 = 'd45e5fff72a4cafa95aef7be4b6f909e8a66f6076410380371d651cfcd4046b1'
 CHUNK = 1024 * 1024
 
 

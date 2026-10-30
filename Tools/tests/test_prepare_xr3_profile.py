@@ -363,8 +363,8 @@ class FullProfileBundleTests(unittest.TestCase):
         m = self.manifest
         self.assertEqual(hashlib.sha256(self.raw).hexdigest(),p.MANIFEST_SHA256)
         p.validate_manifest(m)
-        self.assertEqual(len(m['files']),10336)
-        self.assertEqual(len(m['overlay']),769)
+        self.assertEqual(len(m['files']),10348)
+        self.assertEqual(len(m['overlay']),784)
         self.assertEqual(len(m['removals']),145)
         self.assertEqual(m['counts']['baselineFiles']-145+m['counts']['newFiles']+2007,len(m['files']))
         self.assertEqual(m['countAdjustment']['orphanCacheMetaFilesExcludedFromWholeProject'],17)
@@ -379,22 +379,36 @@ class FullProfileBundleTests(unittest.TestCase):
                 self.assertEqual(p.digest_file(source),self.manifest['files'][name]['sha256'])
         self.assertEqual(sum(v['kind']=='cesium-import-metadata'for v in self.manifest['overlay'].values()),10)
 
-    def test_standard_committed_root_trees_and_existing_flattened_snapshots_unchanged(self):
+    def test_standard_root_trees_unchanged_and_flattened_snapshots_match_full_profile(self):
         for name,expected in self.manifest['baselineTrees'].items():
             actual = subprocess.check_output(['git','-C',str(self.repo),'rev-parse','HEAD:'+name],text=True).strip()
             self.assertEqual(actual,expected)
         folder = self.repo/'SourceProfiles~/XR3Integration'
         files = list(folder.glob('*.cs'))
         self.assertEqual(len(files),46)
+        self.assertEqual(set(p.name for p in files),set(self.manifest['flattenedSnapshots']))
         for path in files:
-            relative = path.relative_to(self.repo).as_posix()
-            original = subprocess.check_output(['git','-C',str(self.repo),'show','HEAD:'+relative])
-            self.assertEqual(path.read_bytes(),original,relative)
+            snapshot = self.manifest['flattenedSnapshots'][path.name]
+            self.assertEqual(p.digest_file(path),snapshot['sha256'],path.name)
+            self.assertEqual(snapshot['sha256'],self.manifest['files'][snapshot['sourcePath']]['sha256'])
+            self.assertEqual(snapshot['sourceMetaSha256'],self.manifest['files'][snapshot['sourcePath']+'.meta']['sha256'])
             meta = Path(str(path)+'.meta')
-            if meta.is_file():
-                relative = meta.relative_to(self.repo).as_posix()
-                original = subprocess.check_output(['git','-C',str(self.repo),'show','HEAD:'+relative])
-                self.assertEqual(meta.read_bytes(),original,relative)
+            if snapshot['metaSha256'] is None:
+                self.assertFalse(meta.exists())
+            else:
+                self.assertEqual(p.digest_file(meta),snapshot['metaSha256'])
+
+    def test_only_reviewed_repair_paths_are_declared_and_hashes_match_inventory(self):
+        repairs = self.manifest['approvedRepairs']
+        self.assertEqual(len(repairs['paths']),26)
+        self.assertEqual(repairs['focusedValidation']['passed'],49)
+        self.assertEqual(repairs['focusedValidation']['failed'],0)
+        self.assertEqual(repairs['focusedValidation']['skipped'],0)
+        for name,entry in repairs['paths'].items():
+            self.assertTrue(name.endswith(('.cs','.cs.meta')))
+            self.assertEqual(entry['sha256'],self.manifest['files'][name]['sha256'])
+            self.assertEqual(entry['size'],self.manifest['files'][name]['size'])
+            self.assertTrue(self.manifest['overlay'][name]['approvedRepair'])
 
     def test_actual_release_builder_uses_experiment_scene_and_keeps_qualification_explicit(self):
         m = self.manifest

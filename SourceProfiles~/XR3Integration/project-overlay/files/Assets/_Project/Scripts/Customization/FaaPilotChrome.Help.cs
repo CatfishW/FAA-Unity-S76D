@@ -48,7 +48,7 @@ namespace FAA.Customization
         /// <summary>Adds or replaces the line for <paramref name="keys"/>. Lower order is listed first; developer lines are grouped last and shown only in developer mode.</summary>
         public void SetHelpEntry(string keys,string meaning,int order,bool developer=false)
         {
-            if(string.IsNullOrEmpty(keys))return;
+            if(!CanMutate||string.IsNullOrEmpty(keys))return;
             foreach(var e in helpEntries)
                 if(e.keys==keys)
                 {
@@ -59,6 +59,7 @@ namespace FAA.Customization
         }
         public void RemoveHelpEntry(string keys)
         {
+            if(!CanMutate)return;
             for(int i=helpEntries.Count-1;i>=0;i--)if(helpEntries[i].keys==keys){helpEntries.RemoveAt(i);helpDirty=true;}
             RefreshHelpIfVisible();
         }
@@ -66,6 +67,7 @@ namespace FAA.Customization
         public void SetHelpVisible(bool visible)
         {
             Build();
+            if(!CanMutate)return;
             if(visible)
             {
                 // Activate before laying out: TMP returns no wrapped-text metrics for inactive objects,
@@ -110,7 +112,7 @@ namespace FAA.Customization
             helpScratch.Sort((a,b)=>a.developer!=b.developer?a.developer.CompareTo(b.developer):a.order!=b.order?a.order.CompareTo(b.order):string.CompareOrdinal(a.keys,b.keys));
             return helpScratch;
         }
-        private void RefreshHelpIfVisible(){if(HelpVisible)RenderHelp();}
+        private void RefreshHelpIfVisible(){if(CanMutate&&HelpVisible)RenderHelp();}
 
         private void EnsureHelp()
         {

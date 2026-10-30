@@ -1,13 +1,21 @@
 # Full XR-3 integration source profile
 
-The complete source profile can now be prepared in a **new directory** with
+The complete source profile can be prepared in a **new directory** with
 `Tools/prepare_xr3_profile.py`; see
 [the reproducibility guide](../../docs/XR3_REPRODUCIBLE_PROFILE.md). Its committed
 overlay includes the full dependency closure, authored Experiment scene and
-release build entry. The flattened snapshots below remain exact historical
-sources; copying those files alone into Assets is not a complete build recipe.
+release build entry. It combines frozen 5f with the 24 reviewed lifecycle,
+Settings/input and traffic repair paths plus two Editor-only raster fixture paths; all 49 focused normal-graphics checks
+passed. The candidate full suite passed 1,632 tests with zero failures and ten
+explicit GPU/benchmark skips before that additive explicit fixture. Seven existing
+GPU methods passed; the new Settings raster capture is inconclusive because its
+independent known screen-camera marker was absent. Fresh materialized validation,
+player build and
+final Windows retest are pending. Ten affected flattened runtime sources and their original metadata are
+synchronized to that profile; copying the flattened files alone into Assets is
+not a complete build recipe.
 
-This folder preserves corrected source from the archived full integration project used for the installed Windows release. The repository's standard scene profile uses earlier canvas-based conformal components and does not import the optional spatial-workspace dependencies of this implementation. Unity ignores the `SourceProfiles~` directory.
+This folder preserves source for the full integration profile, including the frozen installed baseline and reviewed repairs awaiting the next player build. The repository's standard scene profile uses earlier canvas-based conformal components and does not import the optional spatial-workspace dependencies of this implementation. Unity ignores the `SourceProfiles~` directory.
 
 `FaaRotorcraftConformalLayer.cs` is the exact implementation built for the deployed full integration profile. Its native mesh and world-text objects use the FAA HUD layer, and its camera callback admits the explicitly owned centered preview camera. These fixes preserve the terrain-free mixed-reality culling policy and the headset's calibrated stereo projection.
 

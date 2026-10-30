@@ -45,7 +45,8 @@ namespace FAA.Customization
         public string StatusText { get; private set; }="";
         /// <summary>Detail line of the most severe entry (shown on the data-source settings page, kept here for tools and tests).</summary>
         public string StatusDetail { get; private set; }="";
-        public bool StatusVisible=>chip!=null&&chip.visible;
+        private bool StatusWidgetAlive=>EntryAlive(chip)&&chipDot!=null&&chipBar!=null&&chipEdge!=null;
+        public bool StatusVisible=>CanMutate&&StatusWidgetAlive&&chip.visible;
 
         /// <summary>
         /// Reports one subsystem's state. <paramref name="shortText"/> is the chip wording (keep it to two or three words);
@@ -55,6 +56,7 @@ namespace FAA.Customization
         {
             if(string.IsNullOrEmpty(source))return;
             Build();
+            if(!CanMutate||!StatusWidgetAlive)return;
             shortText??="";detail??="";
             StatusEntry e=null;
             foreach(var s in statusEntries)if(s.source==source){e=s;break;}
@@ -74,6 +76,7 @@ namespace FAA.Customization
         }
         public void ClearStatus(string source)
         {
+            if(!CanMutate||!StatusWidgetAlive)return;
             for(int i=statusEntries.Count-1;i>=0;i--)if(statusEntries[i].source==source){statusEntries.RemoveAt(i);statusDirty=true;}
             FlushStatus();
         }
@@ -112,6 +115,7 @@ namespace FAA.Customization
         }
         private void OnStatusClicked()
         {
+            if(!CanMutate||!StatusWidgetAlive)return;
             if(statusClick!=null){statusClick.Invoke();return;}
             var workspace=FaaSpatialWorkspace.Current;
             if(workspace!=null)workspace.OpenDataSourceSettings();
@@ -125,7 +129,7 @@ namespace FAA.Customization
         private void RenderStatus()
         {
             statusDirty=false;
-            if(chip==null)return;
+            if(!CanMutate||!StatusWidgetAlive)return;
             StatusEntry top=null,second=null,nominal=null;
             foreach(var e in statusEntries)
             {
@@ -179,11 +183,13 @@ namespace FAA.Customization
         // upward from the bottom-anchored controls, when a narrow viewport requires wrapping.
         private float StatusHeight(float width)
         {
+            if(!StatusWidgetAlive)return ButtonHeight;
             float textWidth=Mathf.Max(1,width-statusCaptionLeft-CaptionPadding);
             return Mathf.Max(ButtonHeight,Mathf.Ceil(chip.caption.GetPreferredValues(chip.shown??"",textWidth,float.PositiveInfinity).y)+4f);
         }
         private void PlaceStatus(float width,float bottom)
         {
+            if(!StatusWidgetAlive)return;
             float height=StatusHeight(width);
             chip.rect.anchorMin=chip.rect.anchorMax=new Vector2(0,0);chip.rect.pivot=new Vector2(0,.5f);
             chip.rect.anchoredPosition=new Vector2(Inset,bottom+height*.5f);chip.rect.sizeDelta=new Vector2(width,height);

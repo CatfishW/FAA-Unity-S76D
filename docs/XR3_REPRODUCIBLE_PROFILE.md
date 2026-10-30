@@ -52,16 +52,20 @@ reported by `git lfs env`; both size and SHA-256 must match. There is no fallbac
 to working-tree files or an unverified object.
 
 `SourceProfiles~/XR3Integration/project-overlay/profile-manifest.json` contains
-the complete expected 10,336-file inventory, original relative paths, SHA-256,
+the complete expected 10,348-file inventory, original relative paths, SHA-256,
 sizes, executable bits, directory set, replacements and removals. It derives from
-the frozen full-profile source that produced Assembly-CSharp MVID
-`5f5d7d11-cd7e-4f94-a6a8-c7f4106324f8`. All included Unity metadata/GUIDs retain
-their original bytes. The 46 existing flattened snapshots remain unchanged.
+the frozen full-profile source that produced baseline Assembly-CSharp MVID
+`5f5d7d11-cd7e-4f94-a6a8-c7f4106324f8`, plus 24 approved repair paths and two Editor-only Settings raster fixture paths.
+`approvedRepairs` pins their exact hashes. Existing Unity metadata/GUIDs retain
+their frozen bytes; new component/test metadata matches the approved candidate.
+Ten affected flattened runtime sources and their metadata
+are synchronized, with all 46 source snapshots mapped by `flattenedSnapshots`.
 
-The scoped delta is 441 new files, 318 replacements, 145 removals and ten Cesium
-import-metadata replacements: 769 overlay payloads, about 102.46 MB uncompressed.
+The scoped delta is 453 new files, 321 replacements, 145 removals and ten Cesium
+import-metadata replacements: 784 overlay payloads, about 102.58 MB uncompressed.
 The initial audit counted 760 non-Cesium changes; excluding orphan cache metadata
-reduces that to 759. Seventeen `__pycache__.meta` markers are excluded from the
+reduced the baseline to 759; the reviewed repairs and the raster fixture add 15 overlay paths and update 11
+existing payloads. Seventeen `__pycache__.meta` markers are excluded from the
 whole project, including sixteen inherited baseline markers. The removals affect
 only the new output: the old XR Interaction Simulator copy is replaced by the
 full profile's authored XRI 3.6.0 sample, and its release-specific script validator
@@ -92,6 +96,21 @@ refused. An optional download uses only the pinned URL and is removed from the
 prepared output after extraction.
 
 ## Preparation and build are separate gates
+
+The baseline 5f source was materialized from a committed revision and independently
+verified against all 10,336 files, 812 directories and executable bits. The updated
+candidate contains the approved 24-path repair delta and two Editor-only raster
+fixture paths: shutdown-safe chrome/camera
+lifecycle, the original Settings UI hosted for real desktop pointer/keyboard
+intent with tracked-input restoration, and traffic visibility-boundary handling.
+Its combined focused normal-graphics run passed 49/49 with no skips. The candidate
+full suite passed 1,632 tests with zero failures and ten explicit GPU/benchmark
+skips. Seven existing dedicated normal-render GPU methods also passed. The added
+Settings raster fixture is separately **inconclusive**: ordinary display-camera
+readback did not contain its independent known screen-camera marker, so it makes
+no product pixel claim. The full-suite run preceded that additive explicit
+fixture; runtime and existing test bodies remained unchanged. Fresh materialized
+validation, player build and final Windows retest remain pending.
 
 Preparation writes into its own temporary staging directory, verifies every
 resulting project file and executable bit, then publishes with an exclusive

@@ -74,7 +74,7 @@ namespace FAA.Customization
         /// <summary>Replaces the rows (called by the command owner each time the flyout opens; allocation happens only then).</summary>
         public void SetCommandRows(IList<FaaChromeCommandRow> rows)
         {
-            Build();EnsureCommands();
+            Build();if(!CanMutate)return;EnsureCommands();
             for(int i=commandsBody.childCount-1;i>=0;i--)
             {
                 var child=commandsBody.GetChild(i).gameObject;
@@ -113,7 +113,7 @@ namespace FAA.Customization
 
         public void SetCommandsVisible(bool visible)
         {
-            Build();EnsureCommands();
+            Build();if(!CanMutate)return;EnsureCommands();
             if(CommandsVisible==visible){SetButtonState(CommandsId,IsButtonVisible(CommandsId),visible);return;}
             commandsRoot.gameObject.SetActive(visible);
             if(visible){NotifyFlyoutOpened(CommandsId);RefreshCommandStates();nextCommandPoll=Time.unscaledTime+CommandPollSeconds;}
@@ -125,6 +125,7 @@ namespace FAA.Customization
         /// <summary>Presses one segment as a click would (keyboard routes, tests).</summary>
         public void PressCommand(int row,int segment)
         {
+            if(!CanMutate||commandsRoot==null||commandsBody==null)return;
             if(row<0||row>=commandViews.Count)return;
             var v=commandViews[row];
             if(segment<0||segment>=v.row.Segments.Length)return;
@@ -142,6 +143,7 @@ namespace FAA.Customization
         /// <summary>Re-reads every row's state; plates change only when a state changed (no allocation).</summary>
         private void RefreshCommandStates()
         {
+            if(!CanMutate||commandsRoot==null||commandsBody==null)return;
             for(int i=0;i<commandViews.Count;i++)
             {
                 var v=commandViews[i];int s=v.row.CurrentState();
@@ -149,6 +151,7 @@ namespace FAA.Customization
                 v.shown=s;
                 for(int k=0;k<v.plates.Length;k++)
                 {
+                    if(v.plates[k]==null||v.marks[k]==null)continue;
                     bool on=k==s;
                     v.plates[k].color=on?FaaHudStyle.ChromeButtonActive:FaaHudStyle.ChromeButton;
                     v.marks[k].enabled=on;

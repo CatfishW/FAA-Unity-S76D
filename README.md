@@ -1,11 +1,36 @@
 # FAA Unity S-76D Symbology Project
 
-The FAA Symbology Unity Project is a Unity 6.5 cockpit-display demonstrator for
+The FAA Symbology Unity Project is a Unity 6.3 LTS cockpit-display demonstrator for
 FAA-style flight symbology, real-time traffic and weather awareness, sectional
 chart context, and headset output. It is the integration workspace for the
 OPL/FAA display work: the same flight state can drive the desktop HUD, the
 traffic and weather radars, X-Plane-derived terrain with optional Cesium hooks,
 and either a Varjo XR-3 workflow or the SA-147 multi-display output path.
+
+## Current XR-3 / Classic source build
+
+Prepare the complete current XR-3/Classic integration in a new directory:
+
+```sh
+python3 Tools/prepare_xr3_profile.py \
+  --output ../FAA-XR3-Classic --download-cesium
+```
+
+Use a Git LFS-enabled clone of this repository, then open the generated
+`FAA-XR3-Classic` project with **Unity 6000.3.27f1** and Windows Build Support
+(Mono). Build through `FAA.Headset.Editor.XR3ReleaseBuild.BuildWindows64`, which
+selects the full `ExperimentScene`. The [complete profile guide](docs/XR3_REPRODUCIBLE_PROFILE.md)
+also supports an existing pinned Cesium archive and explains the committed-input
+checks. The checkout's standard imported scene graph remains a separate profile.
+
+The full source contains the frozen 5f baseline plus the reviewed shutdown,
+desktop Settings/input and traffic-boundary repairs. All 49 focused normal-graphics
+checks passed. The candidate full suite passed 1,632 tests with zero failures and
+ten explicit GPU/benchmark skips. Seven existing dedicated GPU methods passed;
+the added Settings raster capture is inconclusive because its independent known
+screen-camera marker was absent. Fresh materialized validation, the Windows
+player build and final native retest remain pending; source preparation is not
+a crash-fix claim.
 
 > **Project status:** active integration/prototyping software. This repository is
 > not a certified flight instrument, navigation database, collision-avoidance
@@ -22,6 +47,7 @@ or MQTT interface.
 
 ## Contents
 
+- [Current XR-3 / Classic source build](#current-xr-3--classic-source-build)
 - [Capabilities](#capabilities)
 - [Current pilot-system update](#current-pilot-system-update)
 - [Gameplay screenshots](#gameplay-screenshots)

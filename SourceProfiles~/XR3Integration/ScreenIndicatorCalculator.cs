@@ -11,6 +11,47 @@ namespace IndicatorSystem.Core
         private const float NauticalMileToMeters = 1852f;
         private const float FeetToMeters = 0.3048f;
 
+        /// <summary>Per-target presentation history; it never changes the camera, head pose or projection.</summary>
+        public sealed class VisibilityHistory
+        {
+            private bool sampled, onScreen;
+            private Camera view;
+            private Rect region, viewport;
+            private string id, label;
+            private IndicatorType type;
+            private System.Type targetType;
+
+            public void Reset() { sampled = onScreen = false; view = null; id = label = null; targetType = null; }
+
+            internal bool Select(bool rawInside, Vector2 absolute, IIndicatorTarget target, Camera camera,
+                Rect physicalRegion, Rect cameraViewport, float reentryInset)
+            {
+                // Pixel-scale rounding is not a new view. Keep the original context until a real
+                // layout change crosses half a pixel; do not reset for moving camera/world poses.
+                if (view != camera || id != target.Id || label != target.Label || type != target.Type || targetType != target.GetType() ||
+                    !SameRect(region, physicalRegion) || !SameRect(viewport, cameraViewport))
+                {
+                    Reset(); view = camera; id = target.Id; label = target.Label; type = target.Type; targetType = target.GetType();
+                    region = physicalRegion; viewport = cameraViewport;
+                }
+                bool selected = rawInside;
+                if (rawInside && sampled && !onScreen)
+                {
+                    Rect usable = Rect.MinMaxRect(Mathf.Max(physicalRegion.xMin, cameraViewport.xMin), Mathf.Max(physicalRegion.yMin, cameraViewport.yMin),
+                        Mathf.Min(physicalRegion.xMax, cameraViewport.xMax), Mathf.Min(physicalRegion.yMax, cameraViewport.yMax));
+                    float band = IsFinite(reentryInset) ? Mathf.Clamp(reentryInset, 0f, Mathf.Max(0f, Mathf.Min(usable.width, usable.height)) * .1f) : 0f;
+                    selected = absolute.x >= usable.xMin + band && absolute.x <= usable.xMax - band &&
+                               absolute.y >= usable.yMin + band && absolute.y <= usable.yMax - band;
+                }
+                sampled = true;
+                onScreen = selected; // A genuinely outside/behind sample always leaves immediately.
+                return selected;
+            }
+
+            private static bool SameRect(Rect a, Rect b) => Mathf.Abs(a.xMin - b.xMin) <= .5f && Mathf.Abs(a.yMin - b.yMin) <= .5f &&
+                Mathf.Abs(a.xMax - b.xMax) <= .5f && Mathf.Abs(a.yMax - b.yMax) <= .5f;
+        }
+
         /// <summary>
         /// Calculate indicator data from a world position.
         /// </summary>
@@ -28,7 +69,18 @@ namespace IndicatorSystem.Core
             IIndicatorTarget target,
             Camera camera,
             IndicatorEdgeConfig edgeConfig,
-            Rect region)
+            Rect region) => CalculateIndicatorCore(target, camera, edgeConfig, region, null, 0f);
+
+        /// <summary>
+        /// Uses the same single projection as the stateless path. After leaving the usable frame,
+        /// reacquire its interior by a small spatial inset before replacing an edge cue with an exact target glyph.
+        /// </summary>
+        public static IndicatorData CalculateIndicatorWithVisibilityHistory(IIndicatorTarget target, Camera camera,
+            IndicatorEdgeConfig edgeConfig, Rect region, VisibilityHistory history, float reentryInset)
+            => CalculateIndicatorCore(target, camera, edgeConfig, region, history, reentryInset);
+
+        private static IndicatorData CalculateIndicatorCore(IIndicatorTarget target, Camera camera,
+            IndicatorEdgeConfig edgeConfig, Rect region, VisibilityHistory history, float reentryInset)
         {
             var data = new IndicatorData
             {
@@ -84,14 +136,26 @@ namespace IndicatorSystem.Core
                 !IsFinite(target.WorldPosition.x) || !IsFinite(target.WorldPosition.y) ||
                 !IsFinite(target.WorldPosition.z) || target.DistanceNM > edgeConfig.MaxDisplayDistance)
             {
+                history?.Reset();
                 data.Visibility = IndicatorVisibility.OutOfRange;
                 data.IsActive = false;
                 return data;
             }
 
             // Get viewport position (0-1 range)
+            Rect viewport = camera.pixelRect;
+            if (history != null && (!IsFinite(viewport.x) || !IsFinite(viewport.y) || !IsFinite(viewport.width) || !IsFinite(viewport.height) || viewport.width <= 0f || viewport.height <= 0f))
+            {
+                history.Reset(); data.Visibility = IndicatorVisibility.OutOfRange; data.IsActive = false;
+                return data;
+            }
             Vector3 renderPosition = AircraftControl.Camera.AircraftViewRenderSpace.DataToRenderPoint(camera, target.WorldPosition);
             Vector3 viewportPos = camera.WorldToViewportPoint(renderPosition);
+            if (history != null && (!IsFinite(viewportPos.x) || !IsFinite(viewportPos.y) || !IsFinite(viewportPos.z) || viewportPos.z == 0f))
+            {
+                history.Reset(); data.Visibility = IndicatorVisibility.OutOfRange; data.IsActive = false;
+                return data;
+            }
             
             // Check if behind camera
             if (viewportPos.z < 0)
@@ -104,7 +168,6 @@ namespace IndicatorSystem.Core
 
             // Camera projection stays in the actual eye/spectator pixel rect.
             // The HUD region affects clipping and arrow anchors, never projection.
-            Rect viewport = camera.pixelRect;
             float screenWidth = region.width;
             float screenHeight = region.height;
             Vector2 absolute = new Vector2(viewport.x + viewportPos.x * viewport.width,
@@ -122,6 +185,8 @@ namespace IndicatorSystem.Core
                               screenPos.x <= screenWidth &&
                               screenPos.y >= 0f &&
                               screenPos.y <= screenHeight;
+
+            if (history != null) isOnScreen = history.Select(isOnScreen, absolute, target, camera, region, viewport, reentryInset);
 
             if (isOnScreen)
             {

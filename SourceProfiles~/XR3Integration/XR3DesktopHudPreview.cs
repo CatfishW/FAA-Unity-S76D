@@ -17,6 +17,30 @@ namespace FAA.Headset
         private XR3MixedRealityPresentation presentation;
         private bool capturedMirror, originalMirror;
         private float nextDiscovery;
+        public static event Action<Camera> DesktopCameraUnavailable;
+
+        /// <summary>Capability for the owned untracked display camera, never an arbitrary mono camera.</summary>
+        public static bool TryGetDesktopInspectionCamera(Camera headset, out Camera camera)
+        {
+            camera = active != null ? active.preview : null;
+            if (IsDesktopInspectionCamera(camera, headset)) return true;
+            camera = null; return false;
+        }
+
+        public static bool IsDesktopInspectionCamera(Camera camera, Camera headset)
+        {
+            if (active == null || !active.isActiveAndEnabled || !active.capturedMirror || camera == null ||
+                active.preview != camera || !camera.enabled || camera.stereoEnabled ||
+                camera.stereoTargetEye != StereoTargetEyeMask.None || camera.targetTexture != null || camera.targetDisplay != 0 ||
+                headset == null || camera == headset || Camera.main != headset || active.presentation == null || !active.presentation.PassthroughActive)
+                return false;
+            var tracking = camera.GetComponent<UnityEngine.InputSystem.XR.TrackedPoseDriver>();
+            if (tracking != null && tracking.isActiveAndEnabled) return false;
+            var source = AircraftControl.Camera.AircraftViewRenderSpace.ForCamera(headset);
+            var desktop = AircraftControl.Camera.AircraftViewRenderSpace.ForCamera(camera);
+            return source != null && desktop != null && source.IsActive && desktop.IsActive &&
+                source.Owner != null && source.Owner == desktop.Owner;
+        }
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void Bootstrap()
@@ -147,6 +171,7 @@ namespace FAA.Headset
 
         private void SuspendPreview()
         {
+            if (capturedMirror && preview != null) DesktopCameraUnavailable?.Invoke(preview);
             if (active == this) active = null;
             if (capturedMirror) XRSettings.showDeviceView = originalMirror;
             capturedMirror = false;

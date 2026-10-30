@@ -1,4 +1,158 @@
 {
+  "approvedRepairs": {
+    "basis": "frozen5f plus the reviewed24repairpaths and2Editor-only raster fixture paths",
+    "dedicatedExistingGpuMethods": {
+      "methods": [
+        "FAA.Customization.Tests.FaaConformalHudVisibilityTests.LiveHierarchyMatchesNativeGroupsWithDisabledAndIgnoreParentRules",
+        "FAA.Customization.Tests.FaaConformalHudVisibilityTests.RegistryHideMustSuppressLateCreatedCanvasGroupWorldAttitudeFlagAndShowRestoresIt",
+        "FAA.Customization.Tests.FaaNearRenderSpaceGpuTests.ActualPresentationKeepsHeadlockedEdgesStableAtLargeGeographicPositions",
+        "FAA.Customization.Tests.FaaNearSpaceFastPathGpuTests.EnabledCameraMatchesProjectionAndInverseDuringNearOriginFlightAndDynamicUi",
+        "FAA.Customization.Tests.FaaRadarScreenPresentationTests.RenderedPixelsStayStillAsCameraCrossesLargeWorldCoordinates",
+        "FAA.Customization.Tests.FaaSettingsEllipsisTests.RepeatedSettingsRefreshHasNoWarningsAndMatchesAlreadyTruncatedNormalFramePixels",
+        "FAA.Customization.Tests.TrafficCueRenderOrderTests.ReadoutPlateCoversCrossingConformalLineDuringNormalCameraRendering"
+      ],
+      "passed": 7
+    },
+    "focusedValidation": {
+      "failed": 0,
+      "groups": {
+        "ChromeBriefFont": 8,
+        "SettingsInputLifecycle": 20,
+        "camera": 5,
+        "traffic": 16
+      },
+      "passed": 49,
+      "skipped": 0
+    },
+    "fullCandidateValidation": {
+      "failed": 0,
+      "passed": 1632,
+      "resultXmlSha256": "01527620b7559984df2097f05c018580f7d472fb06e92c302ceb5ef45055b0c4",
+      "scopeQualification": "Candidate project before the additive explicit Settings raster fixture; runtime and existing fixture bodies unchanged afterward; nested test Fixture visibility became internal for raster reuse.",
+      "selected": 1642,
+      "skipKind": "Explicit GPU or benchmark methods; no missing optional-profile skips",
+      "skipped": 10
+    },
+    "materializedBuildWindowsPending": true,
+    "newSettingsRasterValidation": {
+      "failed": 0,
+      "inconclusive": 1,
+      "passed": 0,
+      "resultXmlSha256": "9db80c901a81a9b94c88b0292996dc792efabe14407428d86841977e97690bd0",
+      "verdict": "Normal display-camera readback omitted the independent known ScreenSpaceCamera marker; no product pixel conclusion. Real Windows UI recording remains required."
+    },
+    "paths": {
+      "Assets/_Project/Scripts/AircraftControl/Camera/AircraftCameraController.cs": {
+        "sha256": "3b941092a31ffdce9fbf23387d124dd19768ec720c4d879a39c536c5aba3530d",
+        "size": 43697
+      },
+      "Assets/_Project/Scripts/AircraftControl/Camera/AircraftNativeXrOrigin.cs": {
+        "sha256": "7823c1f40f6d0f724ddf1ed69dffbd8d89b7be34a08a5ef0943c40ef2a180b7d",
+        "size": 5170
+      },
+      "Assets/_Project/Scripts/AircraftControl/Tests/Editor/AircraftCameraLifecycleTests.cs": {
+        "sha256": "f6bb3935972daa06bbbb6fe99056829f16955cd365bf5ad0c8e33cb7444c5da0",
+        "size": 9936
+      },
+      "Assets/_Project/Scripts/AircraftControl/Tests/Editor/AircraftCameraLifecycleTests.cs.meta": {
+        "sha256": "7cba5aa8bc5a50abbc8179073c93575d0ce740c10141cd7d75af683846624f02",
+        "size": 243
+      },
+      "Assets/_Project/Scripts/Customization/FaaPilotChrome.Commands.cs": {
+        "sha256": "f884a187fae682a6ee50432c21afca1381a7f81f83af577f4a8af53958dd23c0",
+        "size": 12846
+      },
+      "Assets/_Project/Scripts/Customization/FaaPilotChrome.Help.cs": {
+        "sha256": "974b2dc94e23512cb5011d447b35c59ab4091c7561c5eed28c692f5a11eb2ddd",
+        "size": 10444
+      },
+      "Assets/_Project/Scripts/Customization/FaaPilotChrome.Status.cs": {
+        "sha256": "e2f5fd5947620c8e3480a69d9378a92c1bfaf3fe9f96138b57db3e54fd42aea2",
+        "size": 11257
+      },
+      "Assets/_Project/Scripts/Customization/FaaPilotChrome.cs": {
+        "sha256": "3a98342908105994a2c2e0cedb94cbf5cd77a76f91ad318c38bef1a810692d77",
+        "size": 41878
+      },
+      "Assets/_Project/Scripts/Customization/FaaSpatialRadarPanel.cs": {
+        "sha256": "6b3a32efd854824aa3eb74b57381dc2cd6b283bcce720d5b6d3841d97add5c36",
+        "size": 42307
+      },
+      "Assets/_Project/Scripts/Customization/FaaSpatialWorkspace.Controls.cs": {
+        "sha256": "6dd45b183ff3a1f9685053826e6e238be2303f83d0712a319b694030583f9e25",
+        "size": 31954
+      },
+      "Assets/_Project/Scripts/Customization/FaaSpatialWorkspace.DataSources.cs": {
+        "sha256": "b90115e6967b1434dc61f21dbb55ceb7f29718a101940fbafc4ee6baad832dea",
+        "size": 7336
+      },
+      "Assets/_Project/Scripts/Customization/FaaSpatialWorkspace.cs": {
+        "sha256": "18ab57b1e09d39f19b9aa6c0580b11b9e8d857b70026107c2917e14f470cf4da",
+        "size": 25113
+      },
+      "Assets/_Project/Scripts/ExplanationAssistant/ExplanationAssistantPanel.cs": {
+        "sha256": "6185ff86f7647f138602fcd85a1fa2b315e3f1838ba43261b5812bbda699be7a",
+        "size": 54381
+      },
+      "Assets/_Project/Scripts/Headset/XR3DesktopHudPreview.cs": {
+        "sha256": "8e4c3799aea33a0e96212a030dcff98c83e52260dafde769f5f8e992f7809682",
+        "size": 10813
+      },
+      "Assets/_Project/Scripts/Headset/XR3DesktopPointerInput.cs": {
+        "sha256": "02e498c505924c781be108df0ffde6773b4838f2c2dad0ba49abe6bc5a0205ab",
+        "size": 2837
+      },
+      "Assets/_Project/Scripts/Headset/XR3DesktopPointerInput.cs.meta": {
+        "sha256": "cd4a8766be75a329050da8b74fb34bb5de88f53067634be12ef759734a55ec03",
+        "size": 60
+      },
+      "Assets/_Project/Scripts/IndicatorSystem/Controller/IndicatorSystemController.cs": {
+        "sha256": "2ecc8f08618500289452fdb9ba989a826db38e66803d7d5cd204d09c2c05db0a",
+        "size": 38814
+      },
+      "Assets/_Project/Scripts/IndicatorSystem/Core/ScreenIndicatorCalculator.cs": {
+        "sha256": "3254b689ba2352b88473ec5e7be2a8633d23484b543bd534e552261c0491133e",
+        "size": 20000
+      },
+      "Assets/_Project/Tests/Editor/FaaDesktopSettingsInspectionTests.cs": {
+        "sha256": "91fd2fabe6beb9add7e919d445fb98ee090baebf7153882b16f18016cdeadf4a",
+        "size": 25225
+      },
+      "Assets/_Project/Tests/Editor/FaaDesktopSettingsInspectionTests.cs.meta": {
+        "sha256": "97965639b91200f315232e8a584d98933a4006e87e98e35774154a5e9e4ab076",
+        "size": 60
+      },
+      "Assets/_Project/Tests/Editor/FaaDesktopSettingsRasterTests.cs": {
+        "sha256": "30cb46fc9a2ab1f6ecd6f4ff3c1db03313407131a5c908923e5e21210e4528cc",
+        "size": 10235
+      },
+      "Assets/_Project/Tests/Editor/FaaDesktopSettingsRasterTests.cs.meta": {
+        "sha256": "2a28837d79304642f9a8fed700c74a63502de4b5bdb050a24b9017bb80f56134",
+        "size": 60
+      },
+      "Assets/_Project/Tests/Editor/FaaIndicatorVisibilityBoundaryTests.cs": {
+        "sha256": "7478c4ae0297afe434ffffb3605e62fc9f0ba1a8901238559645577ae8aaa578",
+        "size": 14722
+      },
+      "Assets/_Project/Tests/Editor/FaaIndicatorVisibilityBoundaryTests.cs.meta": {
+        "sha256": "3d3a9aea22fb287a412536ad80d4b75b83e733b4be31e44c542a2dd160cd69be",
+        "size": 243
+      },
+      "Assets/_Project/Tests/Editor/FaaPilotChromeLifecycleTests.cs": {
+        "sha256": "d8f379e9d9508376eae54590f9f71836ac3e56b74385e9dd601b01f608f6bc64",
+        "size": 12081
+      },
+      "Assets/_Project/Tests/Editor/FaaPilotChromeLifecycleTests.cs.meta": {
+        "sha256": "5f0077c31e55f09498e58e968e29e14442896d9304d52390cd4b3cd1dce23d17",
+        "size": 243
+      }
+    },
+    "postTestSourceOwnerQualification": "Two explanatory Settings comments changed after the pass; executable bodies unchanged.",
+    "sourceManifestHashes": {
+      "lifecycle": "58b35a0641c81a1480cf39c5924712ef55e954eeed033f63162274c0882fc2c7",
+      "settings": "268a4019c69874147809a0e092f12bbd2d6ece7fe65d0820cc9b62ed8ffe0e66"
+    }
+  },
   "baselineCommitProvenance": "1d92bbb0",
   "baselineTrees": {
     "Assets": "e6580cd58e9228847fa35199e014c2011b7d3a29",
@@ -6,20 +160,23 @@
     "ProjectSettings": "f0aab97c515749e586ec9b2711a2bd4d79b0e84b"
   },
   "countAdjustment": {
+    "approvedRepairPaths": 26,
+    "baseline5fOverlayFiles": 769,
     "cesiumMetadataOverlays": 10,
-    "finalOverlayWithoutCesium": 759,
+    "finalOverlayWithoutCesium": 774,
     "initialAuditOverlayWithoutCesium": 760,
-    "orphanCacheMetaFilesExcludedFromWholeProject": 17
+    "orphanCacheMetaFilesExcludedFromWholeProject": 17,
+    "repairAddedOverlayPaths": 15
   },
   "counts": {
     "baselineFiles": 8033,
     "baselineLfsPointers": 1029,
-    "changedFiles": 318,
-    "fullBytes": 4007010886,
-    "fullFiles": 10336,
-    "newFiles": 441,
-    "overlayBytes": 102462958,
-    "overlayFiles": 769,
+    "changedFiles": 321,
+    "fullBytes": 4007105954,
+    "fullFiles": 10348,
+    "newFiles": 453,
+    "overlayBytes": 102587602,
+    "overlayFiles": 784,
     "removedFiles": 145
   },
   "dependencies": {
@@ -24161,8 +24318,8 @@
     },
     "Assets/_Project/Scripts/AircraftControl/Camera/AircraftCameraController.cs": {
       "executable": false,
-      "sha256": "eb13638d5d69e9f2ccb6d1d535c1c91b80e31fac034eec534ed1c063adc59ad6",
-      "size": 42753
+      "sha256": "3b941092a31ffdce9fbf23387d124dd19768ec720c4d879a39c536c5aba3530d",
+      "size": 43697
     },
     "Assets/_Project/Scripts/AircraftControl/Camera/AircraftCameraController.cs.meta": {
       "executable": false,
@@ -24171,8 +24328,8 @@
     },
     "Assets/_Project/Scripts/AircraftControl/Camera/AircraftNativeXrOrigin.cs": {
       "executable": false,
-      "sha256": "cea870d4bf0fa9293d07bfd24f1a80acf38b8bc4a1a36182ec74de7e5385a269",
-      "size": 4750
+      "sha256": "7823c1f40f6d0f724ddf1ed69dffbd8d89b7be34a08a5ef0943c40ef2a180b7d",
+      "size": 5170
     },
     "Assets/_Project/Scripts/AircraftControl/Camera/AircraftNativeXrOrigin.cs.meta": {
       "executable": false,
@@ -24338,6 +24495,16 @@
       "executable": false,
       "sha256": "80b2be0455d339113d404a7039a8bce80396d58dda560e3a2166e18efd58dce9",
       "size": 172
+    },
+    "Assets/_Project/Scripts/AircraftControl/Tests/Editor/AircraftCameraLifecycleTests.cs": {
+      "executable": false,
+      "sha256": "f6bb3935972daa06bbbb6fe99056829f16955cd365bf5ad0c8e33cb7444c5da0",
+      "size": 9936
+    },
+    "Assets/_Project/Scripts/AircraftControl/Tests/Editor/AircraftCameraLifecycleTests.cs.meta": {
+      "executable": false,
+      "sha256": "7cba5aa8bc5a50abbc8179073c93575d0ce740c10141cd7d75af683846624f02",
+      "size": 243
     },
     "Assets/_Project/Scripts/AircraftControl/Tests/Editor/AircraftControl.EditorTests.asmdef": {
       "executable": false,
@@ -24916,8 +25083,8 @@
     },
     "Assets/_Project/Scripts/Customization/FaaPilotChrome.Commands.cs": {
       "executable": false,
-      "sha256": "bad1a2919116bc4152cc3e3b4a109d57389fe046973419ea07e31ea681e32f86",
-      "size": 12587
+      "sha256": "f884a187fae682a6ee50432c21afca1381a7f81f83af577f4a8af53958dd23c0",
+      "size": 12846
     },
     "Assets/_Project/Scripts/Customization/FaaPilotChrome.Commands.cs.meta": {
       "executable": false,
@@ -24926,8 +25093,8 @@
     },
     "Assets/_Project/Scripts/Customization/FaaPilotChrome.Help.cs": {
       "executable": false,
-      "sha256": "10e084a31c2435cc31345c4fa2328791d222b240ad38361d255ab6172ce91f4a",
-      "size": 10353
+      "sha256": "974b2dc94e23512cb5011d447b35c59ab4091c7561c5eed28c692f5a11eb2ddd",
+      "size": 10444
     },
     "Assets/_Project/Scripts/Customization/FaaPilotChrome.Help.cs.meta": {
       "executable": false,
@@ -24936,8 +25103,8 @@
     },
     "Assets/_Project/Scripts/Customization/FaaPilotChrome.Status.cs": {
       "executable": false,
-      "sha256": "f5504f0ed88ada2697fdc0b2ef223d84a69dbb123dc9af1695acbbd889624645",
-      "size": 10856
+      "sha256": "e2f5fd5947620c8e3480a69d9378a92c1bfaf3fe9f96138b57db3e54fd42aea2",
+      "size": 11257
     },
     "Assets/_Project/Scripts/Customization/FaaPilotChrome.Status.cs.meta": {
       "executable": false,
@@ -24946,8 +25113,8 @@
     },
     "Assets/_Project/Scripts/Customization/FaaPilotChrome.cs": {
       "executable": false,
-      "sha256": "1be1774c3f80f177961045a37776e429697a70159e0e4da87244d388f584b3fc",
-      "size": 39427
+      "sha256": "3a98342908105994a2c2e0cedb94cbf5cd77a76f91ad318c38bef1a810692d77",
+      "size": 41878
     },
     "Assets/_Project/Scripts/Customization/FaaPilotChrome.cs.meta": {
       "executable": false,
@@ -25116,8 +25283,8 @@
     },
     "Assets/_Project/Scripts/Customization/FaaSpatialRadarPanel.cs": {
       "executable": false,
-      "sha256": "452ab706f3147d1a6bce9ac350189dff8af7b8ef4b3448055856de586f7bb3ae",
-      "size": 41424
+      "sha256": "6b3a32efd854824aa3eb74b57381dc2cd6b283bcce720d5b6d3841d97add5c36",
+      "size": 42307
     },
     "Assets/_Project/Scripts/Customization/FaaSpatialRadarPanel.cs.meta": {
       "executable": false,
@@ -25126,8 +25293,8 @@
     },
     "Assets/_Project/Scripts/Customization/FaaSpatialWorkspace.Controls.cs": {
       "executable": false,
-      "sha256": "fa481bc4796777b9be06f6aea18434a7b4e0863862990f6e9dc3feb53d199ade",
-      "size": 28134
+      "sha256": "6dd45b183ff3a1f9685053826e6e238be2303f83d0712a319b694030583f9e25",
+      "size": 31954
     },
     "Assets/_Project/Scripts/Customization/FaaSpatialWorkspace.Controls.cs.meta": {
       "executable": false,
@@ -25136,8 +25303,8 @@
     },
     "Assets/_Project/Scripts/Customization/FaaSpatialWorkspace.DataSources.cs": {
       "executable": false,
-      "sha256": "cebaa031cc0011e1be6d6d5def768b7b7fb5536fdb5b5644bb19a5a5488e473e",
-      "size": 6977
+      "sha256": "b90115e6967b1434dc61f21dbb55ceb7f29718a101940fbafc4ee6baad832dea",
+      "size": 7336
     },
     "Assets/_Project/Scripts/Customization/FaaSpatialWorkspace.DataSources.cs.meta": {
       "executable": false,
@@ -25236,8 +25403,8 @@
     },
     "Assets/_Project/Scripts/Customization/FaaSpatialWorkspace.cs": {
       "executable": false,
-      "sha256": "8873d572119ee31e9058dc465d024a54a69f78f9ed6f12df639342ac799ceb44",
-      "size": 24582
+      "sha256": "18ab57b1e09d39f19b9aa6c0580b11b9e8d857b70026107c2917e14f470cf4da",
+      "size": 25113
     },
     "Assets/_Project/Scripts/Customization/FaaSpatialWorkspace.cs.meta": {
       "executable": false,
@@ -25981,8 +26148,8 @@
     },
     "Assets/_Project/Scripts/ExplanationAssistant/ExplanationAssistantPanel.cs": {
       "executable": false,
-      "sha256": "d0278de4fe4e3eef8568f17bc34a91e5048f32c3fb4661db1cf1dd9e18f4e2b3",
-      "size": 54034
+      "sha256": "6185ff86f7647f138602fcd85a1fa2b315e3f1838ba43261b5812bbda699be7a",
+      "size": 54381
     },
     "Assets/_Project/Scripts/ExplanationAssistant/ExplanationAssistantPanel.cs.meta": {
       "executable": false,
@@ -26926,12 +27093,22 @@
     },
     "Assets/_Project/Scripts/Headset/XR3DesktopHudPreview.cs": {
       "executable": false,
-      "sha256": "fd41eb8e2c8a1fdb1f1af807708a957ecd3347036891bd3d3f889ba1f4ad9710",
-      "size": 9109
+      "sha256": "8e4c3799aea33a0e96212a030dcff98c83e52260dafde769f5f8e992f7809682",
+      "size": 10813
     },
     "Assets/_Project/Scripts/Headset/XR3DesktopHudPreview.cs.meta": {
       "executable": false,
       "sha256": "b5c4488212b6a08a94ffd290a5f553d500d84654da6d10c142203488b5076615",
+      "size": 60
+    },
+    "Assets/_Project/Scripts/Headset/XR3DesktopPointerInput.cs": {
+      "executable": false,
+      "sha256": "02e498c505924c781be108df0ffde6773b4838f2c2dad0ba49abe6bc5a0205ab",
+      "size": 2837
+    },
+    "Assets/_Project/Scripts/Headset/XR3DesktopPointerInput.cs.meta": {
+      "executable": false,
+      "sha256": "cd4a8766be75a329050da8b74fb34bb5de88f53067634be12ef759734a55ec03",
       "size": 60
     },
     "Assets/_Project/Scripts/Headset/XR3HandTracking.cs": {
@@ -27051,8 +27228,8 @@
     },
     "Assets/_Project/Scripts/IndicatorSystem/Controller/IndicatorSystemController.cs": {
       "executable": false,
-      "sha256": "2c2eb81f749a8aefeb54530cc766c13b84c931866462ba15d05964b7488de9ff",
-      "size": 36184
+      "sha256": "2ecc8f08618500289452fdb9ba989a826db38e66803d7d5cd204d09c2c05db0a",
+      "size": 38814
     },
     "Assets/_Project/Scripts/IndicatorSystem/Controller/IndicatorSystemController.cs.meta": {
       "executable": false,
@@ -27126,8 +27303,8 @@
     },
     "Assets/_Project/Scripts/IndicatorSystem/Core/ScreenIndicatorCalculator.cs": {
       "executable": false,
-      "sha256": "ae22bcd34d40e758f745106c45d3bf10bd5890f159540e8bd746bc5c3e9c50b6",
-      "size": 15717
+      "sha256": "3254b689ba2352b88473ec5e7be2a8633d23484b543bd534e552261c0491133e",
+      "size": 20000
     },
     "Assets/_Project/Scripts/IndicatorSystem/Core/ScreenIndicatorCalculator.cs.meta": {
       "executable": false,
@@ -31179,6 +31356,26 @@
       "sha256": "5b90fe87b975940a45685b9228edb7300720fc8bca66a79d7eda2f916255590e",
       "size": 59
     },
+    "Assets/_Project/Tests/Editor/FaaDesktopSettingsInspectionTests.cs": {
+      "executable": false,
+      "sha256": "91fd2fabe6beb9add7e919d445fb98ee090baebf7153882b16f18016cdeadf4a",
+      "size": 25225
+    },
+    "Assets/_Project/Tests/Editor/FaaDesktopSettingsInspectionTests.cs.meta": {
+      "executable": false,
+      "sha256": "97965639b91200f315232e8a584d98933a4006e87e98e35774154a5e9e4ab076",
+      "size": 60
+    },
+    "Assets/_Project/Tests/Editor/FaaDesktopSettingsRasterTests.cs": {
+      "executable": false,
+      "sha256": "30cb46fc9a2ab1f6ecd6f4ff3c1db03313407131a5c908923e5e21210e4528cc",
+      "size": 10235
+    },
+    "Assets/_Project/Tests/Editor/FaaDesktopSettingsRasterTests.cs.meta": {
+      "executable": false,
+      "sha256": "2a28837d79304642f9a8fed700c74a63502de4b5bdb050a24b9017bb80f56134",
+      "size": 60
+    },
     "Assets/_Project/Tests/Editor/FaaDigitalBankScaleTests.cs": {
       "executable": false,
       "sha256": "51fb1d8c9fcb8b5f9f1c952107d1f4c1b17ff6e850088c9209b26db36beff262",
@@ -31299,6 +31496,16 @@
       "sha256": "30e7914e86d2d207934035cb95391a1188d72413bb503ac60636273a2e07b909",
       "size": 59
     },
+    "Assets/_Project/Tests/Editor/FaaIndicatorVisibilityBoundaryTests.cs": {
+      "executable": false,
+      "sha256": "7478c4ae0297afe434ffffb3605e62fc9f0ba1a8901238559645577ae8aaa578",
+      "size": 14722
+    },
+    "Assets/_Project/Tests/Editor/FaaIndicatorVisibilityBoundaryTests.cs.meta": {
+      "executable": false,
+      "sha256": "3d3a9aea22fb287a412536ad80d4b75b83e733b4be31e44c542a2dd160cd69be",
+      "size": 243
+    },
     "Assets/_Project/Tests/Editor/FaaInstrumentPresentationTests.cs": {
       "executable": false,
       "sha256": "28fb4fd67300e2d56554c6676f3f36ab85008aa8b2aed0c692c00649a9cfd6dc",
@@ -31408,6 +31615,16 @@
       "executable": false,
       "sha256": "eacef655dfca7a878d47cf32cdae2e59c68115d56c6bf1a378e34feee98065d5",
       "size": 59
+    },
+    "Assets/_Project/Tests/Editor/FaaPilotChromeLifecycleTests.cs": {
+      "executable": false,
+      "sha256": "d8f379e9d9508376eae54590f9f71836ac3e56b74385e9dd601b01f608f6bc64",
+      "size": 12081
+    },
+    "Assets/_Project/Tests/Editor/FaaPilotChromeLifecycleTests.cs.meta": {
+      "executable": false,
+      "sha256": "5f0077c31e55f09498e58e968e29e14442896d9304d52390cd4b3cd1dce23d17",
+      "size": 243
     },
     "Assets/_Project/Tests/Editor/FaaPilotChromeStatusLayoutTests.cs": {
       "executable": false,
@@ -52540,6 +52757,284 @@
       "size": 158
     }
   },
+  "flattenedSnapshots": {
+    "AircraftCameraController.cs": {
+      "metaSha256": "42c430c49699c90e01e5762d23bb6dfdad0601f56252921388b76b0aaec610ea",
+      "sha256": "3b941092a31ffdce9fbf23387d124dd19768ec720c4d879a39c536c5aba3530d",
+      "sourceMetaSha256": "42c430c49699c90e01e5762d23bb6dfdad0601f56252921388b76b0aaec610ea",
+      "sourcePath": "Assets/_Project/Scripts/AircraftControl/Camera/AircraftCameraController.cs"
+    },
+    "AircraftViewRenderSpace.cs": {
+      "metaSha256": "aef5e6513a9e0b21f89e4bf1c4ba52b39465b73387d846b5bdab97adc3f39778",
+      "sha256": "577165b0df44c44c8f257bdb2929675c62817fb03270454bf6cbb7a4af78c7d4",
+      "sourceMetaSha256": "aef5e6513a9e0b21f89e4bf1c4ba52b39465b73387d846b5bdab97adc3f39778",
+      "sourcePath": "Assets/_Project/Scripts/AircraftControl/Camera/AircraftViewRenderSpace.cs"
+    },
+    "ExplanationAssistantPanel.cs": {
+      "metaSha256": "ccce29379f1ce8f59bc30ac04255a19958aaabac45fc7d878bda2df838cb1d13",
+      "sha256": "6185ff86f7647f138602fcd85a1fa2b315e3f1838ba43261b5812bbda699be7a",
+      "sourceMetaSha256": "ccce29379f1ce8f59bc30ac04255a19958aaabac45fc7d878bda2df838cb1d13",
+      "sourcePath": "Assets/_Project/Scripts/ExplanationAssistant/ExplanationAssistantPanel.cs"
+    },
+    "ExplanationEvidenceCollector.cs": {
+      "metaSha256": "44641008f9197ed261d5184351526cc4ec6105dd984a5e896d66d9399c2b9b9f",
+      "sha256": "186ccaaaa7d61adb284cd233b54cd4de37ecb1ab803b0fc0abb16553d9343e87",
+      "sourceMetaSha256": "44641008f9197ed261d5184351526cc4ec6105dd984a5e896d66d9399c2b9b9f",
+      "sourcePath": "Assets/_Project/Scripts/ExplanationAssistant/ExplanationEvidenceCollector.cs"
+    },
+    "FaaCanvasLocalGeometry.cs": {
+      "metaSha256": "c59b90812e4cdb66e643a73badbc7e21b5f68e9ba2228d0ae83abf20bc9ff50d",
+      "sha256": "0db1667d056912da45f5efdbbc661cdb6c4f4e57502f320d6cdef87206c4f89c",
+      "sourceMetaSha256": "c59b90812e4cdb66e643a73badbc7e21b5f68e9ba2228d0ae83abf20bc9ff50d",
+      "sourcePath": "Assets/_Project/Scripts/Customization/FaaCanvasLocalGeometry.cs"
+    },
+    "FaaClassicAnalogHud.cs": {
+      "metaSha256": "f22184f47a12d908e552f16cd30f0eddc60295315b847dcfb65122ab01da2135",
+      "sha256": "3cd013056f1b8b86d74a80f19eab0bf9d55611328f7f38d07eb8b2b28af6ec40",
+      "sourceMetaSha256": "f22184f47a12d908e552f16cd30f0eddc60295315b847dcfb65122ab01da2135",
+      "sourcePath": "Assets/_Project/Scripts/Customization/FaaClassicAnalogHud.cs"
+    },
+    "FaaClassicGaugeGraphic.cs": {
+      "metaSha256": "d0ccf1f04a5c1ae6e42f78105e4580661444610f45b14e205005e244900c3733",
+      "sha256": "b394e31c7b17746ea7f0f91fa8348d740a7b85ead7d74e8623cbfb78a1829eb6",
+      "sourceMetaSha256": "d0ccf1f04a5c1ae6e42f78105e4580661444610f45b14e205005e244900c3733",
+      "sourcePath": "Assets/_Project/Scripts/Customization/FaaClassicGaugeGraphic.cs"
+    },
+    "FaaConformalHudController.cs": {
+      "metaSha256": "992ddb846c4ef3a89765797f43d8df8cf89647ec4cfb561f9cab1a022b66e25f",
+      "sha256": "b9ab5fa536925047caa89c89435e917bd9f5de1eb741a0c163640501c4fb6e80",
+      "sourceMetaSha256": "992ddb846c4ef3a89765797f43d8df8cf89647ec4cfb561f9cab1a022b66e25f",
+      "sourcePath": "Assets/_Project/Scripts/Customization/FaaConformalHudController.cs"
+    },
+    "FaaEngineInstrumentSetup.cs": {
+      "metaSha256": "67b502f51bcbf8fea71e2507db3b9a37ee813e88068f4fca36f1b178d6054a95",
+      "sha256": "220efdef8c07ef4a258b7e589055db2ce4644601df42c8ca0449ff0f5f6e5414",
+      "sourceMetaSha256": "67b502f51bcbf8fea71e2507db3b9a37ee813e88068f4fca36f1b178d6054a95",
+      "sourcePath": "Assets/_Project/Scripts/Editor/FaaEngineInstrumentSetup.cs"
+    },
+    "FaaHudKeepOutRegion.cs": {
+      "metaSha256": "589cfc53dcfb24e690f3a11cfb71d551e1e4ee574379201368eaefe738c9faff",
+      "sha256": "5d391cf49a31ee15e59d83e193983e17c36b5e298794b3b7cc8f9d6054a2a345",
+      "sourceMetaSha256": "589cfc53dcfb24e690f3a11cfb71d551e1e4ee574379201368eaefe738c9faff",
+      "sourcePath": "Assets/_Project/Scripts/Customization/FaaHudKeepOutRegion.cs"
+    },
+    "FaaHudRuntimeSanitizer.cs": {
+      "metaSha256": "4da3d1f0e1086c7573dd9d63cc0d9daf4e30f0f472951ba8b294770ce6476ddb",
+      "sha256": "31495060e41d47396c1ebf8bb5b0ca442d37d247ece55eef696a0e90f35679f7",
+      "sourceMetaSha256": "4da3d1f0e1086c7573dd9d63cc0d9daf4e30f0f472951ba8b294770ce6476ddb",
+      "sourcePath": "Assets/_Project/Scripts/Customization/FaaHudRuntimeSanitizer.cs"
+    },
+    "FaaNonConformalScaleTarget.cs": {
+      "metaSha256": "7dbbbb347e080502d68a7ab9c02dd5ae917d19d883b15dfbfb73d0bf3303f08d",
+      "sha256": "b071490b9c86e83375ab6206558d9582b3f90d12c19945e254ccf5344f672cd8",
+      "sourceMetaSha256": "7dbbbb347e080502d68a7ab9c02dd5ae917d19d883b15dfbfb73d0bf3303f08d",
+      "sourcePath": "Assets/_Project/Scripts/Customization/FaaNonConformalScaleTarget.cs"
+    },
+    "FaaPilotChrome.Status.cs": {
+      "metaSha256": "344e1d672998baf1f10edf6bea2328991865a76257fb81e639354638f3c82f6f",
+      "sha256": "e2f5fd5947620c8e3480a69d9378a92c1bfaf3fe9f96138b57db3e54fd42aea2",
+      "sourceMetaSha256": "344e1d672998baf1f10edf6bea2328991865a76257fb81e639354638f3c82f6f",
+      "sourcePath": "Assets/_Project/Scripts/Customization/FaaPilotChrome.Status.cs"
+    },
+    "FaaPilotChrome.cs": {
+      "metaSha256": "fbb6c0409906c24e02338def9db884f3ea29b173974822f6336aa3a770afb649",
+      "sha256": "3a98342908105994a2c2e0cedb94cbf5cd77a76f91ad318c38bef1a810692d77",
+      "sourceMetaSha256": "fbb6c0409906c24e02338def9db884f3ea29b173974822f6336aa3a770afb649",
+      "sourcePath": "Assets/_Project/Scripts/Customization/FaaPilotChrome.cs"
+    },
+    "FaaPitchLadderSetup.cs": {
+      "metaSha256": "f6002206e778a7bd6cfe0d0cc0c5eda4883e1113abfc8fe23f2d0d4007856e2d",
+      "sha256": "230ed23395396a4abd5700ced24df153bdf78d05313af9018fdfcdaf30240514",
+      "sourceMetaSha256": "f6002206e778a7bd6cfe0d0cc0c5eda4883e1113abfc8fe23f2d0d4007856e2d",
+      "sourcePath": "Assets/_Project/Scripts/Editor/FaaPitchLadderSetup.cs"
+    },
+    "FaaRadarControlsOverlay.Settings.cs": {
+      "metaSha256": "86f435f77044cbf09df7ceb62f4db78b7f2183c105faab1b8efa2944ffad4822",
+      "sha256": "e7e0819fd7369323e3d4543f354ef0fc4c973aca0820cb811b5dd69b2596cde8",
+      "sourceMetaSha256": "86f435f77044cbf09df7ceb62f4db78b7f2183c105faab1b8efa2944ffad4822",
+      "sourcePath": "Assets/_Project/Scripts/Customization/FaaRadarControlsOverlay.Settings.cs"
+    },
+    "FaaRadarPresentationSetup.cs": {
+      "metaSha256": "9b070007b1172dfc10d2c63d8c81534f1f78a6bae637b4ff90d0a0fff48cf795",
+      "sha256": "65436f8a7ec7f20ec44fd417ab72c01051710a2387be0bd7a091bbbb192c3872",
+      "sourceMetaSha256": "9b070007b1172dfc10d2c63d8c81534f1f78a6bae637b4ff90d0a0fff48cf795",
+      "sourcePath": "Assets/_Project/Scripts/Editor/FaaRadarPresentationSetup.cs"
+    },
+    "FaaRotorcraftConformalLayer.cs": {
+      "metaSha256": "b7de2f14638984a23c3d1f0939db80aab60f2441afff8d8423710ee8d6cc7db6",
+      "sha256": "54f88e0e36dd62cda2d2af78521737be245ec7925d5f4102a93e52c25128c638",
+      "sourceMetaSha256": "b7de2f14638984a23c3d1f0939db80aab60f2441afff8d8423710ee8d6cc7db6",
+      "sourcePath": "Assets/_Project/Scripts/Customization/FaaRotorcraftConformalLayer.cs"
+    },
+    "FaaSceneDiagnostics.cs": {
+      "metaSha256": "b160cbc5f4e6c4ed7dd73e1355c868ea189651a81c6f0656d8c0db594562cb93",
+      "sha256": "25a02e897e46b58014464d98bbdf7801db4578ea9e34279922ca8d3daf1ffa69",
+      "sourceMetaSha256": "b160cbc5f4e6c4ed7dd73e1355c868ea189651a81c6f0656d8c0db594562cb93",
+      "sourcePath": "Assets/_Project/Scripts/Editor/FaaSceneDiagnostics.cs"
+    },
+    "FaaSpatialRadarPanel.cs": {
+      "metaSha256": "d5cc1c7f4039b74d693c7b2c9025708f4810ec52ab3d8c021d7b0873c16cf622",
+      "sha256": "6b3a32efd854824aa3eb74b57381dc2cd6b283bcce720d5b6d3841d97add5c36",
+      "sourceMetaSha256": "d5cc1c7f4039b74d693c7b2c9025708f4810ec52ab3d8c021d7b0873c16cf622",
+      "sourcePath": "Assets/_Project/Scripts/Customization/FaaSpatialRadarPanel.cs"
+    },
+    "FaaSpatialWorkspace.DataSources.cs": {
+      "metaSha256": "d44659ee1b6b092de3e3276094b39cfd90a47b38999a786d080848421f7630d0",
+      "sha256": "b90115e6967b1434dc61f21dbb55ceb7f29718a101940fbafc4ee6baad832dea",
+      "sourceMetaSha256": "d44659ee1b6b092de3e3276094b39cfd90a47b38999a786d080848421f7630d0",
+      "sourcePath": "Assets/_Project/Scripts/Customization/FaaSpatialWorkspace.DataSources.cs"
+    },
+    "FaaSpatialWorkspace.Inspection.cs": {
+      "metaSha256": "4218061ae35573ff1518e0b8f3e8c91880da5d37670708199f3372c62de709ba",
+      "sha256": "608d92af9cecf1fb96f463a8a5f7dca32775456ffa9fc3939def0ffb7e6455b6",
+      "sourceMetaSha256": "4218061ae35573ff1518e0b8f3e8c91880da5d37670708199f3372c62de709ba",
+      "sourcePath": "Assets/_Project/Scripts/Customization/FaaSpatialWorkspace.Inspection.cs"
+    },
+    "FaaSpatialWorkspace.Symbology.cs": {
+      "metaSha256": "21550287cee499be28959ed47b96011e19c2c43f5029c48a6c0745f73ef2d81c",
+      "sha256": "3212391f5bc5c8061e4f9832fb1cad6a604b83de9b1e29d802bcb574fb33c906",
+      "sourceMetaSha256": "21550287cee499be28959ed47b96011e19c2c43f5029c48a6c0745f73ef2d81c",
+      "sourcePath": "Assets/_Project/Scripts/Customization/FaaSpatialWorkspace.Symbology.cs"
+    },
+    "FaaSpatialWorkspace.cs": {
+      "metaSha256": "833327658016345ee852f0ee00d7fde4c55d38727bd559fed1899e6478a0f1a0",
+      "sha256": "18ab57b1e09d39f19b9aa6c0580b11b9e8d857b70026107c2917e14f470cf4da",
+      "sourceMetaSha256": "833327658016345ee852f0ee00d7fde4c55d38727bd559fed1899e6478a0f1a0",
+      "sourcePath": "Assets/_Project/Scripts/Customization/FaaSpatialWorkspace.cs"
+    },
+    "FaaTrackedSeatReference.cs": {
+      "metaSha256": null,
+      "sha256": "a9b848a35ffed0a0f331d6d82e12b92fad10018f131755be96d4c7de65bdbf5a",
+      "sourceMetaSha256": "ae4245b717dd2b54ece54eeadb69572c2278d916d00fb7f62deda4859b1c8380",
+      "sourcePath": "Assets/_Project/Scripts/Customization/FaaTrackedSeatReference.cs"
+    },
+    "FaaWorkspaceGestureInput.cs": {
+      "metaSha256": null,
+      "sha256": "d6f5cf9667b07c65bf2422c589031257ab81074d9b9b0cca198a4fc930f1b35f",
+      "sourceMetaSha256": "256dd3d8cdc46e23ccac1db34fbf6db1a2b3025f326e0d5af11583995a415e2d",
+      "sourcePath": "Assets/_Project/Scripts/Customization/FaaWorkspaceGestureInput.cs"
+    },
+    "IndicatorCanvasProjection.cs": {
+      "metaSha256": "5fb2107e7c1f1dd0c9f38a56df49afd8ec7b3cb4770772cc3a87f21472a7a787",
+      "sha256": "6a4281439c29082dea021ee64a1d9c8e7a2637997c11df523d6afb727b904fe5",
+      "sourceMetaSha256": "5fb2107e7c1f1dd0c9f38a56df49afd8ec7b3cb4770772cc3a87f21472a7a787",
+      "sourcePath": "Assets/_Project/Scripts/IndicatorSystem/Core/IndicatorCanvasProjection.cs"
+    },
+    "IndicatorControlsPanel.cs": {
+      "metaSha256": null,
+      "sha256": "b6eda02a5eeeb90ae23effad93d28862cd0622c97fef290ce54db380c45e704b",
+      "sourceMetaSha256": "2730ea976dc9283d3ac846a12c1e21ded58245425a3d97776b93247e3979b87a",
+      "sourcePath": "Assets/_Project/Scripts/IndicatorSystem/Display/IndicatorControlsPanel.cs"
+    },
+    "IndicatorElement.cs": {
+      "metaSha256": "0ed6ec632037b4657a06ef5bfb0379c0b66e198e5e7761a2b3f0e2831491d2e3",
+      "sha256": "2c8c4c0ae6023a5fef5ccd7bc9a74cae21f28bb317a749b4b071402bbcfe699c",
+      "sourceMetaSha256": "0ed6ec632037b4657a06ef5bfb0379c0b66e198e5e7761a2b3f0e2831491d2e3",
+      "sourcePath": "Assets/_Project/Scripts/IndicatorSystem/Display/IndicatorElement.cs"
+    },
+    "IndicatorSystemController.cs": {
+      "metaSha256": "57746115de8c6593e6e6b19c281fcb7645d5f7e88473839be4eba1da06c91634",
+      "sha256": "2ecc8f08618500289452fdb9ba989a826db38e66803d7d5cd204d09c2c05db0a",
+      "sourceMetaSha256": "57746115de8c6593e6e6b19c281fcb7645d5f7e88473839be4eba1da06c91634",
+      "sourcePath": "Assets/_Project/Scripts/IndicatorSystem/Controller/IndicatorSystemController.cs"
+    },
+    "PostProcessingFactory.cs": {
+      "metaSha256": "c48f2c95fb9c13c28a8606b327bd353f9048dd2345e04433053265ab9ef401c7",
+      "sha256": "740efda1108fd71d668c74e1c1c1cff252db832841a0d6b76d5cac5c16ed6af8",
+      "sourceMetaSha256": "c48f2c95fb9c13c28a8606b327bd353f9048dd2345e04433053265ab9ef401c7",
+      "sourcePath": "Assets/PostProcessing/Editor/PostProcessingFactory.cs"
+    },
+    "SA147HeadsetCompatibility.cs": {
+      "metaSha256": "fb7f40b5f90f2402efe0cd7a1227a36ec3340fa6316f2b0357fd56ecdea0c4c9",
+      "sha256": "96e35e1cc3072ea38dc365636d279cdf9311f0521e64c3572d4920470c6c3583",
+      "sourceMetaSha256": "fb7f40b5f90f2402efe0cd7a1227a36ec3340fa6316f2b0357fd56ecdea0c4c9",
+      "sourcePath": "Assets/_Project/Scripts/Headset/SA147HeadsetCompatibility.cs"
+    },
+    "ScreenIndicatorCalculator.cs": {
+      "metaSha256": "f12c21603c506bbba2ac58b5e3547b424e5f5c8e4404e9acf09f2cd5527f9c67",
+      "sha256": "3254b689ba2352b88473ec5e7be2a8633d23484b543bd534e552261c0491133e",
+      "sourceMetaSha256": "f12c21603c506bbba2ac58b5e3547b424e5f5c8e4404e9acf09f2cd5527f9c67",
+      "sourcePath": "Assets/_Project/Scripts/IndicatorSystem/Core/ScreenIndicatorCalculator.cs"
+    },
+    "TrafficRadarDisplay.cs": {
+      "metaSha256": "50016c9210d074768c9f27570df0d7c35428f5d9fc3e5eb59881ebd622d7ff9d",
+      "sha256": "560f9c63bb3af2322bd76bb58b3963653a5837cc22fe9c2b3ff2d1f0f87440b8",
+      "sourceMetaSha256": "50016c9210d074768c9f27570df0d7c35428f5d9fc3e5eb59881ebd622d7ff9d",
+      "sourcePath": "Assets/_Project/Scripts/TrafficRadar/Display/TrafficRadarDisplay.cs"
+    },
+    "TrafficRadarVoiceAdapter.cs": {
+      "metaSha256": "175a4050bc8258931aa8a87f3e957310e52003eddffa2025de2c23a1d3991046",
+      "sha256": "1203e9ba84927607454d6f64886cb6972ded260648a0a4a5e8483b0d36e17743",
+      "sourceMetaSha256": "175a4050bc8258931aa8a87f3e957310e52003eddffa2025de2c23a1d3991046",
+      "sourcePath": "Assets/_Project/Scripts/VoiceControl/Adapters/TrafficRadarVoiceAdapter.cs"
+    },
+    "WeatherIndicatorBridge.cs": {
+      "metaSha256": "5fa3e2ba677b6c6e2a3b02aa127179c1e32c2ef75c89697b45490ad671edc797",
+      "sha256": "f07a2c4d63da76ce0d4b54cff7a7a7fd02b41ee8b88d1cc77e20689204f1da27",
+      "sourceMetaSha256": "5fa3e2ba677b6c6e2a3b02aa127179c1e32c2ef75c89697b45490ad671edc797",
+      "sourcePath": "Assets/_Project/Scripts/IndicatorSystem/Integration/WeatherIndicatorBridge.cs"
+    },
+    "WeatherRadarVoiceAdapter.cs": {
+      "metaSha256": "4d6596c12248ecc5932b4c0b88c22241907fac711fd5cdaabd49cae1aac9f0c9",
+      "sha256": "b9b0918cca8c96c014e2fab024d3cdd131ab2b70d91da033304b21f8c9bc582c",
+      "sourceMetaSha256": "4d6596c12248ecc5932b4c0b88c22241907fac711fd5cdaabd49cae1aac9f0c9",
+      "sourcePath": "Assets/_Project/Scripts/VoiceControl/Adapters/WeatherRadarVoiceAdapter.cs"
+    },
+    "XPlane12ApiHudBridge.Discovery.cs": {
+      "metaSha256": "2de48ad1a25dd759abbf8e0e887aba79470b7e6b43b9e4f30de44e763595cbd8",
+      "sha256": "9e27c4f41a5c61adb4df6dd8182e70f8a4d1a13b9dc6ffdaa0b88ab95e32da88",
+      "sourceMetaSha256": "2de48ad1a25dd759abbf8e0e887aba79470b7e6b43b9e4f30de44e763595cbd8",
+      "sourcePath": "Assets/_Project/Scripts/XPlaneIntegration/Runtime/XPlane12ApiHudBridge.Discovery.cs"
+    },
+    "XPlaneDiscoveryEngine.cs": {
+      "metaSha256": "36f945f8fa4fbf50688194ef8ab9ff4e49956f1e34baca0eedacb0bd39a40976",
+      "sha256": "55dc0c25ed84f2d5b23761a98120b4dff7355c68146ed2ba6ccfc243b2534d03",
+      "sourceMetaSha256": "36f945f8fa4fbf50688194ef8ab9ff4e49956f1e34baca0eedacb0bd39a40976",
+      "sourcePath": "Assets/_Project/Scripts/XPlaneIntegration/Runtime/XPlaneDiscoveryEngine.cs"
+    },
+    "XPlaneDiscoveryWeb.cs": {
+      "metaSha256": "8bd45fbcb9becc90543642d66783d44f17ea83cafe5d40af339e14fc51cb0d83",
+      "sha256": "ee198a54a0d8c7f5c1810e9fc21409f0d9edddfe9d607c60a953a7f666191876",
+      "sourceMetaSha256": "8bd45fbcb9becc90543642d66783d44f17ea83cafe5d40af339e14fc51cb0d83",
+      "sourcePath": "Assets/_Project/Scripts/XPlaneIntegration/Runtime/XPlaneDiscoveryWeb.cs"
+    },
+    "XPlaneLocalInventory.cs": {
+      "metaSha256": "b7ebfcd74355731776aef46fb43d2bfff087581eab49e96978334bbcc600d6c3",
+      "sha256": "6c958ef7707f3bff604b786cdf03e82f8edb0e4266456da5588e1f8088168d48",
+      "sourceMetaSha256": "b7ebfcd74355731776aef46fb43d2bfff087581eab49e96978334bbcc600d6c3",
+      "sourcePath": "Assets/_Project/Scripts/XPlaneIntegration/Runtime/XPlaneLocalInventory.cs"
+    },
+    "XPlaneWeatherInfoStrip.cs": {
+      "metaSha256": "362b6fb4022e11d6d845838e4cd9f399a0cf0594b4c1108ba10a2ade96d14a24",
+      "sha256": "9d89eaeb9f917904d51ab7d8167d67e425592257a6e9861957d17d51aa4af5d0",
+      "sourceMetaSha256": "362b6fb4022e11d6d845838e4cd9f399a0cf0594b4c1108ba10a2ade96d14a24",
+      "sourcePath": "Assets/_Project/Scripts/Customization/XPlaneWeatherInfoStrip.cs"
+    },
+    "XR3DesktopHudPreview.cs": {
+      "metaSha256": "b5c4488212b6a08a94ffd290a5f553d500d84654da6d10c142203488b5076615",
+      "sha256": "8e4c3799aea33a0e96212a030dcff98c83e52260dafde769f5f8e992f7809682",
+      "sourceMetaSha256": "b5c4488212b6a08a94ffd290a5f553d500d84654da6d10c142203488b5076615",
+      "sourcePath": "Assets/_Project/Scripts/Headset/XR3DesktopHudPreview.cs"
+    },
+    "XR3HeadsetCompatibility.cs": {
+      "metaSha256": "344390e67405e76f6fade7868308c55d17984353ae27bf5682c8db7c8541085e",
+      "sha256": "ef2e0a825e7b81b712af295a71bed5a6ae3453b6e4739edde2a460288056a458",
+      "sourceMetaSha256": "344390e67405e76f6fade7868308c55d17984353ae27bf5682c8db7c8541085e",
+      "sourcePath": "Assets/_Project/Scripts/Headset/XR3HeadsetCompatibility.cs"
+    },
+    "XR3MixedRealityPresentation.cs": {
+      "metaSha256": "383c6aecef2dff70d065a2f3f38e28c143bf5b0d4cf362e1aa3ccd503adb3418",
+      "sha256": "dd9562422eaeb60ebb930069f96a963b8e37046fa32e9c75e8161d59c1f1873e",
+      "sourceMetaSha256": "383c6aecef2dff70d065a2f3f38e28c143bf5b0d4cf362e1aa3ccd503adb3418",
+      "sourcePath": "Assets/_Project/Scripts/Headset/XR3MixedRealityPresentation.cs"
+    },
+    "XR3RuntimeReport.cs": {
+      "metaSha256": "e70524d1a2e9de1f88e30a274d78f262c3ccb8c6a254f189d7276d0cafa404d2",
+      "sha256": "c82a5225a8a7f1c02a82088313221800c5069b600dedb6738d2d26101118fb0e",
+      "sourceMetaSha256": "e70524d1a2e9de1f88e30a274d78f262c3ccb8c6a254f189d7276d0cafa404d2",
+      "sourcePath": "Assets/_Project/Scripts/Headset/XR3RuntimeReport.cs"
+    }
+  },
   "overlay": {
     "Assets/ExternalTools/Python/Scripts/MqttTrafficDataManagerPython.py": {
       "gitPath": "SourceProfiles~/XR3Integration/project-overlay/files/Assets/ExternalTools/Python/Scripts/MqttTrafficDataManagerPython.py",
@@ -55096,12 +55591,23 @@
       }
     },
     "Assets/_Project/Scripts/AircraftControl/Camera/AircraftCameraController.cs": {
+      "approvedRepair": true,
       "gitPath": "SourceProfiles~/XR3Integration/project-overlay/files/Assets/_Project/Scripts/AircraftControl/Camera/AircraftCameraController.cs",
       "kind": "replace",
       "previous": {
         "executable": false,
         "sha256": "82b7754aca3f35118de9ac73079a5057943018a97858b4738055467fab00eaed",
         "size": 28786
+      }
+    },
+    "Assets/_Project/Scripts/AircraftControl/Camera/AircraftNativeXrOrigin.cs": {
+      "approvedRepair": true,
+      "gitPath": "SourceProfiles~/XR3Integration/project-overlay/files/Assets/_Project/Scripts/AircraftControl/Camera/AircraftNativeXrOrigin.cs",
+      "kind": "replace",
+      "previous": {
+        "executable": false,
+        "sha256": "cea870d4bf0fa9293d07bfd24f1a80acf38b8bc4a1a36182ec74de7e5385a269",
+        "size": 4750
       }
     },
     "Assets/_Project/Scripts/AircraftControl/Core/AircraftController.cs": {
@@ -55121,6 +55627,18 @@
         "sha256": "830c5261c4d8116256adc3114169029dc0ec31fa21652f6adc593b4e8c626f8a",
         "size": 17174
       }
+    },
+    "Assets/_Project/Scripts/AircraftControl/Tests/Editor/AircraftCameraLifecycleTests.cs": {
+      "approvedRepair": true,
+      "gitPath": "SourceProfiles~/XR3Integration/project-overlay/files/Assets/_Project/Scripts/AircraftControl/Tests/Editor/AircraftCameraLifecycleTests.cs",
+      "kind": "add",
+      "previous": null
+    },
+    "Assets/_Project/Scripts/AircraftControl/Tests/Editor/AircraftCameraLifecycleTests.cs.meta": {
+      "approvedRepair": true,
+      "gitPath": "SourceProfiles~/XR3Integration/project-overlay/files/Assets/_Project/Scripts/AircraftControl/Tests/Editor/AircraftCameraLifecycleTests.cs.meta",
+      "kind": "add",
+      "previous": null
     },
     "Assets/_Project/Scripts/Customization/FaaAnalogFlightSample.cs": {
       "gitPath": "SourceProfiles~/XR3Integration/project-overlay/files/Assets/_Project/Scripts/Customization/FaaAnalogFlightSample.cs",
@@ -55438,6 +55956,7 @@
       "previous": null
     },
     "Assets/_Project/Scripts/Customization/FaaPilotChrome.Commands.cs": {
+      "approvedRepair": true,
       "gitPath": "SourceProfiles~/XR3Integration/project-overlay/files/Assets/_Project/Scripts/Customization/FaaPilotChrome.Commands.cs",
       "kind": "add",
       "previous": null
@@ -55448,6 +55967,7 @@
       "previous": null
     },
     "Assets/_Project/Scripts/Customization/FaaPilotChrome.Help.cs": {
+      "approvedRepair": true,
       "gitPath": "SourceProfiles~/XR3Integration/project-overlay/files/Assets/_Project/Scripts/Customization/FaaPilotChrome.Help.cs",
       "kind": "add",
       "previous": null
@@ -55458,6 +55978,7 @@
       "previous": null
     },
     "Assets/_Project/Scripts/Customization/FaaPilotChrome.Status.cs": {
+      "approvedRepair": true,
       "gitPath": "SourceProfiles~/XR3Integration/project-overlay/files/Assets/_Project/Scripts/Customization/FaaPilotChrome.Status.cs",
       "kind": "add",
       "previous": null
@@ -55468,6 +55989,7 @@
       "previous": null
     },
     "Assets/_Project/Scripts/Customization/FaaPilotChrome.cs": {
+      "approvedRepair": true,
       "gitPath": "SourceProfiles~/XR3Integration/project-overlay/files/Assets/_Project/Scripts/Customization/FaaPilotChrome.cs",
       "kind": "add",
       "previous": null
@@ -55610,6 +56132,7 @@
       "previous": null
     },
     "Assets/_Project/Scripts/Customization/FaaSpatialRadarPanel.cs": {
+      "approvedRepair": true,
       "gitPath": "SourceProfiles~/XR3Integration/project-overlay/files/Assets/_Project/Scripts/Customization/FaaSpatialRadarPanel.cs",
       "kind": "add",
       "previous": null
@@ -55620,6 +56143,7 @@
       "previous": null
     },
     "Assets/_Project/Scripts/Customization/FaaSpatialWorkspace.Controls.cs": {
+      "approvedRepair": true,
       "gitPath": "SourceProfiles~/XR3Integration/project-overlay/files/Assets/_Project/Scripts/Customization/FaaSpatialWorkspace.Controls.cs",
       "kind": "add",
       "previous": null
@@ -55630,6 +56154,7 @@
       "previous": null
     },
     "Assets/_Project/Scripts/Customization/FaaSpatialWorkspace.DataSources.cs": {
+      "approvedRepair": true,
       "gitPath": "SourceProfiles~/XR3Integration/project-overlay/files/Assets/_Project/Scripts/Customization/FaaSpatialWorkspace.DataSources.cs",
       "kind": "add",
       "previous": null
@@ -55730,6 +56255,7 @@
       "previous": null
     },
     "Assets/_Project/Scripts/Customization/FaaSpatialWorkspace.cs": {
+      "approvedRepair": true,
       "gitPath": "SourceProfiles~/XR3Integration/project-overlay/files/Assets/_Project/Scripts/Customization/FaaSpatialWorkspace.cs",
       "kind": "add",
       "previous": null
@@ -55913,6 +56439,7 @@
       }
     },
     "Assets/_Project/Scripts/ExplanationAssistant/ExplanationAssistantPanel.cs": {
+      "approvedRepair": true,
       "gitPath": "SourceProfiles~/XR3Integration/project-overlay/files/Assets/_Project/Scripts/ExplanationAssistant/ExplanationAssistantPanel.cs",
       "kind": "replace",
       "previous": {
@@ -56102,6 +56629,28 @@
       "kind": "add",
       "previous": null
     },
+    "Assets/_Project/Scripts/Headset/XR3DesktopHudPreview.cs": {
+      "approvedRepair": true,
+      "gitPath": "SourceProfiles~/XR3Integration/project-overlay/files/Assets/_Project/Scripts/Headset/XR3DesktopHudPreview.cs",
+      "kind": "replace",
+      "previous": {
+        "executable": false,
+        "sha256": "fd41eb8e2c8a1fdb1f1af807708a957ecd3347036891bd3d3f889ba1f4ad9710",
+        "size": 9109
+      }
+    },
+    "Assets/_Project/Scripts/Headset/XR3DesktopPointerInput.cs": {
+      "approvedRepair": true,
+      "gitPath": "SourceProfiles~/XR3Integration/project-overlay/files/Assets/_Project/Scripts/Headset/XR3DesktopPointerInput.cs",
+      "kind": "add",
+      "previous": null
+    },
+    "Assets/_Project/Scripts/Headset/XR3DesktopPointerInput.cs.meta": {
+      "approvedRepair": true,
+      "gitPath": "SourceProfiles~/XR3Integration/project-overlay/files/Assets/_Project/Scripts/Headset/XR3DesktopPointerInput.cs.meta",
+      "kind": "add",
+      "previous": null
+    },
     "Assets/_Project/Scripts/Headset/XR3HeadsetCompatibility.cs": {
       "gitPath": "SourceProfiles~/XR3Integration/project-overlay/files/Assets/_Project/Scripts/Headset/XR3HeadsetCompatibility.cs",
       "kind": "replace",
@@ -56112,12 +56661,23 @@
       }
     },
     "Assets/_Project/Scripts/IndicatorSystem/Controller/IndicatorSystemController.cs": {
+      "approvedRepair": true,
       "gitPath": "SourceProfiles~/XR3Integration/project-overlay/files/Assets/_Project/Scripts/IndicatorSystem/Controller/IndicatorSystemController.cs",
       "kind": "replace",
       "previous": {
         "executable": false,
         "sha256": "657f99fcab1bc4da0920bb7d13d29d7d631b2015759b6f604324a73fcbfc70f8",
         "size": 33763
+      }
+    },
+    "Assets/_Project/Scripts/IndicatorSystem/Core/ScreenIndicatorCalculator.cs": {
+      "approvedRepair": true,
+      "gitPath": "SourceProfiles~/XR3Integration/project-overlay/files/Assets/_Project/Scripts/IndicatorSystem/Core/ScreenIndicatorCalculator.cs",
+      "kind": "replace",
+      "previous": {
+        "executable": false,
+        "sha256": "ae22bcd34d40e758f745106c45d3bf10bd5890f159540e8bd746bc5c3e9c50b6",
+        "size": 15717
       }
     },
     "Assets/_Project/Scripts/IndicatorSystem/Display/IndicatorControlsPanel.cs": {
@@ -56572,6 +57132,30 @@
         "size": 12177
       }
     },
+    "Assets/_Project/Tests/Editor/FaaDesktopSettingsInspectionTests.cs": {
+      "approvedRepair": true,
+      "gitPath": "SourceProfiles~/XR3Integration/project-overlay/files/Assets/_Project/Tests/Editor/FaaDesktopSettingsInspectionTests.cs",
+      "kind": "add",
+      "previous": null
+    },
+    "Assets/_Project/Tests/Editor/FaaDesktopSettingsInspectionTests.cs.meta": {
+      "approvedRepair": true,
+      "gitPath": "SourceProfiles~/XR3Integration/project-overlay/files/Assets/_Project/Tests/Editor/FaaDesktopSettingsInspectionTests.cs.meta",
+      "kind": "add",
+      "previous": null
+    },
+    "Assets/_Project/Tests/Editor/FaaDesktopSettingsRasterTests.cs": {
+      "approvedRepair": true,
+      "gitPath": "SourceProfiles~/XR3Integration/project-overlay/files/Assets/_Project/Tests/Editor/FaaDesktopSettingsRasterTests.cs",
+      "kind": "add",
+      "previous": null
+    },
+    "Assets/_Project/Tests/Editor/FaaDesktopSettingsRasterTests.cs.meta": {
+      "approvedRepair": true,
+      "gitPath": "SourceProfiles~/XR3Integration/project-overlay/files/Assets/_Project/Tests/Editor/FaaDesktopSettingsRasterTests.cs.meta",
+      "kind": "add",
+      "previous": null
+    },
     "Assets/_Project/Tests/Editor/FaaDigitalBankScaleTests.cs": {
       "gitPath": "SourceProfiles~/XR3Integration/project-overlay/files/Assets/_Project/Tests/Editor/FaaDigitalBankScaleTests.cs",
       "kind": "add",
@@ -56628,6 +57212,18 @@
     },
     "Assets/_Project/Tests/Editor/FaaHudTerrainReleaseTests.cs.meta": {
       "gitPath": "SourceProfiles~/XR3Integration/project-overlay/files/Assets/_Project/Tests/Editor/FaaHudTerrainReleaseTests.cs.meta",
+      "kind": "add",
+      "previous": null
+    },
+    "Assets/_Project/Tests/Editor/FaaIndicatorVisibilityBoundaryTests.cs": {
+      "approvedRepair": true,
+      "gitPath": "SourceProfiles~/XR3Integration/project-overlay/files/Assets/_Project/Tests/Editor/FaaIndicatorVisibilityBoundaryTests.cs",
+      "kind": "add",
+      "previous": null
+    },
+    "Assets/_Project/Tests/Editor/FaaIndicatorVisibilityBoundaryTests.cs.meta": {
+      "approvedRepair": true,
+      "gitPath": "SourceProfiles~/XR3Integration/project-overlay/files/Assets/_Project/Tests/Editor/FaaIndicatorVisibilityBoundaryTests.cs.meta",
       "kind": "add",
       "previous": null
     },
@@ -56723,6 +57319,18 @@
     },
     "Assets/_Project/Tests/Editor/FaaPeripheralStabilityTests.cs.meta": {
       "gitPath": "SourceProfiles~/XR3Integration/project-overlay/files/Assets/_Project/Tests/Editor/FaaPeripheralStabilityTests.cs.meta",
+      "kind": "add",
+      "previous": null
+    },
+    "Assets/_Project/Tests/Editor/FaaPilotChromeLifecycleTests.cs": {
+      "approvedRepair": true,
+      "gitPath": "SourceProfiles~/XR3Integration/project-overlay/files/Assets/_Project/Tests/Editor/FaaPilotChromeLifecycleTests.cs",
+      "kind": "add",
+      "previous": null
+    },
+    "Assets/_Project/Tests/Editor/FaaPilotChromeLifecycleTests.cs.meta": {
+      "approvedRepair": true,
+      "gitPath": "SourceProfiles~/XR3Integration/project-overlay/files/Assets/_Project/Tests/Editor/FaaPilotChromeLifecycleTests.cs.meta",
       "kind": "add",
       "previous": null
     },
@@ -57699,7 +58307,7 @@
       }
     }
   },
-  "profile": "full-XR3-5f-near-space-batched-bounds",
+  "profile": "full-XR3-Classic-5f-plus-approved-lifecycle-settings-traffic",
   "removals": {
     "Assets/ThirdParty/XRInteractionSimulator.meta": {
       "executable": false,
@@ -58436,6 +59044,11 @@
         "value": "empty"
       }
     ],
+    "approvedRepairTextScan": {
+      "paths": 26,
+      "privateAbsolutePathsFound": 0,
+      "rawLogsVideosCheckpointsIncluded": false
+    },
     "diagnosticMediaExcluded": true,
     "nonemptyCredentialValuesFound": 0,
     "overlayTextScanCompleted": true,
@@ -58443,11 +59056,20 @@
   },
   "schema": 1,
   "sourceIdentity": {
-    "assemblyCSharpMvid": "5f5d7d11-cd7e-4f94-a6a8-c7f4106324f8",
-    "assemblyCSharpSha256": "2644bfae743b9abdbf2cee7f278f9059d9cf2f2bc1dbdffaa29a43d1059cbe85",
+    "approvedRepairPaths": 26,
+    "baselineAssemblyCSharpMvid": "5f5d7d11-cd7e-4f94-a6a8-c7f4106324f8",
+    "baselineAssemblyCSharpSha256": "2644bfae743b9abdbf2cee7f278f9059d9cf2f2bc1dbdffaa29a43d1059cbe85",
     "buildEntry": "FAA.Headset.Editor.XR3ReleaseBuild.BuildWindows64",
     "buildScene": "Assets/_Project/Scenes/ExperimentScene.unity",
+    "candidateFullSuiteExplicitSkips": 10,
+    "candidateFullSuitePassed": 1632,
+    "dedicatedExistingGpuMethodsPassed": 7,
+    "finalPlayerBuildValidated": false,
+    "finalWindowsRetakeValidated": false,
+    "focusedNormalGraphicsTestsPassed": 49,
+    "fullMaterializedSuiteValidated": false,
     "nativeCrashResolved": false,
+    "newSettingsRasterInconclusive": true,
     "unity": "6000.3.27f1"
   }
 }

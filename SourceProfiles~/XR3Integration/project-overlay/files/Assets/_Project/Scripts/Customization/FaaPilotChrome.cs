@@ -60,8 +60,18 @@ namespace FAA.Customization
         }
 
         private static FaaPilotChrome current;
+        private static bool quitting;
+        private static int escapeConsumedFrame=-1;
+        private bool disposing;
+        private bool ViewAlive=>built&&canvas!=null&&root!=null&&bar!=null&&flyouts!=null;
+        private bool CanMutate=>!quitting&&!disposing&&ViewAlive;
         /// <summary>The live chrome, or null (Unity-null safe).</summary>
-        public static FaaPilotChrome Current=>current!=null?current:null;
+        public static FaaPilotChrome Current=>!quitting&&current!=null&&!current.disposing&&current.ViewAlive?current:null;
+        /// <summary>Transient input ownership, never saved as a pilot preference.</summary>
+        public static bool EscapeConsumedThisFrame=>escapeConsumedFrame==Time.frameCount;
+        public static void MarkEscapeConsumed()=>escapeConsumedFrame=Time.frameCount;
+        /// <summary>Also checked before Update, so a lower-priority Settings handler cannot win by execution order.</summary>
+        public bool HasEscapePriorityPopup=>CanMutate&&(HelpVisible||CommandsVisible||openFlyout!=null);
 
         private readonly List<Entry> entries=new();
         private readonly Dictionary<string,Action> flyoutClosers=new();
@@ -93,7 +103,7 @@ namespace FAA.Customization
         public static event Action DeveloperModeChanged;
         /// <summary>Every play session starts in pilot mode, also with domain reload disabled.</summary>
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
-        private static void ResetDeveloperMode(){developerMode=false;}
+        private static void ResetDeveloperMode(){developerMode=false;quitting=false;escapeConsumedFrame=-1;}
         /// <summary>Sets developer mode (Ctrl+Shift+D toggles it). The status chip shows a quiet DEVELOPER MODE while it is on.</summary>
         public static void SetDeveloperMode(bool on)
         {
@@ -111,7 +121,10 @@ namespace FAA.Customization
         /// <summary>Returns the chrome, creating it in Play Mode. Returns null in Edit Mode so edit-time tools keep their legacy layout.</summary>
         public static FaaPilotChrome Ensure()
         {
-            if(current!=null)return current;
+            if(quitting)return null;
+            if(Current!=null)return Current;
+            // A live host with a disposed owned view must not be rebuilt from late teardown callbacks.
+            if(current!=null)return null;
             if(!Application.isPlaying)return null;
             var existing=FindAnyObjectByType<FaaPilotChrome>();
             if(existing!=null){existing.Initialize();return existing;}
@@ -128,17 +141,22 @@ namespace FAA.Customization
         private void Awake()=>Initialize();
         private void Initialize()
         {
+            if(quitting||disposing)return;
             if(current!=null&&current!=this){if(Application.isPlaying)Destroy(this);return;}
             current=this;Build();
         }
+        private void OnApplicationQuit(){quitting=true;}
         private void OnDestroy()
         {
+            disposing=true;
             if(current==this)current=null;
+            entries.Clear();flyoutClosers.Clear();openFlyout=null;built=false;
             if(canvas!=null){if(Application.isPlaying)Destroy(canvas.gameObject);else DestroyImmediate(canvas.gameObject);}
         }
 
         private void Build()
         {
+            if(quitting||disposing)return;
             if(built)return;built=true;
             var go=new GameObject(CanvasName,typeof(RectTransform),typeof(Canvas),typeof(UnityEngine.UI.CanvasScaler),typeof(FaaCanvasPixelRaycaster),typeof(TrackedDeviceGraphicRaycaster));
             go.transform.SetParent(transform,false);
@@ -171,8 +189,9 @@ namespace FAA.Customization
         /// </summary>
         public Button AddButton(string id,FaaChromeCluster cluster,float order,string caption,string keycap,UnityAction action,string shortCaption=null)
         {
-            if(string.IsNullOrEmpty(id))return null;
+            if(string.IsNullOrEmpty(id)||quitting||disposing)return null;
             Build();
+            if(!CanMutate)return null;
             var e=Find(id);
             if(e==null){e=MakeEntry(id,cluster);entries.Add(e);}
             e.cluster=cluster;e.order=order;e.seq=sequence++;e.fullCaption=caption??"";e.shortCaption=string.IsNullOrEmpty(shortCaption)?e.fullCaption:shortCaption;
@@ -184,6 +203,7 @@ namespace FAA.Customization
         public bool HasButton(string id)=>Find(id)!=null;
         public void RemoveButton(string id)
         {
+            if(!CanMutate)return;
             var e=Find(id);if(e==null)return;
             entries.Remove(e);if(e.rect!=null){if(Application.isPlaying)Destroy(e.rect.gameObject);else DestroyImmediate(e.rect.gameObject);}
             layoutDirty=true;Relayout();
@@ -255,7 +275,22 @@ namespace FAA.Customization
         /// <summary>Invokes a button as if clicked (keyboard routes, tests).</summary>
         public void Press(string id){var e=Find(id);if(e!=null&&e.visible&&e.interactable)e.action?.Invoke();}
 
-        private Entry Find(string id){for(int i=0;i<entries.Count;i++)if(entries[i].id==id)return entries[i];return null;}
+        private static bool EntryAlive(Entry e)=>e!=null&&e.rect!=null&&e.button!=null&&e.caption!=null&&e.plate!=null&&e.underline!=null;
+        private void PruneDeadEntries()
+        {
+            for(int i=entries.Count-1;i>=0;i--)if(!EntryAlive(entries[i])){entries.RemoveAt(i);layoutDirty=true;}
+        }
+        private Entry Find(string id)
+        {
+            if(!CanMutate)return null;
+            for(int i=entries.Count-1;i>=0;i--)
+            {
+                var e=entries[i];
+                if(!EntryAlive(e)){entries.RemoveAt(i);layoutDirty=true;continue;}
+                if(e.id==id)return e;
+            }
+            return null;
+        }
 
         private Entry MakeEntry(string id,FaaChromeCluster cluster)
         {
@@ -263,7 +298,7 @@ namespace FAA.Customization
             e.rect=NewRect("Chrome "+id,bar);e.rect.sizeDelta=new Vector2(MinButtonWidth,ButtonHeight);
             e.plate=e.rect.gameObject.AddComponent<Image>();e.plate.color=FaaHudStyle.ChromeButton;e.plate.raycastTarget=true;
             var outline=e.rect.gameObject.AddComponent<Outline>();outline.effectColor=FaaHudStyle.ChromeOutline;outline.effectDistance=new Vector2(1,1);
-            e.button=e.rect.gameObject.AddComponent<Button>();e.button.targetGraphic=e.plate;
+            e.button=e.rect.gameObject.AddComponent<FAA.Headset.XR3DesktopPointerInput>();e.button.targetGraphic=e.plate;
             StyleButton(e.button);
             e.caption=NewText("Caption",e.rect,FaaHudStyle.Chrome,FaaHudStyle.White);
             e.caption.alignment=TextAlignmentOptions.MidlineLeft;
@@ -291,6 +326,7 @@ namespace FAA.Customization
         }
         private static void SetAnchors(Entry e)
         {
+            if(e==null||e.rect==null)return;
             float x=e.cluster==FaaChromeCluster.Left?0:1;
             e.rect.anchorMin=e.rect.anchorMax=new Vector2(x,0);e.rect.pivot=new Vector2(x,.5f);
         }
@@ -304,6 +340,7 @@ namespace FAA.Customization
         private readonly List<Entry> sortScratch=new();
         private List<Entry> Sorted(FaaChromeCluster cluster)
         {
+            PruneDeadEntries();
             sortScratch.Clear();
             foreach(var e in entries)if(e.cluster==cluster)sortScratch.Add(e);
             sortScratch.Sort((a,b)=>{int c=a.order.CompareTo(b.order);return c!=0?c:a.seq.CompareTo(b.seq);});
@@ -311,10 +348,11 @@ namespace FAA.Customization
         }
 
         /// <summary>Measures captions and positions both clusters. Runs only when something changed.</summary>
-        public void Relayout(){if(built)Relayout(CanvasWidth());}
+        public void Relayout(){if(CanMutate)Relayout(CanvasWidth());}
         public void Relayout(float canvasWidth)
         {
-            if(!built)return;
+            if(!CanMutate)return;
+            PruneDeadEntries();
             layoutDirty=false;lastCanvasWidth=canvasWidth;
             float barWidth=Mathf.Max(0,canvasWidth-2*Gutter);
             // Full captions first; fall back to short captions only when the clusters would meet.
@@ -405,6 +443,7 @@ namespace FAA.Customization
         }
         private void PlaceEntry(Entry e,float w,float x,float y)
         {
+            if(!EntryAlive(e))return;
             SetAnchors(e);e.width=w;
             if(e.id!=StatusId)
             {
@@ -441,20 +480,26 @@ namespace FAA.Customization
         // ---------------------------------------------------------------- flyouts
 
         /// <summary>Registers a flyout and the action that closes it. Only one flyout is open at a time.</summary>
-        public void RegisterFlyout(string id,Action close){if(!string.IsNullOrEmpty(id))flyoutClosers[id]=close;}
+        public void RegisterFlyout(string id,Action close){if(CanMutate&&!string.IsNullOrEmpty(id))flyoutClosers[id]=close;}
         public void UnregisterFlyout(string id){flyoutClosers.Remove(id);if(openFlyout==id)openFlyout=null;}
         /// <summary>Call when a flyout opens; closes whichever other flyout was open.</summary>
         public void NotifyFlyoutOpened(string id)
         {
+            if(!CanMutate)return;
             if(string.IsNullOrEmpty(id)||openFlyout==id)return;
             string previous=openFlyout;openFlyout=id;
             if(previous!=null&&flyoutClosers.TryGetValue(previous,out var close))close?.Invoke();
         }
-        public void NotifyFlyoutClosed(string id){if(openFlyout==id)openFlyout=null;}
+        public void NotifyFlyoutClosed(string id)
+        {
+            if(openFlyout!=id)return;
+            if(Keyboard.current!=null&&Keyboard.current.escapeKey.wasPressedThisFrame)MarkEscapeConsumed();
+            openFlyout=null;
+        }
         /// <summary>Parents a flyout into the fixed slot above the bar (bottom-left anchored, reference units).</summary>
         public void AttachFlyout(RectTransform flyout)
         {
-            if(flyout==null)return;Build();
+            if(flyout==null||quitting||disposing)return;Build();if(!CanMutate)return;
             flyout.SetParent(flyouts,false);
             flyout.anchorMin=flyout.anchorMax=flyout.pivot=Vector2.zero;
             flyout.anchoredPosition=new Vector2(FlyoutLeft,FlyoutBottom);
@@ -567,7 +612,7 @@ namespace FAA.Customization
 
         private void Update()
         {
-            if(!Application.isPlaying)return;
+            if(!Application.isPlaying||!CanMutate)return;
             var kb=Keyboard.current;
             if(kb!=null)
             {
@@ -578,9 +623,9 @@ namespace FAA.Customization
                 else if(kb.escapeKey.wasPressedThisFrame)
                 {
                     // The brief handles Esc itself (card first, then dock). Only close chrome-owned flyouts here.
-                    if(HelpVisible)SetHelpVisible(false);
-                    else if(CommandsVisible)SetCommandsVisible(false);
-                    else if(openFlyout=="cues"&&flyoutClosers.TryGetValue("cues",out var close))close?.Invoke();
+                    if(HelpVisible){MarkEscapeConsumed();SetHelpVisible(false);}
+                    else if(CommandsVisible){MarkEscapeConsumed();SetCommandsVisible(false);}
+                    else if(openFlyout=="cues"&&flyoutClosers.TryGetValue("cues",out var close)){MarkEscapeConsumed();close?.Invoke();}
                 }
             }
             var mouse=Mouse.current;
@@ -605,7 +650,7 @@ namespace FAA.Customization
 
         private void LateUpdate()
         {
-            if(!built)return;
+            if(!CanMutate)return;
             SyncRenderMode();
             TickStatus();
             TickCommands();

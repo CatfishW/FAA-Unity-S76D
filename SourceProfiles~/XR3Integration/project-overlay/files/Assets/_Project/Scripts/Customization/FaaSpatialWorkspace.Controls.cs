@@ -41,15 +41,26 @@ namespace FAA.Customization
         private string detailId;private int detailYaw,detailElevation,detailDistance,detailScale;
         private string inputProfile,inputSource;
         private int lastEditMode=-1;
+        private Camera desktopSettingsCamera,desktopSettingsHeadset;
+        private AircraftControl.Camera.AircraftCameraController desktopSettingsOwner;
+        private bool desktopSettingsRequested;
+        public bool DesktopSettingsInspectionActive=>desktopSettingsRequested&&MenuOpen&&desktopSettingsCamera!=null;
 
         public void ToggleMenu(){if(MenuOpen)CloseSettingsMenu();else OpenMenu();}
         public void OpenMenu(){MenuOpen=true;RefreshControls();}
         /// <summary>
-        /// F9 / SETTINGS: opens the settings panel and turns the desktop view to it, so the press always has a visible
-        /// result; pressing again while it is in view closes it and returns forward. Native XR opens or closes the panel
-        /// in place (the pilot turns their head). If the camera cannot turn (chase/free camera) the key simply toggles closed.
+        /// Desktop pointer dispatch opens Settings in the owned window spectator. Tracked/programmatic dispatch
+        /// retains the native side-panel or ordinary untracked inspection route. F9 supplies explicit desktop intent.
         /// </summary>
         public void ToggleSettingsInspection()
+        {
+            if(FAA.Headset.XR3DesktopPointerInput.IsDesktopMouseDispatch&&
+                FAA.Headset.XR3DesktopHudPreview.TryGetDesktopInspectionCamera(View,out _))
+            {ToggleDesktopSettingsInspection();return;}
+            ReleaseDesktopSettingsInspection();
+            ToggleSettingsInspectionCore();
+        }
+        private void ToggleSettingsInspectionCore()
         {
             if(MenuOpen&&(NativeXr||InspectedPanelId=="settings")){CloseSettingsMenu();return;}
             bool wasOpen=MenuOpen;
@@ -58,9 +69,60 @@ namespace FAA.Customization
         }
         private void CloseSettingsMenu()
         {
+            ReleaseDesktopSettingsInspection();
             MenuOpen=false;DisarmDataGuards();
             CloseInspected("settings");
             RefreshControls();
+        }
+        /// <summary>Explicit keyboard/window-pointer intent; tracked actions retain the native side-panel route.</summary>
+        public void ToggleDesktopSettingsInspection()
+        {
+            if(!FAA.Headset.XR3DesktopHudPreview.TryGetDesktopInspectionCamera(View,out Camera camera))
+            {ReleaseDesktopSettingsInspection();ToggleSettingsInspectionCore();return;}
+            if(desktopSettingsRequested){CloseSettingsMenu();return;}
+            OpenDesktopSettingsInspection(camera);
+        }
+        private void OpenDesktopSettingsInspection(Camera camera)
+        {
+            if(IsDesktopSettingsInspectionCamera(camera)){RefreshControls();return;}
+            ReleaseDesktopSettingsInspection();
+            desktopSettingsRequested=true;desktopSettingsCamera=camera;desktopSettingsHeadset=View;
+            desktopSettingsOwner=AircraftControl.Camera.AircraftViewRenderSpace.ForCamera(View).Owner;
+            MenuOpen=true;RefreshControls();RefreshTransforms();
+        }
+        public bool IsDesktopSettingsInspectionCamera(Camera camera)=>desktopSettingsRequested&&MenuOpen&&
+            camera!=null&&camera==desktopSettingsCamera&&View==desktopSettingsHeadset&&
+            desktopSettingsOwner!=null&&AircraftControl.Camera.AircraftViewRenderSpace.ForCamera(View)?.Owner==desktopSettingsOwner&&
+            FAA.Headset.XR3DesktopHudPreview.IsDesktopInspectionCamera(camera,View);
+
+        private void ValidateDesktopSettingsInspection()
+        {
+            if(desktopSettingsRequested&&!IsDesktopSettingsInspectionCamera(desktopSettingsCamera))CloseSettingsMenu();
+        }
+        private void ReleaseDesktopSettingsInspection()
+        {
+            if(!desktopSettingsRequested)return;
+            desktopSettingsRequested=false;desktopSettingsCamera=null;desktopSettingsHeadset=null;desktopSettingsOwner=null;
+            GetPanel("settings")?.ApplyAuthoredPose(CockpitFrame,View,EditMode);
+        }
+        private void DesktopSettingsCameraUnavailable(Camera camera)
+        {if(desktopSettingsRequested&&desktopSettingsCamera==camera)CloseSettingsMenu();}
+        private void ApplyDesktopSettingsInspection()
+        {
+            if(!IsDesktopSettingsInspectionCamera(desktopSettingsCamera))return;
+            Rect pixels=desktopSettingsCamera.pixelRect;float k=pixels.height/1080f;
+            var safe=UnityEngine.Rect.MinMaxRect(pixels.xMin+24*k,pixels.yMin+(FaaPilotChrome.BarBottom+FaaPilotChrome.BarHeight+16)*k,
+                pixels.xMax-24*k,pixels.yMax-24*k);
+            var size=new Vector2(Mathf.Min(900*k,safe.width),Mathf.Min(760*k,safe.height));
+            GetPanel("settings")?.ApplyDesktopSettingsInspection(desktopSettingsCamera,new Rect(safe.center-size*.5f,size));
+        }
+        public bool HandleSettingsEscape()
+        {
+            var chrome=FaaPilotChrome.Current;
+            if(!MenuOpen||FaaPilotChrome.EscapeConsumedThisFrame||(chrome!=null&&chrome.HasEscapePriorityPopup))return false;
+            FaaPilotChrome.MarkEscapeConsumed();CloseSettingsMenu();
+            if(EditMode)SetEditMode(false);
+            return true;
         }
         private void BuildControls()
         {
@@ -358,7 +420,8 @@ namespace FAA.Customization
             chrome.SetButtonState(ChromeForward,!xr,!xr&&active==null);
             chrome.SetButtonState(ChromeTraffic,!xr&&GetPanel("traffic")!=null,active=="traffic",TrafficCaption[ts],TrafficShort[ts]);
             chrome.SetButtonState(ChromeRecenter,xr,false);
-            chrome.SetButtonState(ChromeSettings,true,MenuOpen&&(xr||active=="settings"),xr&&MenuOpen?SettingsXrCaption[ss]:SettingsCaption[ss],SettingsShort[ss]);
+            chrome.SetButtonState(ChromeSettings,true,MenuOpen&&(xr||active=="settings"||DesktopSettingsInspectionActive),
+                xr&&MenuOpen&&!DesktopSettingsInspectionActive?SettingsXrCaption[ss]:SettingsCaption[ss],SettingsShort[ss]);
         }
         private void DestroyChromeDock()
         {

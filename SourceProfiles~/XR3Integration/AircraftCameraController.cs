@@ -199,6 +199,7 @@ namespace AircraftControl.Camera
         private Quaternion _aircraftReferenceRotation = Quaternion.identity;
         private readonly AircraftNativeXrOrigin _nativeXrOrigin = new AircraftNativeXrOrigin();
         private bool _nearRenderSpaceRequested;
+        private bool _quitting;
         private Vector3 _appliedRenderWorldOffset;
         public bool NearRenderSpaceActive => isActiveAndEnabled && _nearRenderSpaceRequested && NativeXrTrackingOrigin != null && aircraftTransform != null;
         public Vector3 NativeRenderWorldOffset => NearRenderSpaceActive ? _appliedRenderWorldOffset : Vector3.zero;
@@ -207,6 +208,7 @@ namespace AircraftControl.Camera
         /// <summary>Requested only by the native passthrough owner. Does not change a tracked local pose or its projection.</summary>
         public void SetNearRenderSpaceRequested(bool requested)
         {
+            if (_quitting) return;
             if (_nearRenderSpaceRequested == requested) return;
             _nearRenderSpaceRequested = requested;
             if (NativeXrTrackingOrigin != null && aircraftTransform != null)
@@ -276,6 +278,7 @@ namespace AircraftControl.Camera
 
         private void OnEnable()
         {
+            if (_quitting) return;
             Application.onBeforeRender += RefreshNativeXrOrigin;
             AircraftViewRenderSpace.Bind(GetComponent<UnityEngine.Camera>(), this);
         }
@@ -355,10 +358,33 @@ namespace AircraftControl.Camera
         private void OnDisable()
         {
             Application.onBeforeRender -= RefreshNativeXrOrigin;
+            if (_quitting)
+            {
+                _nativeXrOrigin.Abandon();
+                return;
+            }
+            // A parent-origin disable is not a request to leave XR. Retain the exact local
+            // tracked pose and origin until re-enable; reparenting here changes an activating
+            // hierarchy and can bring the camera back under an active original parent.
+            if (!gameObject.activeInHierarchy) return;
             SetNearRenderSpaceRequested(false);
             AircraftViewRenderSpace.Bind(GetComponent<UnityEngine.Camera>(), null);
             _nativeXrOrigin.Release();
             RestoreFieldOfViewImmediate();
+        }
+
+        private void OnApplicationQuit()
+        {
+            _quitting = true;
+            _nearRenderSpaceRequested = false;
+            _appliedRenderWorldOffset = Vector3.zero;
+            _nativeXrOrigin.Abandon();
+        }
+
+        private void OnDestroy()
+        {
+            Application.onBeforeRender -= RefreshNativeXrOrigin;
+            _nativeXrOrigin.Abandon();
         }
 
         [BeforeRenderOrder(200)]
