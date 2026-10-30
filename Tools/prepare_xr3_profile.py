@@ -264,6 +264,8 @@ def extract_cesium(archive, staging, dependency, files):
     seen, total = set(), 0
     with tarfile.open(archive, 'r|gz') as stream:
         for member in stream:
+            if member.name in ('package', 'package/') and member.isdir():
+                continue
             if not member.name.startswith('package/'):
                 raise ProfileError('Unexpected archive root')
             relative = member.name[len('package/'):].rstrip('/')

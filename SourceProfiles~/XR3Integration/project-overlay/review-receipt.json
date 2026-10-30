@@ -11,6 +11,7 @@
     "newHelperDocsManifestWhitespaceClean": true,
     "officialArchiveDownloadedDuringPreparation": false,
     "publicGitIndexOrHistoryModified": false,
+    "realPreparationAttempted": true,
     "realProfileMaterialized": false,
     "sourceCheckoutProjectRootsWritten": false,
     "standardCommittedTreesUnchanged": true,
@@ -48,8 +49,8 @@
     "SourceProfiles~/XR3Integration/project-overlay/.gitattributes": "6018153003bca5f2c4e74807beeb72c0cb45614eb86cbeafdb210926dc01ef24",
     "SourceProfiles~/XR3Integration/project-overlay/README.md": "f6acbf3a6d2a2ea369dea27ec66557253f30013531f01f1612aabb2ca724f652",
     "SourceProfiles~/XR3Integration/project-overlay/profile-manifest.json": "8709c44678916bf4e757a5f92d449c551ad201231556809ba160077a7d2d9f95",
-    "Tools/prepare_xr3_profile.py": "d89155dafa1b275f255e0f7f44aabb8fa0fe7b85ee4283c33dbd7db5ed10412e",
-    "Tools/tests/test_prepare_xr3_profile.py": "2d7ec061c6261c10a43b6a15f5fa0afe9956009a810f0f9a2049a3a5a5ce0028",
+    "Tools/prepare_xr3_profile.py": "08d6e775a09e580b57e25511cf9b5d85924c5eb74be37aad14621eeee6b64f14",
+    "Tools/tests/test_prepare_xr3_profile.py": "43e6b5f738fcfa02a778fa1cf8c378dd56cf8d5e2ff7f929b78e611fc71d1389",
     "docs/XR3_REPRODUCIBLE_PROFILE.md": "fc823c87b1b17bccb5c662301bcfee993a0d15bf5d92ddec8aca0a9774299286"
   },
   "flattenedRuntimeSourcesPreserved": 46,
@@ -60,6 +61,15 @@
     "preservedForExactSourceAndGuidBytes": true
   },
   "manifestSha256": "8709c44678916bf4e757a5f92d449c551ad201231556809ba160077a7d2d9f95",
+  "materializerParserFix": {
+    "fix": "Allow only exact package/package-slash directory root before requiring package/ prefix; keep all other checks",
+    "initialCommittedRevision": "70b590777b8405f5f5b6572bab470b4f9118ee27",
+    "initialOutputPublished": false,
+    "initialRealRunExitCode": 1,
+    "payloadAndManifestUnchanged": true,
+    "realPreparationRerunAfterFix": false,
+    "reason": "Pinned official archive begins with the legitimate directory entry package, without a trailing slash"
+  },
   "pendingApprovedLifecyclePayloadUpdate": true,
   "preservedFlattenedSnapshotFiles": [
     "SourceProfiles~/XR3Integration/AircraftViewRenderSpace.cs",
@@ -956,14 +966,16 @@
     "nativeCrashResolved": false,
     "unity": "6000.3.27f1"
   },
-  "status": "source bundle prepared; awaiting root review, approved lifecycle update, local commit and real materialized Unity validation",
+  "status": "minimal real-archive root-directory parser fix prepared; awaiting local commit and committed materializer rerun; lifecycle and Unity validation remain pending",
   "tests": {
+    "actualArchiveShapeRootDirectoryChecked": true,
     "command": "PYTHONDONTWRITEBYTECODE=1 python3 -W error::ResourceWarning -m unittest discover -s Tools/tests -p test_prepare_xr3_profile.py -v",
     "depthOneCloneChecked": true,
     "fullProfilePayloadHashesChecked": 769,
     "nativeExclusiveRenameCollisionChecked": true,
-    "passed": 21,
+    "passed": 23,
     "resourceWarningsAsErrors": true,
+    "rootRegularFileAndLinksRefused": true,
     "usesOnlyTemporarySyntheticGitFixtures": true
   }
 }

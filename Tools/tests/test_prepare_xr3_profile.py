@@ -114,6 +114,9 @@ class Fixture:
 
     def make_archive(self, extra=None):
         with tarfile.open(self.archive,'w:gz') as tar:
+            root = tarfile.TarInfo('package')
+            root.type = tarfile.DIRTYPE
+            tar.addfile(root)
             for name,data in self.cesium.items():
                 member = tarfile.TarInfo('package/'+name)
                 member.size = len(data)
@@ -257,6 +260,30 @@ class MaterializerTests(unittest.TestCase):
                 with self.assertRaises(p.ProfileError):self.run_prepare(manifest)
                 self.assert_no_output_or_staging()
                 self.assertFalse((f.root/'escape').exists())
+
+    def test_real_shaped_archive_root_directory_is_accepted(self):
+        f = self.fixture
+        with tarfile.open(f.archive,'r:gz') as archive:
+            first = archive.next()
+            self.assertEqual(first.name,'package')
+            self.assertTrue(first.isdir())
+        self.run_prepare()
+        self.assertTrue((f.root/'output/Packages/com.cesium.unity/package.json').is_file())
+
+    def test_package_root_regular_file_or_link_is_not_treated_as_directory(self):
+        f = self.fixture
+        for kind in ('regular','symlink','hardlink'):
+            with self.subTest(kind=kind):
+                member = tarfile.TarInfo('package')
+                if kind!='regular':
+                    member.type = tarfile.SYMTYPE if kind=='symlink' else tarfile.LNKTYPE
+                    member.linkname = 'package/package.json'
+                f.make_archive(member)
+                manifest = copy.deepcopy(f.manifest)
+                manifest['dependencies']['cesium'].update(spec(f.archive.read_bytes()))
+                with self.assertRaisesRegex(p.ProfileError,'Unexpected archive root'):
+                    self.run_prepare(manifest)
+                self.assert_no_output_or_staging()
 
     def test_committed_overlay_tamper_or_incomplete_expected_inventory_refuses(self):
         f = self.fixture
