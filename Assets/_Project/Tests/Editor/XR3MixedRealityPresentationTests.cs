@@ -23,6 +23,8 @@ namespace FAA.Customization.Tests
                 Camera camera = cameraHost.GetComponent<Camera>();
                 Canvas panel = panelHost.GetComponent<Canvas>(); panel.renderMode = RenderMode.ScreenSpaceOverlay;
                 Component presenter = presenterHost.AddComponent(Presenter);
+                // This private presentation phase runs only after native passthrough was accepted.
+                Presenter.GetProperty("PassthroughActive").SetValue(presenter, true);
                 Presenter.GetField("view", BindingFlags.NonPublic | BindingFlags.Instance).SetValue(presenter, camera);
                 Presenter.GetMethod("DiscoverPresentation", BindingFlags.NonPublic | BindingFlags.Instance).Invoke(presenter, null);
                 Presenter.GetMethod("ApplyPresentation", BindingFlags.NonPublic | BindingFlags.Instance).Invoke(presenter, null);
@@ -162,6 +164,8 @@ namespace FAA.Customization.Tests
                 panel.transform.position = new Vector3(3, 2, 1);
                 Vector3 panelPosition = panel.transform.position;
                 Component presenter = presenterHost.AddComponent(Presenter);
+                // This private presentation phase runs only after native passthrough was accepted.
+                Presenter.GetProperty("PassthroughActive").SetValue(presenter, true);
                 Presenter.GetField("view", BindingFlags.NonPublic | BindingFlags.Instance).SetValue(presenter, camera);
                 Presenter.GetMethod("DiscoverPresentation", BindingFlags.NonPublic | BindingFlags.Instance).Invoke(presenter, null);
                 Presenter.GetMethod("ApplyPresentation", BindingFlags.NonPublic | BindingFlags.Instance).Invoke(presenter, null);

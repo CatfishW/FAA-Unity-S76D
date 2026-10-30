@@ -1,0 +1,462 @@
+{
+    "engine": "6000.3.27f1",
+    "graphics": "Apple M5 Pro",
+    "method": "Cached delegates (no reflection inside timing), alternating arm order per frame, actual near-MR camera/owner,24moving-aircraft poses,24registeredcanvasroots, hot references under registry entries23/24 including nestedowner, and24dynamic nested UI transforms, project+density+inverse+canvas-matrix bundle;3warmup frames.",
+    "qualification": "Mac Unity Editor geometry-call cost only; no minimum speedup imposed, no Windows/headset FPS or crash-resolution claim.",
+    "frames": 24,
+    "dynamicRects": 24,
+    "repetitionsPerFrame": 4,
+    "aircraftPoseUpdates": 24,
+    "uiPoseUpdates": 720,
+    "diagnosticsEnabledDuringTiming": false,
+    "proofNearViewHits": 81,
+    "proofNearLocalHits": 27,
+    "baseline": {
+        "name": "archived-manual",
+        "medianMicrosecondsPerBundle": 7.944791666666667,
+        "p95MicrosecondsPerBundle": 8.516666666666668,
+        "timedHelperCalls": 9216,
+        "samples": [
+            {
+                "frame": 0,
+                "bundles": 96,
+                "helperCalls": 384,
+                "failures": 0,
+                "microseconds": 892.3,
+                "microsecondsPerBundle": 9.294791666666667,
+                "checksum": 116.80583953857422
+            },
+            {
+                "frame": 1,
+                "bundles": 96,
+                "helperCalls": 384,
+                "failures": 0,
+                "microseconds": 747.9,
+                "microsecondsPerBundle": 7.7906249999999999,
+                "checksum": 116.80628967285156
+            },
+            {
+                "frame": 2,
+                "bundles": 96,
+                "helperCalls": 384,
+                "failures": 0,
+                "microseconds": 756.3,
+                "microsecondsPerBundle": 7.878125,
+                "checksum": 116.78107452392578
+            },
+            {
+                "frame": 3,
+                "bundles": 96,
+                "helperCalls": 384,
+                "failures": 0,
+                "microseconds": 802.6,
+                "microsecondsPerBundle": 8.360416666666668,
+                "checksum": 116.7535400390625
+            },
+            {
+                "frame": 4,
+                "bundles": 96,
+                "helperCalls": 384,
+                "failures": 0,
+                "microseconds": 767.4,
+                "microsecondsPerBundle": 7.9937499999999999,
+                "checksum": 116.7799301147461
+            },
+            {
+                "frame": 5,
+                "bundles": 96,
+                "helperCalls": 384,
+                "failures": 0,
+                "microseconds": 741.6,
+                "microsecondsPerBundle": 7.7250000000000009,
+                "checksum": 116.75019836425781
+            },
+            {
+                "frame": 6,
+                "bundles": 96,
+                "helperCalls": 384,
+                "failures": 0,
+                "microseconds": 749.9,
+                "microsecondsPerBundle": 7.811458333333333,
+                "checksum": 116.72266387939453
+            },
+            {
+                "frame": 7,
+                "bundles": 96,
+                "helperCalls": 384,
+                "failures": 0,
+                "microseconds": 761.6,
+                "microsecondsPerBundle": 7.933333333333334,
+                "checksum": 116.72695922851563
+            },
+            {
+                "frame": 8,
+                "bundles": 96,
+                "helperCalls": 384,
+                "failures": 0,
+                "microseconds": 783.2,
+                "microsecondsPerBundle": 8.158333333333334,
+                "checksum": 116.71762084960938
+            },
+            {
+                "frame": 9,
+                "bundles": 96,
+                "helperCalls": 384,
+                "failures": 0,
+                "microseconds": 772.5,
+                "microsecondsPerBundle": 8.046875,
+                "checksum": 116.7116928100586
+            },
+            {
+                "frame": 10,
+                "bundles": 96,
+                "helperCalls": 384,
+                "failures": 0,
+                "microseconds": 755.8,
+                "microsecondsPerBundle": 7.872916666666666,
+                "checksum": 116.69450378417969
+            },
+            {
+                "frame": 11,
+                "bundles": 96,
+                "helperCalls": 384,
+                "failures": 0,
+                "microseconds": 748.8,
+                "microsecondsPerBundle": 7.8,
+                "checksum": 116.7037582397461
+            },
+            {
+                "frame": 12,
+                "bundles": 96,
+                "helperCalls": 384,
+                "failures": 0,
+                "microseconds": 817.6,
+                "microsecondsPerBundle": 8.516666666666668,
+                "checksum": 116.68888092041016
+            },
+            {
+                "frame": 13,
+                "bundles": 96,
+                "helperCalls": 384,
+                "failures": 0,
+                "microseconds": 745.1,
+                "microsecondsPerBundle": 7.761458333333334,
+                "checksum": 116.67212677001953
+            },
+            {
+                "frame": 14,
+                "bundles": 96,
+                "helperCalls": 384,
+                "failures": 0,
+                "microseconds": 773.7,
+                "microsecondsPerBundle": 8.059375000000001,
+                "checksum": 116.6710433959961
+            },
+            {
+                "frame": 15,
+                "bundles": 96,
+                "helperCalls": 384,
+                "failures": 0,
+                "microseconds": 763.8,
+                "microsecondsPerBundle": 7.95625,
+                "checksum": 116.68401336669922
+            },
+            {
+                "frame": 16,
+                "bundles": 96,
+                "helperCalls": 384,
+                "failures": 0,
+                "microseconds": 761.4,
+                "microsecondsPerBundle": 7.9312499999999999,
+                "checksum": 116.69469451904297
+            },
+            {
+                "frame": 17,
+                "bundles": 96,
+                "helperCalls": 384,
+                "failures": 0,
+                "microseconds": 746.4,
+                "microsecondsPerBundle": 7.7749999999999999,
+                "checksum": 116.68663024902344
+            },
+            {
+                "frame": 18,
+                "bundles": 96,
+                "helperCalls": 384,
+                "failures": 0,
+                "microseconds": 778.0,
+                "microsecondsPerBundle": 8.104166666666666,
+                "checksum": 116.69415283203125
+            },
+            {
+                "frame": 19,
+                "bundles": 96,
+                "helperCalls": 384,
+                "failures": 0,
+                "microseconds": 775.8,
+                "microsecondsPerBundle": 8.081249999999999,
+                "checksum": 116.6884536743164
+            },
+            {
+                "frame": 20,
+                "bundles": 96,
+                "helperCalls": 384,
+                "failures": 0,
+                "microseconds": 762.7,
+                "microsecondsPerBundle": 7.944791666666667,
+                "checksum": 116.7078857421875
+            },
+            {
+                "frame": 21,
+                "bundles": 96,
+                "helperCalls": 384,
+                "failures": 0,
+                "microseconds": 758.1,
+                "microsecondsPerBundle": 7.8968750000000009,
+                "checksum": 116.7185287475586
+            },
+            {
+                "frame": 22,
+                "bundles": 96,
+                "helperCalls": 384,
+                "failures": 0,
+                "microseconds": 799.9,
+                "microsecondsPerBundle": 8.332291666666667,
+                "checksum": 116.72468566894531
+            },
+            {
+                "frame": 23,
+                "bundles": 96,
+                "helperCalls": 384,
+                "failures": 0,
+                "microseconds": 741.5,
+                "microsecondsPerBundle": 7.723958333333333,
+                "checksum": 116.7112808227539
+            }
+        ]
+    },
+    "fast": {
+        "name": "owned-near-native",
+        "medianMicrosecondsPerBundle": 7.882291666666667,
+        "p95MicrosecondsPerBundle": 8.226041666666668,
+        "timedHelperCalls": 9216,
+        "samples": [
+            {
+                "frame": 0,
+                "bundles": 96,
+                "helperCalls": 384,
+                "failures": 0,
+                "microseconds": 815.8,
+                "microsecondsPerBundle": 8.497916666666667,
+                "checksum": 116.79739379882813
+            },
+            {
+                "frame": 1,
+                "bundles": 96,
+                "helperCalls": 384,
+                "failures": 0,
+                "microseconds": 789.7,
+                "microsecondsPerBundle": 8.226041666666668,
+                "checksum": 116.80329132080078
+            },
+            {
+                "frame": 2,
+                "bundles": 96,
+                "helperCalls": 384,
+                "failures": 0,
+                "microseconds": 756.8,
+                "microsecondsPerBundle": 7.883333333333333,
+                "checksum": 116.75664520263672
+            },
+            {
+                "frame": 3,
+                "bundles": 96,
+                "helperCalls": 384,
+                "failures": 0,
+                "microseconds": 734.0,
+                "microsecondsPerBundle": 7.645833333333333,
+                "checksum": 116.75920867919922
+            },
+            {
+                "frame": 4,
+                "bundles": 96,
+                "helperCalls": 384,
+                "failures": 0,
+                "microseconds": 726.6,
+                "microsecondsPerBundle": 7.5687500000000009,
+                "checksum": 116.77495574951172
+            },
+            {
+                "frame": 5,
+                "bundles": 96,
+                "helperCalls": 384,
+                "failures": 0,
+                "microseconds": 729.5,
+                "microsecondsPerBundle": 7.598958333333333,
+                "checksum": 116.7380599975586
+            },
+            {
+                "frame": 6,
+                "bundles": 96,
+                "helperCalls": 384,
+                "failures": 0,
+                "microseconds": 740.2,
+                "microsecondsPerBundle": 7.710416666666667,
+                "checksum": 116.74020385742188
+            },
+            {
+                "frame": 7,
+                "bundles": 96,
+                "helperCalls": 384,
+                "failures": 0,
+                "microseconds": 748.3,
+                "microsecondsPerBundle": 7.794791666666666,
+                "checksum": 116.72278594970703
+            },
+            {
+                "frame": 8,
+                "bundles": 96,
+                "helperCalls": 384,
+                "failures": 0,
+                "microseconds": 742.5,
+                "microsecondsPerBundle": 7.734375,
+                "checksum": 116.7176513671875
+            },
+            {
+                "frame": 9,
+                "bundles": 96,
+                "helperCalls": 384,
+                "failures": 0,
+                "microseconds": 756.7,
+                "microsecondsPerBundle": 7.882291666666667,
+                "checksum": 116.7171630859375
+            },
+            {
+                "frame": 10,
+                "bundles": 96,
+                "helperCalls": 384,
+                "failures": 0,
+                "microseconds": 777.7,
+                "microsecondsPerBundle": 8.101041666666668,
+                "checksum": 116.69425964355469
+            },
+            {
+                "frame": 11,
+                "bundles": 96,
+                "helperCalls": 384,
+                "failures": 0,
+                "microseconds": 768.5,
+                "microsecondsPerBundle": 8.005208333333334,
+                "checksum": 116.70050811767578
+            },
+            {
+                "frame": 12,
+                "bundles": 96,
+                "helperCalls": 384,
+                "failures": 0,
+                "microseconds": 786.5,
+                "microsecondsPerBundle": 8.192708333333334,
+                "checksum": 116.695556640625
+            },
+            {
+                "frame": 13,
+                "bundles": 96,
+                "helperCalls": 384,
+                "failures": 0,
+                "microseconds": 768.3,
+                "microsecondsPerBundle": 8.003124999999999,
+                "checksum": 116.7015380859375
+            },
+            {
+                "frame": 14,
+                "bundles": 96,
+                "helperCalls": 384,
+                "failures": 0,
+                "microseconds": 756.1,
+                "microsecondsPerBundle": 7.876041666666667,
+                "checksum": 116.68125915527344
+            },
+            {
+                "frame": 15,
+                "bundles": 96,
+                "helperCalls": 384,
+                "failures": 0,
+                "microseconds": 732.2,
+                "microsecondsPerBundle": 7.627083333333334,
+                "checksum": 116.70205688476563
+            },
+            {
+                "frame": 16,
+                "bundles": 96,
+                "helperCalls": 384,
+                "failures": 0,
+                "microseconds": 729.9,
+                "microsecondsPerBundle": 7.6031249999999999,
+                "checksum": 116.66271209716797
+            },
+            {
+                "frame": 17,
+                "bundles": 96,
+                "helperCalls": 384,
+                "failures": 0,
+                "microseconds": 759.2,
+                "microsecondsPerBundle": 7.908333333333334,
+                "checksum": 116.6806640625
+            },
+            {
+                "frame": 18,
+                "bundles": 96,
+                "helperCalls": 384,
+                "failures": 0,
+                "microseconds": 745.6,
+                "microsecondsPerBundle": 7.766666666666667,
+                "checksum": 116.69363403320313
+            },
+            {
+                "frame": 19,
+                "bundles": 96,
+                "helperCalls": 384,
+                "failures": 0,
+                "microseconds": 779.1,
+                "microsecondsPerBundle": 8.115625,
+                "checksum": 116.70459747314453
+            },
+            {
+                "frame": 20,
+                "bundles": 96,
+                "helperCalls": 384,
+                "failures": 0,
+                "microseconds": 757.9,
+                "microsecondsPerBundle": 7.894791666666666,
+                "checksum": 116.70585632324219
+            },
+            {
+                "frame": 21,
+                "bundles": 96,
+                "helperCalls": 384,
+                "failures": 0,
+                "microseconds": 744.8,
+                "microsecondsPerBundle": 7.758333333333333,
+                "checksum": 116.7100601196289
+            },
+            {
+                "frame": 22,
+                "bundles": 96,
+                "helperCalls": 384,
+                "failures": 0,
+                "microseconds": 749.6,
+                "microsecondsPerBundle": 7.808333333333334,
+                "checksum": 116.7259521484375
+            },
+            {
+                "frame": 23,
+                "bundles": 96,
+                "helperCalls": 384,
+                "failures": 0,
+                "microseconds": 771.4,
+                "microsecondsPerBundle": 8.035416666666667,
+                "checksum": 116.72283935546875
+            }
+        ]
+    }
+}

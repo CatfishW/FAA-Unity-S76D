@@ -7,6 +7,7 @@ import math
 import os
 from pathlib import Path
 import signal
+import sys
 import tempfile
 import time
 from urllib.error import HTTPError
@@ -16,6 +17,10 @@ from urllib.request import Request, urlopen
 B = 'http://127.0.0.1:8086/api/v3'
 AIRCRAFT = 'Aircraft/Laminar Research/Sikorsky S-76/S-76C.acf'
 P = 'sim/flightmodel/position/'
+# Stock S-76: main collective is handle0; handle1 is the independent tail control.
+# prop_ratio_all combines handles and must never drive collective feedback/writes.
+PROP_HANDLES = 'sim/cockpit2/engine/actuators/prop_ratio'
+MAIN_COLLECTIVE_INDEX = 0
 ROUTE = ((47.60, -122.50), (47.75, -122.60), (47.90, -122.50), (47.75, -122.40))
 ROUTE_CENTER = (47.75, -122.50)
 ROUTE_LIMIT_METERS = 35000
@@ -71,6 +76,32 @@ class NativeApi:
 
     def write(self, name, value):
         self.request('/datarefs/' + str(self.identifier(name)) + '/value', {'data': value})
+
+    def read_index(self, name, index, timeout=None):
+        if type(index) is not int or index < 0:
+            raise DemoError('Invalid native array index')
+        def read_value():
+            path = '/datarefs/' + str(self.identifier(name, timeout)) + '/value?' + urlencode({'index': index})
+            return self.request(path, timeout=timeout)['data']
+        try:
+            data = read_value()
+        except HTTPError as error:
+            if error.code != 404:
+                raise
+            self.ids.pop(name, None)
+            data = read_value()
+        # X-Plane REST returns a one-element ARRAY even for one indexed member.
+        if not isinstance(data, list) or len(data) != 1 or type(data[0]) not in (int, float):
+            raise DemoError('Indexed native read must return one numeric element')
+        return number(data[0], 'indexed ' + name)
+
+    def write_index(self, name, index, value):
+        if type(index) is not int or index < 0 or type(value) not in (int, float):
+            raise DemoError('Invalid indexed native write')
+        value = number(value, 'indexed native write')
+        path = '/datarefs/' + str(self.identifier(name)) + '/value?' + urlencode({'index': index})
+        # Never read/replace the whole array, or retry an uncertain mutation.
+        self.request(path, {'data': value}, 'PATCH')
 
     def command(self, name, duration=.1, timeout=None):
         rows = self.request('/commands?' + urlencode({'filter[name]': name}), timeout=timeout)['data']
@@ -238,7 +269,9 @@ def safety_reasons(values):
     if values['sim/time/total_flight_time_sec'] < 0:
         raise DemoError('Negative native simulation clock')
     if not 0 <= values['sim/cockpit2/engine/actuators/prop_ratio_all'] <= 1:
-        raise DemoError('Native collective outside valid range')
+        raise DemoError('Native aggregate prop ratio outside valid range')
+    if 'mainCollective' in values and not 0 <= number(values['mainCollective'], 'MAIN collective') <= 1:
+        raise DemoError('Native MAIN collective outside valid range')
     for name in ('sim/time/paused', 'sim/cockpit2/autopilot/servos_on'):
         if values[name] not in (0, 1):
             raise DemoError('Invalid native state flag: ' + name)
@@ -278,6 +311,29 @@ def select_ias_target(api):
     # Restore the desired target afterward, never from paused/stale sensors.
     api.write('sim/cockpit2/autopilot/airspeed_is_mach', 0)
     api.write('sim/cockpit2/autopilot/airspeed_dial_kts_mach', 100.)
+
+
+def select_native_ias_holds(api, heading):
+    """Opt-in native HDG/IAS ownership; optional controller dependency is lazy."""
+    import conservative_control as conservative
+    api.command('sim/autopilot/autothrottle_hard_off')
+    modes = int(number(api.read('sim/cockpit/autopilot/autopilot_state'), 'native modes'))
+    if not modes & 2:
+        api.command('sim/autopilot/heading')
+    api.write('sim/cockpit2/autopilot/heading_dial_deg_mag_pilot', heading)
+    if not modes & 8:
+        select_ias_target(api)
+    else:
+        api.write('sim/cockpit2/autopilot/airspeed_is_mach', 0)
+        api.write('sim/cockpit2/autopilot/airspeed_dial_kts_mach', 100.)
+    if api.read('sim/cockpit2/autopilot/altitude_hold_armed'):
+        api.command('sim/autopilot/altitude_arm')
+    check = {n: api.read(n) for n in (
+        'sim/cockpit/autopilot/autopilot_state', 'sim/cockpit2/autopilot/servos_on',
+        'sim/cockpit2/autopilot/speed_status', 'sim/cockpit2/autopilot/altitude_hold_status',
+        'sim/cockpit2/autopilot/altitude_hold_armed', 'sim/cockpit2/autopilot/autothrottle_enabled',
+        'sim/cockpit2/autopilot/autothrottle_on', 'sim/cockpit2/autopilot/autothrottle_arm')}
+    conservative.native_modes(check)
 
 
 def select_fresh_holds(api, heading, altitude, collective_assist=False):
@@ -320,7 +376,7 @@ def wait_for_airborne_readiness(api, clock=time, timeout=12):
             return (number(api.read(P + 'mag_psi'), 'startup magnetic heading') % 360,
                     number(api.read('sim/cockpit2/gauges/indicators/altitude_ft_pilot'), 'startup altitude'))
         previous = native_clock
-        api.write('sim/cockpit2/engine/actuators/prop_ratio_all', .5)
+        api.write_index(PROP_HANDLES, MAIN_COLLECTIVE_INDEX, .5)
         clock.sleep(.2)
     raise DemoError('Timed out waiting for fresh airborne IAS, engines, and advancing native clock')
 
@@ -384,7 +440,7 @@ def initialize_flight(api, route, clock=time, collective_assist=False):
     api.write('sim/cockpit2/engine/actuators/governor_on', [1, 1] + [0] * 14)
     api.write('sim/cockpit2/controls/gear_handle_down', 0)
     api.write('sim/cockpit2/controls/parking_brake_ratio', 0)
-    api.write('sim/cockpit2/engine/actuators/prop_ratio_all', .5)
+    api.write_index(PROP_HANDLES, MAIN_COLLECTIVE_INDEX, .5)
     api.write('sim/cockpit2/autopilot/autopilot_electric_master', 1)
     api.write('sim/cockpit2/switches/yaw_damper_on', 1)
     api.command('sim/autopilot/attitude')
@@ -393,7 +449,23 @@ def initialize_flight(api, route, clock=time, collective_assist=False):
     select_fresh_holds(api, heading, altitude, collective_assist)
 
 
+def _run_optional_controller(module_name, args, api, clock):
+    try:
+        module = __import__(module_name)
+    except ImportError as error:
+        print(json.dumps({'status': 'error', 'reason':
+            'Experimental controller modules are unavailable; deploy flight_demo.py, acquisition.py, '
+            'sustain.py, conservative_control.py and checkpoint_state.py together: ' + str(error),
+            'pauseRequested': False, 'pauseConfirmed': False}), flush=True)
+        return 1
+    return module.run(args, api, clock, sys.modules[__name__])
+
+
 def run_demo(args, api, clock=time):
+    if bool(getattr(args, 'sustain', False)):
+        return _run_optional_controller('sustain', args, api, clock)
+    if bool(getattr(args, 'ias_altitude_assist', False)):
+        return _run_optional_controller('acquisition', args, api, clock)
     path = args.state_dir / 'latest.json'
     sequence = sample_sequence = 0
     values, sample_started, sample_completed = {}, None, None
@@ -416,7 +488,10 @@ def run_demo(args, api, clock=time):
                 if args.collective_assist else 'native S-76 hold selection; no external collective assist'),
             'collectiveAssist': args.collective_assist, 'commandedCollective': commanded_collective,
             'targetSpeedKt': 100., 'targetAltitudeFt': altitude, 'targetHeadingMag': heading,
-            'collective': collective, 'values': values}
+            'collective': collective, 'collectiveDataref': PROP_HANDLES,
+            'collectiveIndex': MAIN_COLLECTIVE_INDEX,
+            'aggregatePropRatio': values.get('sim/cockpit2/engine/actuators/prop_ratio_all'),
+            'values': values}
         if pause:
             report.update(pause)
         def clean(item):
@@ -445,7 +520,7 @@ def run_demo(args, api, clock=time):
         if not args.start and api.read('sim/cockpit2/autopilot/servos_on'):
             heading = number(api.read('sim/cockpit2/autopilot/heading_dial_deg_mag_pilot'), 'heading dial') % 360
             altitude = number(api.read('sim/cockpit2/autopilot/altitude_dial_ft'), 'altitude dial')
-        collective = number(api.read('sim/cockpit2/engine/actuators/prop_ratio_all'), 'collective')
+        collective = number(api.read_index(PROP_HANDLES, MAIN_COLLECTIVE_INDEX), 'MAIN collective')
         if not 0 <= collective <= 1:
             raise DemoError('Collective outside native range')
         if args.collective_assist:
@@ -459,10 +534,11 @@ def run_demo(args, api, clock=time):
             sample_started = clock.time()
             values, sample_completed = {}, None
             values = {name: api.read(name) for name in NAMES}
+            values['mainCollective'] = api.read_index(PROP_HANDLES, MAIN_COLLECTIVE_INDEX)
             sample_completed = clock.time()
             sample_sequence += 1
             reasons = safety_reasons(values)
-            collective = number(values['sim/cockpit2/engine/actuators/prop_ratio_all'], 'native collective')
+            collective = number(values['mainCollective'], 'native MAIN collective')
             if args.collective_assist and values['sim/cockpit2/autopilot/autothrottle_enabled'] != 0:
                 reasons.append('autothrottle/collective-assist conflict; AT must remain off')
             if sample_completed - sample_started > args.max_sample_age:
@@ -513,7 +589,7 @@ def run_demo(args, api, clock=time):
                     last_heading_write = now
                 if args.collective_assist:
                     commanded_collective = assisted_collective(commanded_collective, values[P + 'indicated_airspeed'], control_dt)
-                    api.write('sim/cockpit2/engine/actuators/prop_ratio_all', commanded_collective)
+                    api.write_index(PROP_HANDLES, MAIN_COLLECTIVE_INDEX, commanded_collective)
             if now - last_report >= 1:
                 report = publish('paused' if values['sim/time/paused'] else 'running')
                 last_report = now
@@ -542,11 +618,36 @@ def main(argv=None):
     parser.add_argument('--start', action='store_true')
     parser.add_argument('--route', action='store_true', help='Follow bounded Puget Sound waypoints using native heading hold')
     parser.add_argument('--collective-assist', action='store_true', help='Rate-limited external collective assist for 100kt; requires native autothrottle off')
+    parser.add_argument('--ias-altitude-assist', action='store_true', help='Opt-in paused S76 acquisition using native HDG/IAS100 and bounded MAIN0 altitude/VS PD')
+    parser.add_argument('--sustain', action='store_true', help='Opt-in finite sustained MAIN0 PD from an explicitly reviewed stable checkpoint')
+    parser.add_argument('--recover-from-guard', action='store_true', help='Explicit SHA-pinned V7 vertical guard error recovery:15s phase,300s total; never automatically retry')
+    parser.add_argument('--resume-acquisition', type=Path, help='Explicit SHA-pinned checkpoint; never automatically select a recent file')
+    parser.add_argument('--resume-sha256', help='Required SHA256 of --resume-acquisition')
+    parser.add_argument('--resume-journal', type=Path, help='Paired full journal needed only to migrate an active V6 orbit')
+    parser.add_argument('--resume-journal-sha256', help='Required SHA256 of --resume-journal')
+    parser.add_argument('--orbit', action='store_true', help='Opt-in10km tangent orbit; sustained mode requires stable admission and unchanged geographic limits')
     parser.add_argument('--seconds', type=float, default=0)
     parser.add_argument('--api', default=B)
     parser.add_argument('--max-sample-age', type=float, default=3)
     parser.add_argument('--state-dir', type=Path, default=Path.home()/'.local/state/faa-s76-flight')
     args = parser.parse_args(argv)
+    experimental = args.ias_altitude_assist or args.sustain
+    if experimental and (args.start or args.route or args.collective_assist):
+        parser.error('Experimental controllers require paused adoption and exclude --start/--route/--collective-assist')
+    sustain_limit = 300 if args.recover_from_guard else 1800
+    if args.sustain and (not args.resume_acquisition or not args.resume_sha256 or args.seconds > sustain_limit):
+        parser.error('--sustain requires a reviewed checkpoint/hash and is limited to'+str(sustain_limit)+'s')
+    if args.recover_from_guard and not args.sustain:
+        parser.error('--recover-from-guard requires explicit --sustain and its SHA-pinned source')
+    if bool(args.resume_acquisition) != bool(args.resume_sha256) or args.resume_acquisition and not experimental:
+        parser.error('--resume-acquisition and --resume-sha256 require each other and an experimental controller')
+    if bool(args.resume_journal) != bool(args.resume_journal_sha256) or args.resume_journal and not args.sustain:
+        parser.error('--resume-journal and its SHA require each other and --sustain')
+    acquisition_limit = 60 if args.resume_acquisition else 30
+    if args.ias_altitude_assist and not args.sustain and (args.orbit or args.seconds > acquisition_limit):
+        parser.error('Acquisition is limited to30s, or60s for an explicit resume, and excludes --orbit')
+    if args.orbit and not args.sustain:
+        parser.error('--orbit requires --sustain')
     if not math.isfinite(args.seconds) or args.seconds < 0 or not math.isfinite(args.max_sample_age) or args.max_sample_age <= 0:
         parser.error('--seconds must be finite and nonnegative; --max-sample-age must be finite and positive')
     def terminate(signum, frame):

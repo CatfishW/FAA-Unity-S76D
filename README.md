@@ -1,11 +1,39 @@
 # FAA Unity S-76D Symbology Project
 
-The FAA Symbology Unity Project is a Unity 6.5 cockpit-display demonstrator for
+The FAA Symbology Unity Project is a Unity 6.3 LTS cockpit-display demonstrator for
 FAA-style flight symbology, real-time traffic and weather awareness, sectional
 chart context, and headset output. It is the integration workspace for the
 OPL/FAA display work: the same flight state can drive the desktop HUD, the
 traffic and weather radars, X-Plane-derived terrain with optional Cesium hooks,
 and either a Varjo XR-3 workflow or the SA-147 multi-display output path.
+
+## Current XR-3 / Classic source build
+
+Prepare the complete current XR-3/Classic integration in a new directory:
+
+```sh
+python3 Tools/prepare_xr3_profile.py \
+  --output ../FAA-XR3-Classic --download-cesium
+```
+
+Use a Git LFS-enabled clone of this repository, then open the generated
+`FAA-XR3-Classic` project with **Unity 6000.3.27f1** and Windows Build Support
+(Mono). Build through `FAA.Headset.Editor.XR3ReleaseBuild.BuildWindows64`, which
+selects the full `ExperimentScene`. The [complete profile guide](docs/XR3_REPRODUCIBLE_PROFILE.md)
+also supports an existing pinned Cesium archive and explains the committed-input
+checks. The checkout's standard imported scene graph remains a separate profile.
+
+The complete repaired profile at source commit `54fc2c03` was materialized and
+independently verified, passed **1,632 tests with zero failures**, and built a
+Windows x64 player with **zero build errors**. On `4090`, that player completed a
+normal 30-minute remote XR-3 run and exited cleanly. A complete recording of the
+planned core mouse/keyboard UI workflow and a frame audit confirmed steady
+Classic controls in the measured scope; the actual S-76 feed completed an independently audited 30-minute flight
+and separate six- and ten-minute continuations. Final log review found no reproduced
+exception or camera teardown warning; residual font/network warnings are listed
+in the validation note. See [the current validation and recording limits](docs/XR3_CLASSIC_REMOTE_VALIDATION.md).
+The original native corruption writer remains unresolved; this is a bounded
+remote result, with physical wearer checks still outstanding.
 
 > **Project status:** active integration/prototyping software. This repository is
 > not a certified flight instrument, navigation database, collision-avoidance
@@ -22,6 +50,7 @@ or MQTT interface.
 
 ## Contents
 
+- [Current XR-3 / Classic source build](#current-xr-3--classic-source-build)
 - [Capabilities](#capabilities)
 - [Current pilot-system update](#current-pilot-system-update)
 - [Gameplay screenshots](#gameplay-screenshots)
@@ -392,7 +421,7 @@ git lfs pull
 git lfs ls-files
 ~~~
 
-Open the repository root—not a parent folder—in Unity `6000.5.10f1`. Unity
+Open the repository root—not a parent folder—in Unity `6000.3.27f1`. Unity
 regenerates `Library`, `Temp`, `Logs`, `Obj`, and local user settings, so those
 directories are intentionally excluded from Git. Do not copy them from another
 workstation.
@@ -544,6 +573,9 @@ another lab-approved injection mechanism.
 
 ## Varjo XR-3 deployment
 
+The current project targets Unity **6000.3.27f1 LTS**. Native mixed-reality HUDs use a per-camera rendering origin to avoid flight-scale floating-point jitter while retaining geographic data and physics coordinates. See [XR-3 render-origin repair and validation](docs/XR3_RENDER_ORIGIN_STABILITY.md) for the coordinate contract, source profiles and current test limits.
+
+
 The Unity project pins the Varjo XR plugin to 3.7.3 and includes XR Management
 and XR Interaction Toolkit support. Use **FAA → Headset → Configure XR-3 +
 Simulator In FAA Scenes** to configure the Standalone Varjo loader and the FAA
@@ -643,7 +675,7 @@ X-Plane 12 / remote relay / mock source / web API
 
 | Requirement | Version or note |
 | --- | --- |
-| Unity Editor | **6000.5.10f1** (Unity 6.5 tech-stream editor; changeset 3bd4f66ad299). Use this version when reproducing scenes or tests. |
+| Unity Editor | **6000.3.27f1** (Unity 6.3 LTS editor; changeset 672d562a42a7). Use this version when reproducing scenes or tests. |
 | Git | Any recent Git with SSH or HTTPS access to the repository. |
 | Git LFS | Required for the large binary assets tracked by .gitattributes. Run git lfs pull after cloning. |
 | Desktop build module | Install the module for the target OS before building a player. The project is configured for standalone desktop development. |
@@ -685,7 +717,7 @@ Open the project with Unity Hub, or with the Unity CLI:
 
 ~~~bash
 unity --version
-unity open "$PWD" --editor-version 6000.5.10f1
+unity open "$PWD" --editor-version 6000.3.27f1
 ~~~
 
 If the CLI is not installed, open Unity Hub, choose **Add project**, and select
@@ -1564,13 +1596,13 @@ Run the editor tests with a reproducible report path:
 ~~~bash
 mkdir -p _artifacts/tests
 unity test "$PWD" \
-  --editor-version 6000.5.10f1 \
+  --editor-version 6000.3.27f1 \
   --mode EditMode \
   --report-format junit \
   --output _artifacts/tests/editmode.xml
 
 unity test "$PWD" \
-  --editor-version 6000.5.10f1 \
+  --editor-version 6000.3.27f1 \
   --mode PlayMode \
   --report-format junit \
   --output _artifacts/tests/playmode.xml
@@ -1589,7 +1621,7 @@ On macOS, a native Unity batch check can be run as follows (adjust the editor
 path for the installed platform):
 
 ~~~bash
-"/Applications/Unity/Hub/Editor/6000.5.10f1/Unity.app/Contents/MacOS/Unity" \
+"/Applications/Unity/Hub/Editor/6000.3.27f1/Unity.app/Contents/MacOS/Unity" \
   -batchmode \
   -quit \
   -nographics \
@@ -1612,7 +1644,7 @@ installed:
 ~~~bash
 mkdir -p Build
 unity build "$PWD" \
-  --editor-version 6000.5.10f1 \
+  --editor-version 6000.3.27f1 \
   --target StandaloneOSX \
   --output-path Build/FAA.app
 ~~~

@@ -1,0 +1,249 @@
+using UnityEngine;
+using System;
+
+namespace AviationUI
+{
+    /// <summary>
+    /// Centralized container for all flight data that feeds the UI components.
+    /// Single source of truth for all aviation instrument data.
+    /// </summary>
+    [Serializable]
+    public class AviationFlightData
+    {
+        [Header("Attitude")]
+        [Tooltip("Aircraft pitch in degrees (-90 to 90)")]
+        [Range(-90f, 90f)]
+        public float pitch;
+        
+        [Tooltip("Aircraft roll/bank in degrees (-180 to 180)")]
+        [Range(-180f, 180f)]
+        public float roll;
+        
+        [Tooltip("Aircraft heading in degrees (0 to 360)")]
+        [Range(0f, 360f)]
+        public float heading;
+
+        [Tooltip("True only when pitch, roll and true heading were present and finite in the current source sample.")]
+        public bool attitudeValid;
+        [Tooltip("True only when ground speed, vertical speed and (when moving) true ground track are available.")]
+        public bool groundVelocityValid;
+        [Tooltip("True only when a finite, non-negative height-above-ground sample is available.")]
+        public bool altitudeAGLValid;
+
+        [Header("Speed")]
+        [Tooltip("Indicated airspeed in knots")]
+        public float indicatedAirspeed;
+        
+        [Tooltip("Ground speed in knots")]
+        public float groundSpeed;
+        
+        [Tooltip("True airspeed in knots")]
+        public float trueAirspeed;
+
+        [Header("Altitude")]
+        [Tooltip("Altitude MSL in feet")]
+        public float altitudeMSL;
+        
+        [Tooltip("Altitude AGL (radar altitude) in feet")]
+        public float altitudeAGL;
+        
+        [Tooltip("Vertical speed in feet per minute")]
+        public float verticalSpeed;
+        
+        [Tooltip("Barometric setting in inches of mercury")]
+        public float barometricSetting = 29.92f;
+
+        [Header("Navigation")]
+        [Tooltip("Magnetic variation in degrees")]
+        public float magneticVariation;
+        
+        [Tooltip("Track over ground in degrees")]
+        public float track;
+        
+        [Tooltip("Course deviation in dots")]
+        public float courseDeviation;
+        
+        [Tooltip("Glideslope deviation in dots")]
+        public float glideslopeDeviation;
+
+        [Header("Engine 1")]
+        [Tooltip("Engine 1 torque percentage")]
+        [Range(0f, 150f)]
+        public float engine1Torque;
+
+        public bool engine1TorqueValid;
+        
+        [Tooltip("Engine 1 N2 RPM percentage")]
+        [Range(0f, 120f)]
+        public float engine1NR;
+
+        public bool engine1NRValid;
+        
+        [Tooltip("Engine 1 gas generator RPM percentage")]
+        [Range(0f, 120f)]
+        public float engine1NG;
+
+        public bool engine1NGValid;
+
+        [Header("Engine 2")]
+        [Tooltip("Engine 2 torque percentage")]
+        [Range(0f, 150f)]
+        public float engine2Torque;
+
+        public bool engine2TorqueValid;
+        
+        [Tooltip("Engine 2 N2 RPM percentage")]
+        [Range(0f, 120f)]
+        public float engine2NR;
+
+        public bool engine2NRValid;
+        
+        [Tooltip("Engine 2 gas generator RPM percentage")]
+        [Range(0f, 120f)]
+        public float engine2NG;
+
+        public bool engine2NGValid;
+
+        [Header("Common Rotor / Propeller")]
+        [Tooltip("Primary propeller or rotor speed as a percentage of the aircraft redline")]
+        [Range(0f, 120f)]
+        public float rotorNR;
+
+        public bool rotorNRValid;
+
+        [Tooltip("Number of engines reported by X-Plane")]
+        public int engineCount;
+
+        [Header("Wind")]
+        [Tooltip("Wind direction in degrees")]
+        [Range(0f, 360f)]
+        public float windDirection;
+        
+        [Tooltip("Wind speed in knots")]
+        public float windSpeed;
+
+        [Header("Flight Path")]
+        [Tooltip("Flight path angle in degrees")]
+        public float flightPathAngle;
+        
+        [Tooltip("Slip/Skid indicator value (-1 to 1)")]
+        [Range(-1f, 1f)]
+        public float slipSkid;
+
+        [Header("System Status")]
+        [Tooltip("GPS valid")]
+        public bool gpsValid = true;
+        
+        [Tooltip("ILS valid")]
+        public bool ilsValid = false;
+        
+        [Tooltip("Autopilot engaged")]
+        public bool autopilotEngaged = false;
+
+        /// <summary>
+        /// Create a copy of the flight data
+        /// </summary>
+        public AviationFlightData Clone()
+        {
+            return (AviationFlightData)MemberwiseClone();
+        }
+
+        /// <summary>
+        /// Lerp between two flight data states for smooth transitions
+        /// </summary>
+        public static AviationFlightData Lerp(AviationFlightData a, AviationFlightData b, float t)
+        {
+            return new AviationFlightData
+            {
+                pitch = Mathf.Lerp(a.pitch, b.pitch, t),
+                roll = Mathf.Lerp(a.roll, b.roll, t),
+                heading = Mathf.LerpAngle(a.heading, b.heading, t),
+                indicatedAirspeed = Mathf.Lerp(a.indicatedAirspeed, b.indicatedAirspeed, t),
+                groundSpeed = Mathf.Lerp(a.groundSpeed, b.groundSpeed, t),
+                trueAirspeed = Mathf.Lerp(a.trueAirspeed, b.trueAirspeed, t),
+                altitudeMSL = Mathf.Lerp(a.altitudeMSL, b.altitudeMSL, t),
+                altitudeAGL = Mathf.Lerp(a.altitudeAGL, b.altitudeAGL, t),
+                verticalSpeed = Mathf.Lerp(a.verticalSpeed, b.verticalSpeed, t),
+                barometricSetting = Mathf.Lerp(a.barometricSetting, b.barometricSetting, t),
+                magneticVariation = Mathf.Lerp(a.magneticVariation, b.magneticVariation, t),
+                // A missing track must not poison subsequent valid samples through NaN interpolation.
+                track = float.IsNaN(a.track) || float.IsInfinity(a.track) || float.IsNaN(b.track) || float.IsInfinity(b.track)
+                    ? b.track : Mathf.LerpAngle(a.track, b.track, t),
+                attitudeValid = b.attitudeValid,
+                groundVelocityValid = b.groundVelocityValid,
+                altitudeAGLValid = b.altitudeAGLValid,
+                courseDeviation = Mathf.Lerp(a.courseDeviation, b.courseDeviation, t),
+                glideslopeDeviation = Mathf.Lerp(a.glideslopeDeviation, b.glideslopeDeviation, t),
+                engine1Torque = Mathf.Lerp(a.engine1Torque, b.engine1Torque, t),
+                engine1NR = Mathf.Lerp(a.engine1NR, b.engine1NR, t),
+                engine1NG = Mathf.Lerp(a.engine1NG, b.engine1NG, t),
+                engine2Torque = Mathf.Lerp(a.engine2Torque, b.engine2Torque, t),
+                engine2NR = Mathf.Lerp(a.engine2NR, b.engine2NR, t),
+                engine2NG = Mathf.Lerp(a.engine2NG, b.engine2NG, t),
+                rotorNR = Mathf.Lerp(a.rotorNR, b.rotorNR, t),
+                engine1TorqueValid = t < 0.5f ? a.engine1TorqueValid : b.engine1TorqueValid,
+                engine2TorqueValid = t < 0.5f ? a.engine2TorqueValid : b.engine2TorqueValid,
+                engine1NRValid = t < 0.5f ? a.engine1NRValid : b.engine1NRValid,
+                engine2NRValid = t < 0.5f ? a.engine2NRValid : b.engine2NRValid,
+                engine1NGValid = t < 0.5f ? a.engine1NGValid : b.engine1NGValid,
+                engine2NGValid = t < 0.5f ? a.engine2NGValid : b.engine2NGValid,
+                rotorNRValid = t < 0.5f ? a.rotorNRValid : b.rotorNRValid,
+                engineCount = t < 0.5f ? a.engineCount : b.engineCount,
+                windDirection = Mathf.LerpAngle(a.windDirection, b.windDirection, t),
+                windSpeed = Mathf.Lerp(a.windSpeed, b.windSpeed, t),
+                flightPathAngle = Mathf.Lerp(a.flightPathAngle, b.flightPathAngle, t),
+                slipSkid = Mathf.Lerp(a.slipSkid, b.slipSkid, t),
+                gpsValid = t < 0.5f ? a.gpsValid : b.gpsValid,
+                ilsValid = t < 0.5f ? a.ilsValid : b.ilsValid,
+                autopilotEngaged = t < 0.5f ? a.autopilotEngaged : b.autopilotEngaged
+            };
+        }
+
+        /// <summary>
+        /// Reset all values to defaults
+        /// </summary>
+        public void Reset()
+        {
+            attitudeValid = false;
+            groundVelocityValid = false;
+            altitudeAGLValid = false;
+            pitch = 0f;
+            roll = 0f;
+            heading = 0f;
+            indicatedAirspeed = 0f;
+            groundSpeed = 0f;
+            trueAirspeed = 0f;
+            altitudeMSL = 0f;
+            altitudeAGL = 0f;
+            verticalSpeed = 0f;
+            barometricSetting = 29.92f;
+            magneticVariation = 0f;
+            track = 0f;
+            courseDeviation = 0f;
+            glideslopeDeviation = 0f;
+            engine1Torque = 0f;
+            engine1NR = 0f;
+            engine1NG = 0f;
+            engine2Torque = 0f;
+            engine2NR = 0f;
+            engine2NG = 0f;
+            rotorNR = 0f;
+            engineCount = 0;
+            engine1TorqueValid = false;
+            engine2TorqueValid = false;
+            engine1NRValid = false;
+            engine2NRValid = false;
+            engine1NGValid = false;
+            engine2NGValid = false;
+            rotorNRValid = false;
+            windDirection = 0f;
+            windSpeed = 0f;
+            flightPathAngle = 0f;
+            slipSkid = 0f;
+            gpsValid = true;
+            ilsValid = false;
+            autopilotEngaged = false;
+        }
+    }
+
+}

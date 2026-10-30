@@ -304,7 +304,7 @@ namespace FAA.Editor
         public static void LogLargeOpaqueUiGraphics()
         {
             int count = 0;
-            foreach (Graphic graphic in Object.FindObjectsByType<Graphic>(FindObjectsInactive.Include))
+            foreach (Graphic graphic in Object.FindObjectsByType<Graphic>(FindObjectsInactive.Include, UnityEngine.FindObjectsSortMode.None))
             {
                 if (graphic == null || graphic.color.a <= 0.01f)
                 {
@@ -1088,14 +1088,14 @@ namespace FAA.Editor
                 return new Component[0];
             }
 
-            return Object.FindObjectsByType(componentType, FindObjectsInactive.Include)
+            return Object.FindObjectsByType(componentType, FindObjectsInactive.Include, UnityEngine.FindObjectsSortMode.None)
                 .OfType<Component>()
                 .ToArray();
         }
 
         private static T[] FindSceneObjects<T>() where T : Component
         {
-            return Object.FindObjectsByType<T>(FindObjectsInactive.Include);
+            return Object.FindObjectsByType<T>(FindObjectsInactive.Include, UnityEngine.FindObjectsSortMode.None);
         }
 
         private static void Require(bool condition, string message, ref int issues, Object context)

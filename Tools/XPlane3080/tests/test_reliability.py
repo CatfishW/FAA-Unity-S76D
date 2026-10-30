@@ -39,6 +39,7 @@ def native_values():
         'sim/cockpit2/engine/indicators/N2_percent': [100., 100.],
         'sim/flightmodel2/engines/engine_is_burning_fuel': [1, 1],
         'sim/cockpit2/engine/actuators/prop_ratio_all': .5,
+        demo.PROP_HANDLES: [.5] * 16,
         'sim/flightmodel/weight/m_fuel_total': 300., 'sim/time/total_flight_time_sec': 100.})
     return values
 
@@ -73,6 +74,12 @@ class Api:
         self.values[name] = copy.deepcopy(value)
         if name in ('sim/cockpit2/autopilot/flight_director_mode', 'sim/cockpit2/autopilot/flight_director2_mode') and value == 0:
             self.values['sim/cockpit2/autopilot/servos_on'] = 0
+    def read_index(self, name, index, timeout=None):
+        self.actions.append(('read_index', name, index))
+        return self.read(name, timeout)[index]
+    def write_index(self, name, index, value):
+        self.actions.append(('write_index', name, index, value))
+        self.values[name][index] = value
     def command(self, name, duration=.1, timeout=None):
         self.actions.append(('command', name))
         if name == 'sim/operation/pause_on':
@@ -264,7 +271,7 @@ class ReliabilityTests(unittest.TestCase):
         self.assertEqual(status, 1)
         self.assertEqual(output['status'], 'error')
         self.assertIsNone(output['values'][demo.P + 'phi'])
-        self.assertFalse(any(a[0] == 'write' for a in api.actions))
+        self.assertFalse(any(a[0] in ('write', 'write_index') for a in api.actions))
         self.assertTrue(output['pauseConfirmed'])
 
     def test_sample_timeout_is_terminal_and_fresh(self):
@@ -324,7 +331,7 @@ class ReliabilityTests(unittest.TestCase):
         status, output = self.run_controller(api, clock, start=True)
         self.assertEqual(status, 1)
         self.assertFalse(output['pauseRequested'])
-        self.assertFalse(any(a[0] in ('command', 'request', 'write') for a in api.actions))
+        self.assertFalse(any(a[0] in ('command', 'request', 'write', 'write_index') for a in api.actions))
 
     def test_startup_load_failure_is_paused_and_reported(self):
         clock = Clock()
@@ -346,7 +353,8 @@ class ReliabilityTests(unittest.TestCase):
                 if name == 'sim/operation/quick_start':
                     self.values['sim/cockpit2/engine/actuators/throttle_ratio_all'] = .4
                     self.values['sim/cockpit2/engine/actuators/governor_on'] = [0] * 16
-                    self.values['sim/cockpit2/engine/actuators/prop_ratio_all'] = 1.
+                    self.values[demo.PROP_HANDLES][0] = 1.
+                    self.values[demo.PROP_HANDLES][1] = .61
         clock = Clock()
         api = OverwriteApi(clock)
         demo.initialize_flight(api, True, clock)
@@ -355,11 +363,14 @@ class ReliabilityTests(unittest.TestCase):
         clear_mode = ('write', 'sim/cockpit2/autopilot/flight_director_mode', 0)
         self.assertIn(clear_mode, api.actions[:flight])
         self.assertIn(clear_mode, api.actions[flight:quick_start])
-        for name, expected in [('throttle_ratio_all', 1), ('governor_on', [1, 1] + [0] * 14), ('prop_ratio_all', .5)]:
+        for name, expected in [('throttle_ratio_all', 1), ('governor_on', [1, 1] + [0] * 14)]:
             key = 'sim/cockpit2/engine/actuators/' + name
             self.assertIn(('write', key, expected), api.actions[quick_start:])
             self.assertEqual(api.values[key], expected)
             self.assertFalse(any(a[:2] == ('write', key) for a in api.actions[:quick_start]))
+        self.assertIn(('write_index', demo.PROP_HANDLES, 0, .5), api.actions[quick_start:])
+        self.assertEqual(api.values[demo.PROP_HANDLES][:2], [.5, .61])
+        self.assertFalse(any(a[0] == 'write_index' for a in api.actions[:quick_start]))
         self.assertEqual(api.values['sim/cockpit/autopilot/autopilot_state'] & (2 | 16384), 16386)
         self.assertEqual(api.values['sim/cockpit2/autopilot/servos_on'], 1)
         self.assertFalse(any(a[:2] == ('write', 'sim/cockpit/autopilot/autopilot_state') for a in api.actions))
@@ -368,7 +379,7 @@ class ReliabilityTests(unittest.TestCase):
         self.assertIn(('command', 'sim/autopilot/heading'), api.actions[arm:])
         self.assertIn(('command', 'sim/autopilot/altitude_hold'), api.actions[arm:])
         ias = api.actions.index(('command', 'sim/autopilot/level_change'))
-        self.assertFalse(any(a[:2] == ('write', 'sim/cockpit2/engine/actuators/prop_ratio_all') for a in api.actions[ias:]))
+        self.assertFalse(any(a[0] == 'write_index' for a in api.actions[ias:]))
 
     def test_stale_zero_ias_prevents_native_hold_selection(self):
         clock = Clock()
@@ -397,18 +408,18 @@ class ReliabilityTests(unittest.TestCase):
     def test_native_collective_is_observed_without_controller_writes(self):
         clock = Clock()
         api = Api(clock)
-        api.values['sim/cockpit2/engine/actuators/prop_ratio_all'] = .431
+        api.values[demo.PROP_HANDLES][0] = .431
         status, output = self.run_controller(api, clock)
         self.assertEqual(status, 0)
         self.assertEqual(output['collective'], .431)
-        self.assertFalse(any(a[:2] == ('write', 'sim/cockpit2/engine/actuators/prop_ratio_all') for a in api.actions))
+        self.assertFalse(any(a[0] == 'write_index' for a in api.actions))
 
     def test_assist_is_explicit_bounded_and_never_enables_autothrottle(self):
         clock = Clock()
         api = Api(clock)
         api.values[demo.P + 'indicated_airspeed'] = 90
         status, output = self.run_controller(api, clock, collective_assist=True)
-        writes = [a[2] for a in api.actions if a[:2] == ('write', 'sim/cockpit2/engine/actuators/prop_ratio_all')]
+        writes = [a[3] for a in api.actions if a[:3] == ('write_index', demo.PROP_HANDLES, 0)]
         self.assertEqual(status, 0)
         self.assertTrue(output['collectiveAssist'])
         self.assertIn('rate-limited collective', output['controller'])
@@ -426,7 +437,7 @@ class ReliabilityTests(unittest.TestCase):
             self.assertEqual(status, 0)
             self.assertEqual(output['status'], 'stopped')
             self.assertIn('AT must remain off', output['reason'])
-            self.assertFalse(any(a[0] == 'write' for a in api.actions))
+            self.assertFalse(any(a[0] in ('write', 'write_index') for a in api.actions))
             self.assertTrue(output['pauseConfirmed'])
 
     def test_assist_only_writes_during_unpaused_safe_flight(self):
@@ -436,7 +447,7 @@ class ReliabilityTests(unittest.TestCase):
             api = Api(clock)
             api.values.update(change)
             self.run_controller(api, clock, collective_assist=True)
-            self.assertFalse(any(a[:2] == ('write', 'sim/cockpit2/engine/actuators/prop_ratio_all') for a in api.actions))
+            self.assertFalse(any(a[0] == 'write_index' for a in api.actions))
 
     def test_collective_assist_rate_and_saturation(self):
         self.assertAlmostEqual(demo.assisted_collective(.5, 0, 10), .509)
@@ -578,7 +589,7 @@ class ReliabilityTests(unittest.TestCase):
             start_s76.reset_parked(api, clock)
         unpause = api.actions.index(('command', 'sim/operation/pause_off'))
         self.assertGreaterEqual(api.actions[:unpause].count(('read', 'sim/aircraft/view/acf_relative_path')), 2)
-        self.assertIn(('write', 'sim/cockpit2/engine/actuators/prop_ratio_all', 0.), api.actions[:unpause])
+        self.assertIn(('write_index', demo.PROP_HANDLES, 0, 0.), api.actions[:unpause])
         self.assertEqual([a for a in api.actions if a == ('request', '/flight')], [('request', '/flight')])
         self.assertGreaterEqual(clock.now, 15)
 
@@ -588,7 +599,8 @@ class ReliabilityTests(unittest.TestCase):
                 super().command(name, duration, timeout)
                 if name == 'sim/operation/quick_start':
                     self.values['sim/cockpit2/controls/parking_brake_ratio'] = 0.
-                    self.values['sim/cockpit2/engine/actuators/prop_ratio_all'] = 1.
+                    self.values[demo.PROP_HANDLES][0] = 1.
+                    self.values[demo.PROP_HANDLES][1] = .61
                     self.values['sim/cockpit2/engine/actuators/throttle_ratio_all'] = .4
         clock = Clock()
         api = OverwriteApi(clock)
@@ -597,7 +609,7 @@ class ReliabilityTests(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()):
             start_s76.reset_parked(api, clock)
         self.assertEqual(api.values['sim/cockpit2/controls/parking_brake_ratio'], 1.)
-        self.assertEqual(api.values['sim/cockpit2/engine/actuators/prop_ratio_all'], 0.)
+        self.assertEqual(api.values[demo.PROP_HANDLES][:2], [0., .61])
         self.assertEqual(api.values['sim/cockpit2/engine/actuators/throttle_ratio_all'], 1.)
         self.assertEqual(api.values['sim/cockpit2/autopilot/servos_on'], 0)
         self.assertNotEqual(api.values['sim/cockpit/autopilot/autopilot_state'], 0)

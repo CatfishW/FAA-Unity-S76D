@@ -1135,7 +1135,7 @@ namespace IndicatorSystem.Display
             );
             
             // Get positions in world space
-            Vector3 aircraftPos = data.WorldPosition;
+            Vector3 aircraftPos = AircraftControl.Camera.AircraftViewRenderSpace.DataToRenderPoint(cam, data.WorldPosition);
             Vector3 forwardPoint = aircraftPos + worldDirection * 100f; // Point 100 units ahead
             
             // Project both points to screen space
@@ -1214,7 +1214,8 @@ namespace IndicatorSystem.Display
                 return new Vector3(0, 0, screenRotationZ);
             
             // Get direction from camera to aircraft
-            Vector3 toAircraft = (data.WorldPosition - cam.transform.position).normalized;
+            Vector3 renderPosition = AircraftControl.Camera.AircraftViewRenderSpace.DataToRenderPoint(cam, data.WorldPosition);
+            Vector3 toAircraft = (renderPosition - cam.transform.position).normalized;
             
             // Get aircraft heading direction in world space (horizontal plane)
             float headingRad = data.Heading * Mathf.Deg2Rad;
@@ -1242,9 +1243,9 @@ namespace IndicatorSystem.Display
             
             // Calculate vertical view angle (are we above or below the aircraft?)
             // Positive = we're above looking down, Negative = we're below looking up
-            float heightDiff = cam.transform.position.y - data.WorldPosition.y;
+            float heightDiff = cam.transform.position.y - renderPosition.y;
             float horizontalDist = Vector3.Distance(
-                new Vector3(data.WorldPosition.x, 0, data.WorldPosition.z),
+                new Vector3(renderPosition.x, 0, renderPosition.z),
                 new Vector3(cam.transform.position.x, 0, cam.transform.position.z)
             );
             float verticalAngle = Mathf.Atan2(heightDiff, Mathf.Max(horizontalDist, 1f)) * Mathf.Rad2Deg;
@@ -1300,7 +1301,7 @@ namespace IndicatorSystem.Display
             );
             
             // Calculate relative direction: is aircraft coming toward us or going away?
-            Vector3 toAircraft = data.WorldPosition - cam.transform.position;
+            Vector3 toAircraft = AircraftControl.Camera.AircraftViewRenderSpace.DataToRenderPoint(cam, data.WorldPosition) - cam.transform.position;
             toAircraft.y = 0; // Ignore vertical for this calculation
             toAircraft.Normalize();
             

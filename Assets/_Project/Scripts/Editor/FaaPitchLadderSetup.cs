@@ -16,9 +16,9 @@ public static class FaaPitchLadderSetup
     {
         if (EditorApplication.isPlayingOrWillChangePlaymode) return;
         Scene scene = SceneManager.GetActiveScene();
-        var bridge = Object.FindObjectsByType<XPlane12ApiHudBridge>(FindObjectsInactive.Include)
+        var bridge = Object.FindObjectsByType<XPlane12ApiHudBridge>(FindObjectsInactive.Include, UnityEngine.FindObjectsSortMode.None)
             .FirstOrDefault(x => x.gameObject.scene == scene);
-        foreach (var attitude in Object.FindObjectsByType<AttitudeIndicatorElement>(FindObjectsInactive.Include))
+        foreach (var attitude in Object.FindObjectsByType<AttitudeIndicatorElement>(FindObjectsInactive.Include, UnityEngine.FindObjectsSortMode.None))
         {
             if (attitude.gameObject.scene != scene) continue;
             RectTransform mask = attitude.transform.Find("ScaleMasker") as RectTransform;

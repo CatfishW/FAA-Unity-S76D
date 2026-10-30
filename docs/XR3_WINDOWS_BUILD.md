@@ -285,6 +285,13 @@ the requested failure mode is disabled.
 
 ## Airborne demo and conformal rendering (2026-10-24)
 
+The optional native HDG/IAS acquisition, checkpoint continuation and sustained
+orbit workflow is documented in
+[S-76 experimental controller](XPLANE_S76_EXPERIMENTAL_CONTROLLER.md).
+It preserves the indexed legacy default described below. Deploy its complete
+paired module set before selecting the new flags; the experimental path refuses
+`--start` until fresh airborne initialization has separate native validation.
+
 `Tools/XPlane3080/flight_demo.py --start` initializes an actual S-76C flight at
 2,500 m MSL and 100 kt using X-Plane's native flight API. Subsequent motion comes
 from simulator physics, native heading/altitude hold and a rate-limited collective
@@ -366,6 +373,22 @@ second and five degrees from current heading), and rate-limited collective
 feedback with native autothrottle off. It never writes synthetic telemetry or
 overrides physics. Only explicit `--start` sets initial conditions; service
 restart attaches to existing flight and recovers validated waypoint progress.
+
+On the stock S-76, collective initialization, assist writes and reported
+`collective` feedback address only `sim/cockpit2/engine/actuators/prop_ratio`
+index 0. The combined `prop_ratio_all` getter can change as the independent tail
+control changes; writing that combined handle also addresses the tail control.
+It remains a separate `aggregatePropRatio` diagnostic and never seeds or drives
+the collective controller. Reports include `collectiveDataref`,
+`collectiveIndex` and the sampled `values.mainCollective` to make the axis explicit.
+
+The indexed transport uses X-Plane's documented REST `?index=0` parameter: an
+indexed GET returns a one-element array, and PATCH sends one scalar. It never
+reads and replaces the full handle array. See the
+[Laminar Web API specification](https://developer.x-plane.com/article/x-plane-web-api/).
+This axis correction alone does not validate the existing HDG/ALT startup,
+control gains or sustained waypoint flight; those require separate native
+flight testing. It is also independent of the unresolved Unity runtime crash.
 
 Safety stops publish an atomic terminal report and specific reason. The verifier
 rejects empty, malformed, frozen, future or nonfinite reports and requires
