@@ -26,9 +26,9 @@ As of2026-10-30UTC:
 
 | Check | Result |
 | --- | --- |
-| Full integration functional suite |1561passed,0failed;4explicit GPU cases run separately|
-| Dedicated integration GPU checks |4passed, including normal-render original/near/restored comparison|
-| Standard-profile suite in isolated clone |819passed,0failed;5optional-profile and3explicit GPU skips|
+| Full integration functional suite |1561passed,0failed;6explicit GPU cases run separately|
+| Dedicated integration GPU checks |6passed, including normal-render original/near/restored comparison|
+| Standard-profile suite in isolated clone |819passed,0failed;10 documented optional-profile/explicit GPU skips|
 | Standard normal-render origin regression |Passed separately|
 | Windows Mono/D3D11 build |Succeeded with0errors|
 
@@ -43,3 +43,5 @@ Native Windows validation is ongoing. The frozen LTS control completed a20-minut
 The settings text factory also checks whether its actual style/fallback chain can supply an ellipsis. Synthetic bold in the shipped font previously failed that lookup and repeatedly fell back to truncation. Keeping that effective mode when unavailable removes the repeated warnings while retaining the same font, weight, pixels and complete wrapped guidance. Eight normal-render frames were byte-identical before and after, with six full-profile/seven standard-profile warnings reduced to zero.
 
 The standard test assembly explicitly references InputSystem and XR Interaction Toolkit. The existing committed mouse/XRI regression failed compilation without these two references; the minimal additions are included with the source repair.
+
+The HUD hide/show command also covers the independently rendered conformal layer. Its visibility check reads current active ancestor CanvasGroups, including groups created after binding, and the final render pass admits a visibility change even when the pose has not moved. The actual command/render regression measured142 ATT-warning pixels when visible, zero while hidden and142 after restoration. The warning remains legible at the existing35% brightness floor. Traffic/weather cues and chrome retain independent ownership. Six dedicated integration GPU checks pass; the standard profile explicitly skips the two optional modern-layer tests.

@@ -125,7 +125,8 @@ namespace FAA.Customization
         private Vector3 eyePosition;
         private FaaRotorcraftCueAnchor userLandingReference;
         private readonly RaycastHit[] landingHits = new RaycastHit[64];
-        private CanvasGroup[] visibilityGroups;
+        private readonly List<CanvasGroup> visibilityGroups = new(4);
+        private bool lastHudVisible;
         private int lastRefreshFrame = -1;
         private Vector3 lastViewPosition, lastRenderWorldOffset;
         private Quaternion lastViewRotation;
@@ -217,7 +218,6 @@ namespace FAA.Customization
             RestoreLegacy();
             sourceCanvas = fixedFlightCanvas;
             primaryHudRoot = sourceCanvas != null ? sourceCanvas.transform.Find("Second Interation GUI") : null;
-            visibilityGroups = primaryHudRoot != null ? primaryHudRoot.GetComponentsInParent<CanvasGroup>(true) : null;
             lastSignatureLength = -1;
             RetireLegacy();
         }
@@ -301,9 +301,10 @@ namespace FAA.Customization
             AircraftControl.Camera.RenderPhaseAudit.Mark("Conformal begin");
             var space = AircraftControl.Camera.AircraftViewRenderSpace.ForCamera(view);
             Vector3 offset = space != null ? space.Offset : Vector3.zero;
+            bool hudVisible = IsSourceHudVisible();
             if (isActiveAndEnabled && view != null && (lastRefreshFrame != Time.frameCount ||
                 lastViewPosition != view.transform.position || lastViewRotation != view.transform.rotation ||
-                lastRenderWorldOffset != offset))
+                lastRenderWorldOffset != offset || lastHudVisible != hudVisible))
                 RefreshPresentation();
             AircraftControl.Camera.RenderPhaseAudit.Mark("Conformal end");
         }
@@ -311,7 +312,8 @@ namespace FAA.Customization
         private void CameraReady(Camera camera)
         {
             if (!isActiveAndEnabled) return;
-            if (camera == view) RefreshBeforeRender(); // Final pose; avoid rebuilding the same mesh three times each frame.
+            if (camera == view || FAA.Headset.XR3DesktopHudPreview.IsPreviewCamera(camera))
+                RefreshBeforeRender(); // Final pose and live HUD visibility, including the desktop pass.
             SetRenderVisibility((camera == view || FAA.Headset.XR3DesktopHudPreview.IsPreviewCamera(camera)) && frameVisible);
         }
 
@@ -375,6 +377,31 @@ namespace FAA.Customization
             return true;
         }
 
+        private bool IsSourceHudVisible()
+        {
+            if (sourceCanvas == null || !sourceCanvas.isActiveAndEnabled) return false;
+            if (primaryHudRoot == null) primaryHudRoot = sourceCanvas.transform.Find("Second Interation GUI");
+            Transform node = primaryHudRoot != null ? primaryHudRoot : sourceCanvas.transform;
+            if (!node.gameObject.activeInHierarchy) return false;
+            float alpha = 1f;
+            // The real symbology.hide command can add a CanvasGroup after Bind. Read the live
+            // hierarchy without allocating, and obey active groups/ignoreParentGroups just as UI does.
+            for (; node != null; node = node.parent)
+            {
+                node.GetComponents(visibilityGroups);
+                bool ignoreParents = false;
+                foreach (CanvasGroup group in visibilityGroups)
+                {
+                    if (group == null || !group.isActiveAndEnabled) continue;
+                    alpha *= group.alpha;
+                    ignoreParents |= group.ignoreParentGroups;
+                }
+                if (alpha <= .001f) return false;
+                if (ignoreParents) break;
+            }
+            return true;
+        }
+
         public void RefreshPresentation()
         {
             var data = flightData != null ? flightData.LatestFlightData : null;
@@ -387,11 +414,8 @@ namespace FAA.Customization
             isUnusual = HasLiveAttitude && FaaRotorcraftCueMath.UnusualAttitude(data.pitch, data.roll, isUnusual);
             UnusualAttitudeActive = isUnusual;
 
-            frameVisible = view != null && !view.orthographic && aircraft != null && sourceCanvas != null &&
-                sourceCanvas.isActiveAndEnabled && (primaryHudRoot == null || primaryHudRoot.gameObject.activeInHierarchy);
-            if (visibilityGroups != null)
-                foreach (var group in visibilityGroups)
-                    if (group != null && group.alpha <= .001f) frameVisible = false;
+            lastHudVisible = IsSourceHudVisible();
+            frameVisible = view != null && !view.orthographic && aircraft != null && lastHudVisible;
             if (!frameVisible || !EnsureBuilt())
             {
                 SetRenderVisibility(false);
