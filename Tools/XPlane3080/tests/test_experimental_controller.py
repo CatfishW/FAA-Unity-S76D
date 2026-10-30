@@ -251,12 +251,12 @@ class ExperimentalTests(unittest.TestCase):
             args=options(Path(directory)/'state',sustain=True,seconds=0)
             args.resume_acquisition,args.resume_sha256=p,h
             code,r=self.execute(args,api,clock)
-        self.assertEqual(code,0);self.assertEqual(clock.now,7200);self.assertTrue(r['pauseConfirmed'])
+        self.assertEqual(code,0);self.assertEqual(clock.now,1800);self.assertTrue(r['pauseConfirmed'])
 
     def test_cli_refuses_experimental_start_and_bad_flag_pairs_before_api_creation(self):
         paired=['--resume-acquisition','checkpoint.json','--resume-sha256','0'*64]
         cases=[['--ias-altitude-assist','--start'],['--sustain',*paired,'--start'],['--sustain'],
-            ['--sustain',*paired,'--seconds','7201'],['--orbit'],
+            ['--sustain',*paired,'--seconds','1801'],['--orbit'],
             ['--ias-altitude-assist',*paired,'--orbit'],['--sustain',*paired,'--resume-journal','journal.jsonl']]
         with patch.object(demo,'NativeApi',side_effect=AssertionError('API created')):
             for argv in cases:
@@ -285,6 +285,20 @@ class LazyDependencyTests(unittest.TestCase):
         self.assertEqual(run.returncode,1)
         result=json.loads(run.stdout);self.assertIn('deploy flight_demo.py',result['reason'])
         self.assertFalse(result['pauseRequested'])
+
+    def test_missing_paired_parallel_module_fails_before_source_admission_or_controls(self):
+        source=Path(__file__).resolve().parent.parent
+        with tempfile.TemporaryDirectory()as directory:
+            for name in ('flight_demo.py','acquisition.py','conservative_control.py','sustain.py','checkpoint_state.py'):
+                shutil.copy2(source/name,Path(directory)/name)
+            env=dict(os.environ,PYTHONPATH='',PYTHONDONTWRITEBYTECODE='1')
+            run=subprocess.run([sys.executable,'flight_demo.py','--sustain','--resume-acquisition','missing.json',
+                '--resume-sha256','0'*64],cwd=directory,env=env,capture_output=True,text=True,timeout=10)
+        self.assertEqual(run.returncode,1)
+        result=json.loads(run.stdout)
+        self.assertIn('parallel_snapshot',result['reason'])
+        self.assertFalse(result['pauseRequested'])
+        self.assertFalse(result['pauseConfirmed'])
 
 
 if __name__=='__main__':unittest.main()

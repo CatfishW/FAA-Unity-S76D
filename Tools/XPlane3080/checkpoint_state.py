@@ -149,7 +149,7 @@ def recover_v6_orbit(data, journal_path, journal_sha256, demo):
 
 
 def normalize(path, expected_sha256, state_dir, phase, journal_path=None, journal_sha256=None, demo=None):
-    if phase not in ('acquire', 'sustain'):
+    if phase not in ('acquire', 'sustain', 'recover'):
         raise c.ControlError('Unsupported checkpoint continuation phase')
     path = checksum(path, expected_sha256, STATE_BYTES)
     if path.resolve().parent == Path(state_dir).resolve():
@@ -158,19 +158,31 @@ def normalize(path, expected_sha256, state_dir, phase, journal_path=None, journa
     if not isinstance(data, dict):
         raise c.ControlError('Checkpoint must be an object')
     versions = [(4, 'privateAcquisitionV4'), (5, 'privateAcquisitionV5'),
-                (6, 'privateSustainedV6'), (7, 'privateSustainedV7')]
+                (6, 'privateSustainedV6'), (7, 'privateSustainedV7'),
+                (8, 'privateSustainedV8')]
     matches = [version for version, key in versions if data.get(key) is True]
     if len(matches) != 1:
         raise c.ControlError('Checkpoint protocol version is ambiguous or unknown')
     version = matches[0]
+    recovery = phase == 'recover'
+    if recovery and version != 7:
+        raise c.ControlError('Guard recovery admits only the explicitly reviewed V7 error protocol')
     if (phase == 'sustain' and version == 4) or (phase == 'acquire' and version >= 6):
         raise c.ControlError('Checkpoint cannot change controller phase or discard an active orbit')
-    required = {'status': 'completed', 'pauseRequested': True, 'pauseConfirmed': True,
+    required = {'status': 'error' if recovery else 'completed', 'pauseRequested': True, 'pauseConfirmed': True,
         'nativeModesSelected': True, 'collectiveControlIndex': 0, 'tailWrites': 0, 'aggregateWrites': 0}
     for key, expected in required.items():
         value = data.get(key)
         if type(value) is not type(expected) or value != expected:
             raise c.ControlError('Incomplete reviewed checkpoint contract: ' + key)
+    if recovery:
+        reason = 'Original sustained control envelope exceeded'
+        if (data.get('reason') != reason or data.get('error') != reason
+                or data.get('flightAccepted') is not False or data.get('unpauseRequested') is not True):
+            raise c.ControlError('Guard recovery requires the exact reviewed failed sustained envelope reason')
+    if version == 8 and data.get('recoveryRequested') is True:
+        if data.get('recoverySucceeded') is not True or data.get('controlPhase') != 'sustained':
+            raise c.ControlError('V8 recovery checkpoint never qualified for strict sustain')
     if version < 6 and (data.get('experimentalIasAltitudeAssist') is not True
             or data.get('sustainedRouteStarted') is not False or data.get('headingRouteControllerChanged') is not False):
         raise c.ControlError('Acquisition checkpoint cannot contain an active route')
@@ -207,6 +219,19 @@ def normalize(path, expected_sha256, state_dir, phase, journal_path=None, journa
         'baseline': baseline, 'lastCommand': last, 'sourceLastSampleClock': last_clock,
         'sourceStableSince': stable_since, 'sourceHandoffReady': handoff, 'orbitState': None,
         'orbitActive': False, 'headingLastCommand': None, 'headingObserved': None}
+    if recovery:
+        # This is an explicitly admitted failed source, never a rewritten success.
+        values = samples[-1].get('values')
+        if not isinstance(values, dict) or values != data.get('values') or demo is None:
+            raise c.ControlError('Guard recovery source must preserve its actual offending sample')
+        ias, pitch, bank, vy = [number(values.get(demo.P+n), 'source '+n)
+            for n in ('indicated_airspeed', 'theta', 'phi', 'local_vy')]
+        altitude = number(values.get('sim/cockpit2/gauges/indicators/altitude_ft_pilot'), 'source altitude')
+        if (not 90 <= ias <= 110 or abs(pitch) > 15 or abs(bank) > 20
+                or not 3 < abs(vy) <= 6 or abs((target-altitude)*c.FT_TO_M) > c.MAX_ALT_ERROR_M):
+            raise c.ControlError('Guard recovery source exceeds the reviewed vertical-only recovery envelope')
+        result.update({'sourceStatus': 'error', 'sourceError': data['error'],
+            'sourcePhase': 'sustained-error-recovery', 'recoverySourceVerticalSpeedMps': vy})
     if version == 4:
         result.update({'sourceNativeClockAfter': last_clock, 'sourceWallUtcDiagnosticOnly': data.get('utc')})
         return result
@@ -231,8 +256,8 @@ def normalize(path, expected_sha256, state_dir, phase, journal_path=None, journa
             result['headingObserved'] = number(receipt['headingDial'], 'source observed heading dial')
             if abs((result['headingObserved']-heading+180)%360-180) > .001:
                 raise c.ControlError('Source observed heading differs from its last command')
-        elif version == 7:
-            raise c.ControlError('V7 checkpoint lacks observed final heading dial')
+        elif version >= 7:
+            raise c.ControlError('V7/V8 checkpoint lacks observed final heading dial')
         result['orbitActive'] = data.get('orbitActive') is True
         result['orbitActivatedNativeClock'] = data.get('orbitActivatedNativeClock')
         result['orbitGateStableSinceNativeClock'] = data.get('orbitGateStableSinceNativeClock')

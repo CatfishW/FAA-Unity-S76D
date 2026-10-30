@@ -620,6 +620,7 @@ def main(argv=None):
     parser.add_argument('--collective-assist', action='store_true', help='Rate-limited external collective assist for 100kt; requires native autothrottle off')
     parser.add_argument('--ias-altitude-assist', action='store_true', help='Opt-in paused S76 acquisition using native HDG/IAS100 and bounded MAIN0 altitude/VS PD')
     parser.add_argument('--sustain', action='store_true', help='Opt-in finite sustained MAIN0 PD from an explicitly reviewed stable checkpoint')
+    parser.add_argument('--recover-from-guard', action='store_true', help='Explicit SHA-pinned V7 vertical guard error recovery:15s phase,300s total; never automatically retry')
     parser.add_argument('--resume-acquisition', type=Path, help='Explicit SHA-pinned checkpoint; never automatically select a recent file')
     parser.add_argument('--resume-sha256', help='Required SHA256 of --resume-acquisition')
     parser.add_argument('--resume-journal', type=Path, help='Paired full journal needed only to migrate an active V6 orbit')
@@ -633,8 +634,11 @@ def main(argv=None):
     experimental = args.ias_altitude_assist or args.sustain
     if experimental and (args.start or args.route or args.collective_assist):
         parser.error('Experimental controllers require paused adoption and exclude --start/--route/--collective-assist')
-    if args.sustain and (not args.resume_acquisition or not args.resume_sha256 or args.seconds > 7200):
-        parser.error('--sustain requires a reviewed checkpoint/hash and is limited to7200s')
+    sustain_limit = 300 if args.recover_from_guard else 1800
+    if args.sustain and (not args.resume_acquisition or not args.resume_sha256 or args.seconds > sustain_limit):
+        parser.error('--sustain requires a reviewed checkpoint/hash and is limited to'+str(sustain_limit)+'s')
+    if args.recover_from_guard and not args.sustain:
+        parser.error('--recover-from-guard requires explicit --sustain and its SHA-pinned source')
     if bool(args.resume_acquisition) != bool(args.resume_sha256) or args.resume_acquisition and not experimental:
         parser.error('--resume-acquisition and --resume-sha256 require each other and an experimental controller')
     if bool(args.resume_journal) != bool(args.resume_journal_sha256) or args.resume_journal and not args.sustain:

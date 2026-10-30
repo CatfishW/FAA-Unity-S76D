@@ -15,10 +15,15 @@ import time
 
 import conservative_control as c
 import checkpoint_state as state
+import acquisition as a
+from parallel_snapshot import ParallelSnapshot
 
 PROP = 'sim/cockpit2/engine/actuators/prop_ratio'
 HEADING = 'sim/cockpit2/autopilot/heading_dial_deg_mag_pilot'
-MAX_SECONDS = 7200.
+MAX_SECONDS = 1800.  # Qualified normal continuation only; finite native OR wall.
+RECOVERY_TOTAL_SECONDS = 300.
+RECOVERY_SECONDS = 15.
+RECOVERY_MAX_VY = 6.
 SAMPLE_CAPACITY = 120
 ORBIT_STABLE_SECONDS = 30.
 RESUME_MAIN_QUANTIZATION = 2e-7
@@ -39,8 +44,9 @@ def f32(value):
     return struct.pack('<f', numeric(value, 'float32 readback'))
 
 
-def load_checkpoint(path, expected_sha256, state_dir, journal_path=None, journal_sha256=None, demo=None):
-    return state.normalize(path, expected_sha256, state_dir, 'sustain', journal_path, journal_sha256, demo)
+def load_checkpoint(path, expected_sha256, state_dir, journal_path=None, journal_sha256=None, demo=None, recover=False):
+    return state.normalize(path, expected_sha256, state_dir,
+        'recover' if recover else 'sustain', journal_path, journal_sha256, demo)
 
 
 class SustainedCollective:
@@ -74,7 +80,45 @@ class SustainedCollective:
         self.inner.verify_write(measured)
 
 
-def restore(checkpoint, current_main, native_before, native_after, current_heading=None):
+class GuardRecoveryCollective:
+    """Original acquisition PD formula behind a distinct reviewed narrow guard."""
+    def __init__(self, checkpoint):
+        self.inner = a.AcquisitionCollective(checkpoint['targetFt'], checkpoint['baseline'])
+        self.inner.last_written = checkpoint['lastCommand']
+
+    @property
+    def target_m(self):
+        return self.inner.target_m
+
+    @property
+    def last_written(self):
+        return self.inner.last_written
+
+    @property
+    def handoff_ready(self):
+        return self.inner.handoff_ready
+
+    @property
+    def diagnostic(self):
+        return {**self.inner.diagnostic, 'guardRecoveryEnvelope': True,
+            'commandMainIndex0': self.last_written}
+
+    def update(self, measured, altitude_ft, vertical_speed, ias, pitch, bank, elapsed, native_now):
+        # The broad startup envelope in AcquisitionCollective is never admission.
+        for value, name in [(altitude_ft, 'altitude'), (vertical_speed, 'vertical speed'),
+                            (ias, 'IAS'), (pitch, 'pitch'), (bank, 'bank')]:
+            numeric(value, 'guard recovery '+name)
+        if (not 90 <= ias <= 110 or abs(pitch) > 15 or abs(bank) > 20
+                or abs(vertical_speed) > RECOVERY_MAX_VY
+                or abs(self.target_m-altitude_ft*c.FT_TO_M) > c.MAX_ALT_ERROR_M):
+            raise c.ControlError('Reviewed finite guard recovery envelope exceeded')
+        return self.inner.update(measured, altitude_ft, vertical_speed, ias, pitch, bank, elapsed, native_now)
+
+    def verify_write(self, measured):
+        self.inner.verify_write(measured)
+
+
+def restore(checkpoint, current_main, native_before, native_after, current_heading=None, recover=False):
     before = numeric(native_before, 'current paused clock before')
     after = numeric(native_after, 'current paused clock after')
     if before != after or after != checkpoint['pausedNativeClock']:
@@ -89,7 +133,7 @@ def restore(checkpoint, current_main, native_before, native_after, current_headi
                 raise c.ControlError('Current heading differs from recorded observed float32 receipt')
         elif abs((current-checkpoint['headingLastCommand']+180)%360-180) > HEADING_READBACK_DEGREES:
             raise c.ControlError('Current heading dial differs from source command; no rebase')
-    return SustainedCollective(checkpoint)
+    return GuardRecoveryCollective(checkpoint) if recover else SustainedCollective(checkpoint)
 
 
 class Evidence:
@@ -123,17 +167,27 @@ def tight_stable(values, demo):
 
 def run(args, api, clock, demo):
     values, ctl, evidence, checkpoint = {}, None, None, None
+    sampler = None
     sequence, deadline, previous_native = 0, None, None
     native_start, stalled_since, old_alarm = None, None, None
     orbit, orbit_info, orbit_stable_since = None, None, None
     heading, heading_time, heading_writes = None, None, 0
     complete, can_write_report, unpause_requested = False, False, False
     first_resumed_orbit_step = False
-    report = {'privateSustainedV6': False, 'privateSustainedV7': True, 'flightAccepted': False, 'sustainedRouteStarted': False,
+    recovery_requested = bool(getattr(args, 'recover_from_guard', False))
+    recovery_active = recovery_requested
+    recovery_wall_deadline = None
+    report = {'privateSustainedV6': False, 'privateSustainedV7': False, 'privateSustainedV8': True,
+        'privateCandidateVersion': 9,
+        'flightAccepted': False, 'sustainedRouteStarted': False,
         'collectiveControlIndex': 0, 'tailWrites': 0, 'aggregateWrites': 0,
         'headingLimiterUnchanged': True, 'orbitRequested': bool(getattr(args, 'orbit', False)),
         'orbitStableRequiredNativeSeconds': ORBIT_STABLE_SECONDS,
-        'sampleCapacity': SAMPLE_CAPACITY, 'stableCreditResetForPausedGap': True}
+        'sampleCapacity': SAMPLE_CAPACITY, 'stableCreditResetForPausedGap': True,
+        'recoveryRequested': recovery_requested, 'recoverySucceeded': False,
+        'recoveryLimitSeconds': RECOVERY_SECONDS if recovery_requested else None,
+        'controlPhase': 'recovery' if recovery_requested else 'sustained',
+        'activeReadTransport': 'persistent-independent-GET-pool8', 'readWorkersClosed': False}
     state_dir = Path(args.state_dir)
     path = state_dir/'latest.json'
     extra = [demo.P+'local_vy', demo.P+'true_airspeed', HEADING,
@@ -144,10 +198,25 @@ def run(args, api, clock, demo):
     names = list(dict.fromkeys(demo.NAMES+c.REFS+tuple(extra)))
 
     def check_deadline():
+        if recovery_active and recovery_wall_deadline is not None and clock.monotonic() >= recovery_wall_deadline:
+            raise c.ControlError('Guard recovery did not earn stable handoff within15 wall seconds')
         if deadline is not None and clock.monotonic() >= deadline:
             raise PhaseEnd('Explicit finite sustained wall bound')
 
     def snapshot(label, bounded):
+        if sampler is not None:
+            out, info = sampler.capture(check_deadline if bounded else None)
+            timings = info.pop('perFieldReadTimes')
+            if info['captureWidthSeconds'] > args.max_sample_age:
+                raise demo.DemoError('Sustained sample age or native clock invalid')
+            row = {'label': label, **info, 'values': out,
+                'maxFieldAgeSeconds': max(t['oldestObservationAgeSeconds'] for t in timings.values()),
+                'controlPhase': 'recovery' if recovery_active else 'sustained'}
+            evidence.sample(row)
+            # Full per-field timing is streamed; the retained120-row ring stays bounded.
+            evidence.event('snapshot-timing', {'sampleSequence': evidence.samples,
+                'perFieldReadTimes': timings, 'captureWidthSeconds': info['captureWidthSeconds']})
+            return out, row
         start = clock.time()
         before = demo.number(api.read('sim/time/total_flight_time_sec'), 'native clock before')
         out = {}
@@ -167,7 +236,7 @@ def run(args, api, clock, demo):
         evidence.sample(row)
         return out, row
 
-    def guard(v, paused):
+    def guard(v, paused, recovering=False):
         c.input_ownership(v)
         reasons = demo.safety_reasons(v)
         if reasons:
@@ -181,8 +250,9 @@ def run(args, api, clock, demo):
                 or abs(numeric(v['sim/cockpit2/autopilot/airspeed_dial_kts_mach'], 'native IAS target')-100) > .01):
             raise demo.DemoError('Native IAS100 target changed')
         if (not 90 <= v[demo.P+'indicated_airspeed'] <= 110 or abs(v[demo.P+'theta']) > 15
-                or abs(v[demo.P+'phi']) > 20 or abs(v[demo.P+'local_vy']) > 3):
-            raise demo.DemoError('Original sustained control envelope exceeded')
+                or abs(v[demo.P+'phi']) > 20 or abs(v[demo.P+'local_vy']) > (RECOVERY_MAX_VY if recovering else 3)):
+            raise demo.DemoError('Reviewed finite guard recovery envelope exceeded' if recovering
+                else 'Original sustained control envelope exceeded')
         if v[demo.P+'y_agl'] < 1000:
             raise demo.DemoError('Sustained terrain clearance below1000m')
         if demo.distance_bearing((v[demo.P+'latitude'], v[demo.P+'longitude']), demo.ROUTE_CENTER)[0] > demo.ROUTE_LIMIT_METERS:
@@ -215,13 +285,15 @@ def run(args, api, clock, demo):
     try:
         if not bool(getattr(args, 'sustain', False)) or args.start or args.route or args.collective_assist:
             raise demo.DemoError('Explicit --sustain requires paused adoption, no start/route/legacy assist')
-        if not math.isfinite(args.seconds) or not 0 <= args.seconds <= MAX_SECONDS:
-            raise demo.DemoError('Sustained duration must be finite and at most7200s')
+        duration_cap = RECOVERY_TOTAL_SECONDS if recovery_requested else MAX_SECONDS
+        if not math.isfinite(args.seconds) or not 0 <= args.seconds <= duration_cap:
+            raise demo.DemoError('Private V9 duration must be finite and at most'+str(int(duration_cap))+'s')
         if not math.isfinite(args.max_sample_age) or args.max_sample_age <= 0:
             raise demo.DemoError('Invalid sustained sample age')
-        seconds = args.seconds or MAX_SECONDS
+        seconds = args.seconds or duration_cap
         checkpoint = load_checkpoint(args.resume_acquisition, args.resume_sha256, state_dir,
-            getattr(args, 'resume_journal', None), getattr(args, 'resume_journal_sha256', None), demo)
+            getattr(args, 'resume_journal', None), getattr(args, 'resume_journal_sha256', None), demo,
+            recovery_requested)
         report.update({'resumedFromCheckpoint': checkpoint, 'durationLimitSeconds': seconds,
             'targetAltitudeFt': checkpoint['targetFt'], 'initialMainBaselineNotLevelTrim': checkpoint['baseline']})
         if not demo.aircraft_matches(api):
@@ -232,10 +304,11 @@ def run(args, api, clock, demo):
         evidence = Evidence(state_dir/'journal.jsonl')
         can_write_report = True
         values, row = snapshot('initial paused', False)
-        guard(values, 1)
-        ctl = restore(checkpoint, values['mainCollective'], row['nativeClockBefore'], row['nativeClockAfter'], values[HEADING])
-        guard(values, 1)
-        if not tight_stable(values, demo):
+        guard(values, 1, recovery_active)
+        ctl = restore(checkpoint, values['mainCollective'], row['nativeClockBefore'], row['nativeClockAfter'], values[HEADING],
+            recovery_requested)
+        guard(values, 1, recovery_active)
+        if not recovery_active and not tight_stable(values, demo):
             raise demo.DemoError('Current paused state no longer satisfies the tight stable handoff gate')
         heading = numeric(values[HEADING], 'held heading dial') % 360
         if checkpoint.get('headingLastCommand') is not None:
@@ -254,20 +327,23 @@ def run(args, api, clock, demo):
                 'orbitActivatedNativeClock': checkpoint.get('orbitActivatedNativeClock'),
                 'orbitState': state.orbit_state(orbit)})
         native_start = previous_native = row['nativeClockAfter']
+        sampler = ParallelSnapshot(api, names, PROP, clock)
+        sampler.start()  # IDs warm serially after complete paused ownership admission.
         publish('ready-paused')
         deadline = clock.monotonic()+seconds
+        recovery_wall_deadline = clock.monotonic()+RECOVERY_SECONDS if recovery_active else None
         if clock is time:
             old_alarm = signal.getsignal(signal.SIGALRM)
             def ended(signum, frame):
                 raise PhaseEnd('Explicit finite sustained hard wall bound')
             signal.signal(signal.SIGALRM, ended)
-            signal.alarm(max(1, math.ceil(seconds)))
+            signal.alarm(max(1, math.ceil(min(seconds, RECOVERY_SECONDS) if recovery_active else seconds)))
         unpause_requested = True
         api.command('sim/operation/pause_off')
         last_publish = -math.inf
         while clock.monotonic() < deadline:
             values, row = snapshot('sustained active', True)
-            guard(values, 0)
+            guard(values, 0, recovery_active)
             native_now = row['nativeClockAfter']
             if native_now < previous_native:
                 raise demo.DemoError('Sustained native clock regressed')
@@ -279,6 +355,8 @@ def run(args, api, clock, demo):
                 stalled_since = None
             if native_now-native_start >= seconds:
                 raise PhaseEnd('Explicit finite sustained native bound')
+            if recovery_active and native_now-native_start >= RECOVERY_SECONDS:
+                raise c.ControlError('Guard recovery did not earn stable handoff within15 native seconds')
             elapsed = native_now-previous_native
             previous_native = native_now
             if abs(demo.angle_delta(numeric(values[HEADING], 'heading dial readback'), heading)) > HEADING_READBACK_DEGREES:
@@ -290,6 +368,27 @@ def run(args, api, clock, demo):
             api.write_index(PROP, 0, command)
             main_readback = api.read_index(PROP, 0)
             ctl.verify_write(main_readback)
+            check_deadline()
+            if recovery_active and ctl.handoff_ready:
+                stable_since = ctl.inner.stable_since
+                restored = {'targetFt': checkpoint['targetFt'], 'baseline': checkpoint['baseline'],
+                    'lastCommand': ctl.last_written}
+                strict = SustainedCollective(restored)
+                # Zero elapsed preserves the exact last recovery command; this
+                # original strict PD update also proves the handoff sample fits.
+                strict.update(main_readback, values['sim/cockpit2/gauges/indicators/altitude_ft_pilot'],
+                    values[demo.P+'local_vy'], values[demo.P+'indicated_airspeed'],
+                    values[demo.P+'theta'], values[demo.P+'phi'], 0, native_now)
+                ctl = strict
+                recovery_active = False
+                report.update({'recoverySucceeded': True, 'controlPhase': 'sustained',
+                    'recoveryStableSinceNativeClock': stable_since, 'recoveryHandoffNativeClock': native_now,
+                    'recoveryNativeSeconds': native_now-native_start,
+                    'recoveryWallSeconds': clock.monotonic()-(recovery_wall_deadline-RECOVERY_SECONDS)})
+                evidence.event('phase', {'phase': 'strict-sustained-handoff', 'nativeClock': native_now,
+                    'stableSinceNativeClock': stable_since, 'preservedLastMainCommand': ctl.last_written})
+                if clock is time:
+                    signal.alarm(max(1, math.ceil(deadline-clock.monotonic())))
             if report['orbitRequested'] and orbit is None:
                 if tight_stable(values, demo):
                     orbit_stable_since = native_now if orbit_stable_since is None else orbit_stable_since
@@ -326,11 +425,16 @@ def run(args, api, clock, demo):
                 publish('running')
                 last_publish = clock.monotonic()
             clock.sleep(.1)
+        if recovery_active:
+            raise c.ControlError('Guard recovery did not earn stable handoff before finite end')
         complete = True
         report['termination'] = 'Explicit finite sustained wall bound'
     except PhaseEnd as exc:
-        complete = True
-        report['termination'] = str(exc)
+        if recovery_active:
+            report['error'] = 'Guard recovery did not earn stable handoff before finite end: '+str(exc)
+        else:
+            complete = True
+            report['termination'] = str(exc)
     except (Exception, KeyboardInterrupt) as exc:
         report['error'] = str(exc) or type(exc).__name__
     finally:
@@ -339,6 +443,14 @@ def run(args, api, clock, demo):
             signal.signal(signal.SIGALRM, old_alarm)
         report['unpauseRequested'] = unpause_requested
         pause = demo.safe_pause(api) if unpause_requested else {'pauseRequested': False, 'pauseConfirmed': False}
+        # Pausing must happen before joining any outstanding read workers.
+        if sampler is not None:
+            try:
+                sampler.close()
+                report['readWorkersClosed'] = True
+            except Exception as exc:
+                complete = False
+                report['error'] = 'Snapshot worker cleanup failed: '+str(exc)
         if pause.get('pauseConfirmed'):
             try:
                 before = demo.number(api.read('sim/time/total_flight_time_sec'), 'final paused clock before')
