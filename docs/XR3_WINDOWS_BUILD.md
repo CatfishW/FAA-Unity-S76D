@@ -285,6 +285,13 @@ the requested failure mode is disabled.
 
 ## Airborne demo and conformal rendering (2026-10-24)
 
+The optional native HDG/IAS acquisition, checkpoint continuation and sustained
+orbit workflow is documented in
+[S-76 experimental controller](XPLANE_S76_EXPERIMENTAL_CONTROLLER.md).
+It preserves the indexed legacy default described below. Deploy its complete
+paired module set before selecting the new flags; the experimental path refuses
+`--start` until fresh airborne initialization has separate native validation.
+
 `Tools/XPlane3080/flight_demo.py --start` initializes an actual S-76C flight at
 2,500 m MSL and 100 kt using X-Plane's native flight API. Subsequent motion comes
 from simulator physics, native heading/altitude hold and a rate-limited collective

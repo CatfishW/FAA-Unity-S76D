@@ -7,6 +7,7 @@ import math
 import os
 from pathlib import Path
 import signal
+import sys
 import tempfile
 import time
 from urllib.error import HTTPError
@@ -312,6 +313,29 @@ def select_ias_target(api):
     api.write('sim/cockpit2/autopilot/airspeed_dial_kts_mach', 100.)
 
 
+def select_native_ias_holds(api, heading):
+    """Opt-in native HDG/IAS ownership; optional controller dependency is lazy."""
+    import conservative_control as conservative
+    api.command('sim/autopilot/autothrottle_hard_off')
+    modes = int(number(api.read('sim/cockpit/autopilot/autopilot_state'), 'native modes'))
+    if not modes & 2:
+        api.command('sim/autopilot/heading')
+    api.write('sim/cockpit2/autopilot/heading_dial_deg_mag_pilot', heading)
+    if not modes & 8:
+        select_ias_target(api)
+    else:
+        api.write('sim/cockpit2/autopilot/airspeed_is_mach', 0)
+        api.write('sim/cockpit2/autopilot/airspeed_dial_kts_mach', 100.)
+    if api.read('sim/cockpit2/autopilot/altitude_hold_armed'):
+        api.command('sim/autopilot/altitude_arm')
+    check = {n: api.read(n) for n in (
+        'sim/cockpit/autopilot/autopilot_state', 'sim/cockpit2/autopilot/servos_on',
+        'sim/cockpit2/autopilot/speed_status', 'sim/cockpit2/autopilot/altitude_hold_status',
+        'sim/cockpit2/autopilot/altitude_hold_armed', 'sim/cockpit2/autopilot/autothrottle_enabled',
+        'sim/cockpit2/autopilot/autothrottle_on', 'sim/cockpit2/autopilot/autothrottle_arm')}
+    conservative.native_modes(check)
+
+
 def select_fresh_holds(api, heading, altitude, collective_assist=False):
     # Exact native S-76 selection sequence exercised in the installed simulator.
     # Generic speed_status remains 0 after ALT on this airframe; do not use it
@@ -425,7 +449,23 @@ def initialize_flight(api, route, clock=time, collective_assist=False):
     select_fresh_holds(api, heading, altitude, collective_assist)
 
 
+def _run_optional_controller(module_name, args, api, clock):
+    try:
+        module = __import__(module_name)
+    except ImportError as error:
+        print(json.dumps({'status': 'error', 'reason':
+            'Experimental controller modules are unavailable; deploy flight_demo.py, acquisition.py, '
+            'sustain.py, conservative_control.py and checkpoint_state.py together: ' + str(error),
+            'pauseRequested': False, 'pauseConfirmed': False}), flush=True)
+        return 1
+    return module.run(args, api, clock, sys.modules[__name__])
+
+
 def run_demo(args, api, clock=time):
+    if bool(getattr(args, 'sustain', False)):
+        return _run_optional_controller('sustain', args, api, clock)
+    if bool(getattr(args, 'ias_altitude_assist', False)):
+        return _run_optional_controller('acquisition', args, api, clock)
     path = args.state_dir / 'latest.json'
     sequence = sample_sequence = 0
     values, sample_started, sample_completed = {}, None, None
@@ -578,11 +618,32 @@ def main(argv=None):
     parser.add_argument('--start', action='store_true')
     parser.add_argument('--route', action='store_true', help='Follow bounded Puget Sound waypoints using native heading hold')
     parser.add_argument('--collective-assist', action='store_true', help='Rate-limited external collective assist for 100kt; requires native autothrottle off')
+    parser.add_argument('--ias-altitude-assist', action='store_true', help='Opt-in paused S76 acquisition using native HDG/IAS100 and bounded MAIN0 altitude/VS PD')
+    parser.add_argument('--sustain', action='store_true', help='Opt-in finite sustained MAIN0 PD from an explicitly reviewed stable checkpoint')
+    parser.add_argument('--resume-acquisition', type=Path, help='Explicit SHA-pinned checkpoint; never automatically select a recent file')
+    parser.add_argument('--resume-sha256', help='Required SHA256 of --resume-acquisition')
+    parser.add_argument('--resume-journal', type=Path, help='Paired full journal needed only to migrate an active V6 orbit')
+    parser.add_argument('--resume-journal-sha256', help='Required SHA256 of --resume-journal')
+    parser.add_argument('--orbit', action='store_true', help='Opt-in10km tangent orbit; sustained mode requires stable admission and unchanged geographic limits')
     parser.add_argument('--seconds', type=float, default=0)
     parser.add_argument('--api', default=B)
     parser.add_argument('--max-sample-age', type=float, default=3)
     parser.add_argument('--state-dir', type=Path, default=Path.home()/'.local/state/faa-s76-flight')
     args = parser.parse_args(argv)
+    experimental = args.ias_altitude_assist or args.sustain
+    if experimental and (args.start or args.route or args.collective_assist):
+        parser.error('Experimental controllers require paused adoption and exclude --start/--route/--collective-assist')
+    if args.sustain and (not args.resume_acquisition or not args.resume_sha256 or args.seconds > 7200):
+        parser.error('--sustain requires a reviewed checkpoint/hash and is limited to7200s')
+    if bool(args.resume_acquisition) != bool(args.resume_sha256) or args.resume_acquisition and not experimental:
+        parser.error('--resume-acquisition and --resume-sha256 require each other and an experimental controller')
+    if bool(args.resume_journal) != bool(args.resume_journal_sha256) or args.resume_journal and not args.sustain:
+        parser.error('--resume-journal and its SHA require each other and --sustain')
+    acquisition_limit = 60 if args.resume_acquisition else 30
+    if args.ias_altitude_assist and not args.sustain and (args.orbit or args.seconds > acquisition_limit):
+        parser.error('Acquisition is limited to30s, or60s for an explicit resume, and excludes --orbit')
+    if args.orbit and not args.sustain:
+        parser.error('--orbit requires --sustain')
     if not math.isfinite(args.seconds) or args.seconds < 0 or not math.isfinite(args.max_sample_age) or args.max_sample_age <= 0:
         parser.error('--seconds must be finite and nonnegative; --max-sample-age must be finite and positive')
     def terminate(signum, frame):
