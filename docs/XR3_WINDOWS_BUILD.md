@@ -367,6 +367,22 @@ feedback with native autothrottle off. It never writes synthetic telemetry or
 overrides physics. Only explicit `--start` sets initial conditions; service
 restart attaches to existing flight and recovers validated waypoint progress.
 
+On the stock S-76, collective initialization, assist writes and reported
+`collective` feedback address only `sim/cockpit2/engine/actuators/prop_ratio`
+index 0. The combined `prop_ratio_all` getter can change as the independent tail
+control changes; writing that combined handle also addresses the tail control.
+It remains a separate `aggregatePropRatio` diagnostic and never seeds or drives
+the collective controller. Reports include `collectiveDataref`,
+`collectiveIndex` and the sampled `values.mainCollective` to make the axis explicit.
+
+The indexed transport uses X-Plane's documented REST `?index=0` parameter: an
+indexed GET returns a one-element array, and PATCH sends one scalar. It never
+reads and replaces the full handle array. See the
+[Laminar Web API specification](https://developer.x-plane.com/article/x-plane-web-api/).
+This axis correction alone does not validate the existing HDG/ALT startup,
+control gains or sustained waypoint flight; those require separate native
+flight testing. It is also independent of the unresolved Unity runtime crash.
+
 Safety stops publish an atomic terminal report and specific reason. The verifier
 rejects empty, malformed, frozen, future or nonfinite reports and requires
 advancing simulation time and physical movement. Deploy `flight_demo.py`,

@@ -16,6 +16,10 @@ from urllib.request import Request, urlopen
 B = 'http://127.0.0.1:8086/api/v3'
 AIRCRAFT = 'Aircraft/Laminar Research/Sikorsky S-76/S-76C.acf'
 P = 'sim/flightmodel/position/'
+# Stock S-76: main collective is handle0; handle1 is the independent tail control.
+# prop_ratio_all combines handles and must never drive collective feedback/writes.
+PROP_HANDLES = 'sim/cockpit2/engine/actuators/prop_ratio'
+MAIN_COLLECTIVE_INDEX = 0
 ROUTE = ((47.60, -122.50), (47.75, -122.60), (47.90, -122.50), (47.75, -122.40))
 ROUTE_CENTER = (47.75, -122.50)
 ROUTE_LIMIT_METERS = 35000
@@ -71,6 +75,32 @@ class NativeApi:
 
     def write(self, name, value):
         self.request('/datarefs/' + str(self.identifier(name)) + '/value', {'data': value})
+
+    def read_index(self, name, index, timeout=None):
+        if type(index) is not int or index < 0:
+            raise DemoError('Invalid native array index')
+        def read_value():
+            path = '/datarefs/' + str(self.identifier(name, timeout)) + '/value?' + urlencode({'index': index})
+            return self.request(path, timeout=timeout)['data']
+        try:
+            data = read_value()
+        except HTTPError as error:
+            if error.code != 404:
+                raise
+            self.ids.pop(name, None)
+            data = read_value()
+        # X-Plane REST returns a one-element ARRAY even for one indexed member.
+        if not isinstance(data, list) or len(data) != 1 or type(data[0]) not in (int, float):
+            raise DemoError('Indexed native read must return one numeric element')
+        return number(data[0], 'indexed ' + name)
+
+    def write_index(self, name, index, value):
+        if type(index) is not int or index < 0 or type(value) not in (int, float):
+            raise DemoError('Invalid indexed native write')
+        value = number(value, 'indexed native write')
+        path = '/datarefs/' + str(self.identifier(name)) + '/value?' + urlencode({'index': index})
+        # Never read/replace the whole array, or retry an uncertain mutation.
+        self.request(path, {'data': value}, 'PATCH')
 
     def command(self, name, duration=.1, timeout=None):
         rows = self.request('/commands?' + urlencode({'filter[name]': name}), timeout=timeout)['data']
@@ -238,7 +268,9 @@ def safety_reasons(values):
     if values['sim/time/total_flight_time_sec'] < 0:
         raise DemoError('Negative native simulation clock')
     if not 0 <= values['sim/cockpit2/engine/actuators/prop_ratio_all'] <= 1:
-        raise DemoError('Native collective outside valid range')
+        raise DemoError('Native aggregate prop ratio outside valid range')
+    if 'mainCollective' in values and not 0 <= number(values['mainCollective'], 'MAIN collective') <= 1:
+        raise DemoError('Native MAIN collective outside valid range')
     for name in ('sim/time/paused', 'sim/cockpit2/autopilot/servos_on'):
         if values[name] not in (0, 1):
             raise DemoError('Invalid native state flag: ' + name)
@@ -320,7 +352,7 @@ def wait_for_airborne_readiness(api, clock=time, timeout=12):
             return (number(api.read(P + 'mag_psi'), 'startup magnetic heading') % 360,
                     number(api.read('sim/cockpit2/gauges/indicators/altitude_ft_pilot'), 'startup altitude'))
         previous = native_clock
-        api.write('sim/cockpit2/engine/actuators/prop_ratio_all', .5)
+        api.write_index(PROP_HANDLES, MAIN_COLLECTIVE_INDEX, .5)
         clock.sleep(.2)
     raise DemoError('Timed out waiting for fresh airborne IAS, engines, and advancing native clock')
 
@@ -384,7 +416,7 @@ def initialize_flight(api, route, clock=time, collective_assist=False):
     api.write('sim/cockpit2/engine/actuators/governor_on', [1, 1] + [0] * 14)
     api.write('sim/cockpit2/controls/gear_handle_down', 0)
     api.write('sim/cockpit2/controls/parking_brake_ratio', 0)
-    api.write('sim/cockpit2/engine/actuators/prop_ratio_all', .5)
+    api.write_index(PROP_HANDLES, MAIN_COLLECTIVE_INDEX, .5)
     api.write('sim/cockpit2/autopilot/autopilot_electric_master', 1)
     api.write('sim/cockpit2/switches/yaw_damper_on', 1)
     api.command('sim/autopilot/attitude')
@@ -416,7 +448,10 @@ def run_demo(args, api, clock=time):
                 if args.collective_assist else 'native S-76 hold selection; no external collective assist'),
             'collectiveAssist': args.collective_assist, 'commandedCollective': commanded_collective,
             'targetSpeedKt': 100., 'targetAltitudeFt': altitude, 'targetHeadingMag': heading,
-            'collective': collective, 'values': values}
+            'collective': collective, 'collectiveDataref': PROP_HANDLES,
+            'collectiveIndex': MAIN_COLLECTIVE_INDEX,
+            'aggregatePropRatio': values.get('sim/cockpit2/engine/actuators/prop_ratio_all'),
+            'values': values}
         if pause:
             report.update(pause)
         def clean(item):
@@ -445,7 +480,7 @@ def run_demo(args, api, clock=time):
         if not args.start and api.read('sim/cockpit2/autopilot/servos_on'):
             heading = number(api.read('sim/cockpit2/autopilot/heading_dial_deg_mag_pilot'), 'heading dial') % 360
             altitude = number(api.read('sim/cockpit2/autopilot/altitude_dial_ft'), 'altitude dial')
-        collective = number(api.read('sim/cockpit2/engine/actuators/prop_ratio_all'), 'collective')
+        collective = number(api.read_index(PROP_HANDLES, MAIN_COLLECTIVE_INDEX), 'MAIN collective')
         if not 0 <= collective <= 1:
             raise DemoError('Collective outside native range')
         if args.collective_assist:
@@ -459,10 +494,11 @@ def run_demo(args, api, clock=time):
             sample_started = clock.time()
             values, sample_completed = {}, None
             values = {name: api.read(name) for name in NAMES}
+            values['mainCollective'] = api.read_index(PROP_HANDLES, MAIN_COLLECTIVE_INDEX)
             sample_completed = clock.time()
             sample_sequence += 1
             reasons = safety_reasons(values)
-            collective = number(values['sim/cockpit2/engine/actuators/prop_ratio_all'], 'native collective')
+            collective = number(values['mainCollective'], 'native MAIN collective')
             if args.collective_assist and values['sim/cockpit2/autopilot/autothrottle_enabled'] != 0:
                 reasons.append('autothrottle/collective-assist conflict; AT must remain off')
             if sample_completed - sample_started > args.max_sample_age:
@@ -513,7 +549,7 @@ def run_demo(args, api, clock=time):
                     last_heading_write = now
                 if args.collective_assist:
                     commanded_collective = assisted_collective(commanded_collective, values[P + 'indicated_airspeed'], control_dt)
-                    api.write('sim/cockpit2/engine/actuators/prop_ratio_all', commanded_collective)
+                    api.write_index(PROP_HANDLES, MAIN_COLLECTIVE_INDEX, commanded_collective)
             if now - last_report >= 1:
                 report = publish('paused' if values['sim/time/paused'] else 'running')
                 last_report = now
