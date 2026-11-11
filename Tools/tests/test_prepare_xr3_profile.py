@@ -364,11 +364,24 @@ class FullProfileBundleTests(unittest.TestCase):
         self.assertEqual(hashlib.sha256(self.raw).hexdigest(),p.MANIFEST_SHA256)
         p.validate_manifest(m)
         self.assertEqual(len(m['files']),10348)
-        self.assertEqual(len(m['overlay']),784)
+        self.assertEqual(len(m['overlay']),800)
         self.assertEqual(len(m['removals']),145)
         self.assertEqual(m['counts']['baselineFiles']-145+m['counts']['newFiles']+2007,len(m['files']))
         self.assertEqual(m['countAdjustment']['orphanCacheMetaFilesExcludedFromWholeProject'],17)
         self.assertFalse(any(p.excluded(name)for name in [*m['files'],*m['directories']]))
+
+    def test_python_toolchain_c_sources_are_excluded_from_players(self):
+        # IL2CPP compiles every enabled .c/.cpp plugin source into the player; the Py-ART
+        # sources belong to the external Python toolchain and must stay disabled for all platforms.
+        names=[n for n in self.manifest['files'] if n.startswith('Assets/ExternalTools/Python/') and n.endswith(('.c.meta','.cpp.meta'))]
+        self.assertEqual(len(names),16)
+        for name in names:
+            with self.subTest(name=name):
+                change=self.manifest['overlay'][name]
+                self.assertEqual(change['kind'],'replace')
+                text=(self.repo/change['gitPath']).read_text()
+                self.assertRegex(text,r'- first:\n\s+Any: ?\n\s+second:\n\s+enabled: 0\n')
+                self.assertNotRegex(text,r'enabled: 1')
 
     def test_every_overlay_payload_matches_exact_frozen_file_hash_and_guid(self):
         for name,change in self.manifest['overlay'].items():

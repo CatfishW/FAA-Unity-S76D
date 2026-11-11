@@ -87,6 +87,71 @@ Logs and source-diff evidence remain in the timestamped artifacts directory.
 Set `UNITY_EDITOR` to an alternate path for the same installed editor version.
 No commit, push, server deployment or source-package replacement is performed.
 
+## IL2CPP build on the Windows headset PC (2026-11-11)
+
+The native access-violation captures recorded in October all faulted inside the Mono
+runtime: JIT-compiled frames, Mono's exception unwinder and Mono's managed memcpy.
+Unity 6000.3 and 6000.5 ship the same Mono DLL. The release build can therefore
+compile the scripts ahead of time with IL2CPP instead of running them on the Mono JIT.
+
+`FAA.Headset.Editor.XR3ReleaseBuild.BuildWindows64` takes `-xr3Backend il2cpp`. Mono
+stays the default, because Windows IL2CPP players can only be built by a Windows Editor.
+IL2CPP builds use the Release C++ configuration and Minimal managed stripping. The
+build fails on any error, as before, except error messages from the editor-only MCP for
+Unity bridge, which can log a connection failure while the build reloads domains. Those
+are listed separately in `build-report.json` as `ignoredEditorToolErrors`.
+
+Windows builder requirements: Unity 6000.3.27f1 with the Windows Build Support (IL2CPP)
+module, Visual Studio 2022 Build Tools with MSVC v143 and a Windows 10/11 SDK (tested with
+17.14 and SDK 10.0.26100), Git and Git LFS on PATH (the Varjo package is a Git
+dependency), Python 3 for the profile materializer, and an activated Unity licence.
+
+```bat
+python Tools\prepare_xr3_profile.py --output C:\faa\p --download-cesium
+"C:\Program Files\Unity\Hub\Editor\6000.3.27f1\Editor\Unity.exe" -batchmode -quit ^
+  -projectPath C:/faa/p -buildTarget Win64 ^
+  -executeMethod FAA.Headset.Editor.XR3ReleaseBuild.BuildWindows64 ^
+  -xr3Backend il2cpp -xr3Output C:/faa/out/FAA-XR3.exe -logFile C:/faa/build.log
+```
+
+Run the build from the signed-in desktop session (graphics enabled), not from a
+non-interactive service context. If the materializer runs from an elevated shell, the
+output folder can inherit an administrators-only access list. Grant the building user
+access before opening it in a normal Editor session, otherwise Unity reports
+`Couldn't set project path`. The project's version-control mode is Hidden Meta Files,
+so on Windows every `.meta` file carries the hidden attribute. Unity reads them
+normally; scripts that edit them must clear and restore the attribute.
+
+IL2CPP compiles every enabled C/C++ plugin source in the project into the player. The
+Py-ART `.c` sources under `Assets/ExternalTools/Python` belong to the external Python
+weather toolchain, and their importer settings enabled them for every platform. The full
+profile overlay now disables them for all platforms (16 metadata replacements). Mono
+builds ignored them, so this does not change the Mono player.
+
+### Measured result
+
+The full profile at commit `16fbe8e1`, with the three changes above, built on the 4090
+headset PC with Unity 6000.3.27f1: Result Succeeded, 0 errors, 222 warnings, a
+2,479,049,093-byte player. A 60-minute native mixed-reality run followed: Varjo XR-3
+connected, video passthrough, zero application arguments, no debugger attached. It
+recorded 240 samples at 15-second intervals. The XR display ran in all 240, median
+application frame rate was 89.0 fps (minimum 35.9), private memory was 2,477 MB at the
+start and 2,474 MB at the end, and there was no Windows application-error event. The
+player log contained no exception or error line other than network time-outs. The X-Plane
+link from the headset PC to the 3080 answered in about 20 seconds per request during the
+test, so the flight feed was never eligible. Data-driven traffic and HUD paths were
+therefore not exercised. The previous Mono build ran normally on the same machine
+immediately before the test.
+
+The first IL2CPP start was slow while Windows Defender scanned the new player. A
+second, stalled start was caused by a non-invasive debugger snapshot that was
+interrupted while attached, which left the player's threads suspended. Do not take
+`cdb -pv` snapshots of a run whose duration is being measured.
+
+This is evidence about one bounded run without live flight data. It is not yet proof
+that the October fault cannot recur. Repeat it with a healthy live flight feed and for
+longer endurance before treating IL2CPP as the release default.
+
 ## Physical acceptance check
 
 Before a pilot demonstration, verify both-eye rendering, stable head pose,

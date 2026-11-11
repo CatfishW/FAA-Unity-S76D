@@ -61,8 +61,11 @@ their frozen bytes; new component/test metadata matches the approved candidate.
 Ten affected flattened runtime sources and their metadata
 are synchronized, with all 46 source snapshots mapped by `flattenedSnapshots`.
 
-The scoped delta is 453 new files, 321 replacements, 145 removals and ten Cesium
-import-metadata replacements: 784 overlay payloads, about 102.58 MB uncompressed.
+The scoped delta is 453 new files, 337 replacements, 145 removals and ten Cesium
+import-metadata replacements: 800 overlay payloads, about 102.60 MB uncompressed.
+The IL2CPP revision adds 16 of those replacements: the Py-ART `.c` plugin metadata under
+`Assets/ExternalTools/Python` is disabled for every platform, because IL2CPP compiles
+enabled C sources into the player and these belong to the external Python toolchain.
 The initial audit counted 760 non-Cesium changes; excluding orphan cache metadata
 reduced the baseline to 759; the reviewed repairs and the raster fixture add 15 overlay paths and update 11
 existing payloads. Seventeen `__pycache__.meta` markers are excluded from the

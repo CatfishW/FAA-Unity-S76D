@@ -171,12 +171,12 @@
   "counts": {
     "baselineFiles": 8033,
     "baselineLfsPointers": 1029,
-    "changedFiles": 321,
-    "fullBytes": 4007105954,
+    "changedFiles": 337,
+    "fullBytes": 4007109211,
     "fullFiles": 10348,
     "newFiles": 453,
-    "overlayBytes": 102587602,
-    "overlayFiles": 784,
+    "overlayBytes": 102599275,
+    "overlayFiles": 800,
     "removedFiles": 145
   },
   "dependencies": {
@@ -1228,7 +1228,7 @@
     },
     "Assets/ExternalTools/Python/pyart/__check_build/_check_build.c.meta": {
       "executable": false,
-      "sha256": "79d8c20eae276eb437b848f7feffaa5c0ae2fc6788864a9416ba3847b513c100",
+      "sha256": "780474924b1601b3a6e14a387d03384a7207da5ade3bf626661c5502f9f6933c",
       "size": 526
     },
     "Assets/ExternalTools/Python/pyart/__check_build/_check_build.cp310-win_amd64.pyd": {
@@ -1568,7 +1568,7 @@
     },
     "Assets/ExternalTools/Python/pyart/correct/_fast_edge_finder.c.meta": {
       "executable": false,
-      "sha256": "d0b44e3dcc6a709b5df454bc552223297fd6c4b187ec5705f093059d59c7cbe0",
+      "sha256": "9c753327d2f6690aec3eff7a76727bff37d1604d722f2a806365422fe557714e",
       "size": 526
     },
     "Assets/ExternalTools/Python/pyart/correct/_fast_edge_finder.cp310-win_amd64.pyd": {
@@ -1618,7 +1618,7 @@
     },
     "Assets/ExternalTools/Python/pyart/correct/_unwrap_1d.c.meta": {
       "executable": false,
-      "sha256": "85bbd9c70823075179b728eaf87ac5d0a782efe5633aef0e38eaeb230f690f0e",
+      "sha256": "9f92e3a35e6b7d8332e40bec66f27e2585ace326d21c3f443ec1ccddb5601f10",
       "size": 526
     },
     "Assets/ExternalTools/Python/pyart/correct/_unwrap_1d.cp310-win_amd64.pyd": {
@@ -1648,7 +1648,7 @@
     },
     "Assets/ExternalTools/Python/pyart/correct/_unwrap_2d.c.meta": {
       "executable": false,
-      "sha256": "24f14e1744c24ab90be2540a083526504e9ceaf91c681ffe601b5332b98727c2",
+      "sha256": "991f78f2a44c41ebed6c05e087eb1f265503f8967d25c5fd9880b8eccceb7612",
       "size": 526
     },
     "Assets/ExternalTools/Python/pyart/correct/_unwrap_2d.cp310-win_amd64.pyd": {
@@ -1678,7 +1678,7 @@
     },
     "Assets/ExternalTools/Python/pyart/correct/_unwrap_3d.c.meta": {
       "executable": false,
-      "sha256": "02c874b7f211fe721b8d5a12db57e1c88179825546893c4201b38f2a1d5721fe",
+      "sha256": "d6e861c7607b3af4cc24f71cd7231aba3862b7858522910f31eae8352847a9d7",
       "size": 526
     },
     "Assets/ExternalTools/Python/pyart/correct/_unwrap_3d.cp310-win_amd64.pyd": {
@@ -1803,7 +1803,7 @@
     },
     "Assets/ExternalTools/Python/pyart/correct/src/dealias_fourdd.c.meta": {
       "executable": false,
-      "sha256": "d9b640d6d131ec1d339fcedbe1074a585d317f72bcc499669f23accc03247d15",
+      "sha256": "82acfbf273d5af130d25187ffa1a03eec21aa186af39822c9b055deacb34bd3b",
       "size": 526
     },
     "Assets/ExternalTools/Python/pyart/correct/src/dealias_fourdd.h": {
@@ -1823,7 +1823,7 @@
     },
     "Assets/ExternalTools/Python/pyart/correct/src/helpers.c.meta": {
       "executable": false,
-      "sha256": "a8e2dac7c11b34c539436145e736fa2014d4d1687ba16db0d7387de1465c03b1",
+      "sha256": "1bb729e041b85767730749b8cb76ac72af42e8df8b5a9c48f884f2f5008520a9",
       "size": 526
     },
     "Assets/ExternalTools/Python/pyart/correct/src/helpers.h": {
@@ -1843,7 +1843,7 @@
     },
     "Assets/ExternalTools/Python/pyart/correct/src/sounding_to_volume.c.meta": {
       "executable": false,
-      "sha256": "894df2793f5d962869feb61f46778143b3ca565d3f59d915f87f61468b82fbc8",
+      "sha256": "df70226079e9296162aef12ed391a5ffa1a4590839f8a0bfbcdaef39e512890b",
       "size": 526
     },
     "Assets/ExternalTools/Python/pyart/correct/src/sounding_to_volume.h": {
@@ -1873,7 +1873,7 @@
     },
     "Assets/ExternalTools/Python/pyart/correct/unwrap_2d_ljmu.c.meta": {
       "executable": false,
-      "sha256": "4b42e26f383110b1ebc9b66de53ea35427405074c5436ee678fba21fd1e33d1c",
+      "sha256": "4c7a148c387927d3a83ae7a156040aa75d39db1c5791d49aa3e0a90a99df8b11",
       "size": 526
     },
     "Assets/ExternalTools/Python/pyart/correct/unwrap_3d_ljmu.c": {
@@ -1883,7 +1883,7 @@
     },
     "Assets/ExternalTools/Python/pyart/correct/unwrap_3d_ljmu.c.meta": {
       "executable": false,
-      "sha256": "2bf34f5b5770c4d94f1ef08a35632dc47a432960f843578e7ac316207da69a9d",
+      "sha256": "31abbe37205e352e0f704b339719e9c47d810f833a5328786e729e02c7580b90",
       "size": 526
     },
     "Assets/ExternalTools/Python/pyart/default_config.py": {
@@ -2178,7 +2178,7 @@
     },
     "Assets/ExternalTools/Python/pyart/io/_sigmetfile.c.meta": {
       "executable": false,
-      "sha256": "46f8236c55111c7b7b15cf5bda488775b0f5f27017e280e80508449d89032ffc",
+      "sha256": "9e6f3396b0d97d31e3dafc1bae39ab984916fb484ad11ed4eb4a0de155bea1cb",
       "size": 526
     },
     "Assets/ExternalTools/Python/pyart/io/_sigmetfile.cp310-win_amd64.pyd": {
@@ -2328,7 +2328,7 @@
     },
     "Assets/ExternalTools/Python/pyart/io/nexrad_interpolate.c.meta": {
       "executable": false,
-      "sha256": "ecf916230abf00b7e6a6a31a3c699867a0b86a9539b110456f89ba4d18a389be",
+      "sha256": "c857661d35126c9d7c2b1bb62913e2c1114255f7fd67cac7b920d559890a60b3",
       "size": 526
     },
     "Assets/ExternalTools/Python/pyart/io/nexrad_interpolate.cp310-win_amd64.pyd": {
@@ -2493,7 +2493,7 @@
     },
     "Assets/ExternalTools/Python/pyart/map/_gate_to_grid_map.c.meta": {
       "executable": false,
-      "sha256": "5b571b062974c97009a76cf7c89cd55ce286125e609fae7d401ba4e8974d08d8",
+      "sha256": "e28a99b23042a0cf1a842fbdb9bbd8a740bb2c3a95baeb677bb0e1f88470edc4",
       "size": 526
     },
     "Assets/ExternalTools/Python/pyart/map/_gate_to_grid_map.cp310-win_amd64.pyd": {
@@ -2523,7 +2523,7 @@
     },
     "Assets/ExternalTools/Python/pyart/map/_load_nn_field_data.c.meta": {
       "executable": false,
-      "sha256": "663b9f56f4c018fb0888c68b869e6a9752c4d5a78a8c281dfd6d15c46dfa418b",
+      "sha256": "d9664b775a7a8c4bf174a3cbb6e7af76109cede1ca292537448787b7be88a77b",
       "size": 526
     },
     "Assets/ExternalTools/Python/pyart/map/_load_nn_field_data.cp310-win_amd64.pyd": {
@@ -2553,7 +2553,7 @@
     },
     "Assets/ExternalTools/Python/pyart/map/ckdtree.c.meta": {
       "executable": false,
-      "sha256": "78b64317fd3dccf7249180c2146504f9426033338ec2f0e5688d9559a00ee0e6",
+      "sha256": "4ffc8c0fb68ac88ab272e51e58845b915fa707cb6a90cbd8f8646d1f9fa84a21",
       "size": 526
     },
     "Assets/ExternalTools/Python/pyart/map/ckdtree.cp310-win_amd64.pyd": {
@@ -2688,7 +2688,7 @@
     },
     "Assets/ExternalTools/Python/pyart/retrieve/_kdp_proc.c.meta": {
       "executable": false,
-      "sha256": "433498f53bf60d615a8708daefb01468302c2986539d84c51e86f74bc1744ba3",
+      "sha256": "363656249084cc18e312cc89d268ec40642fb07fa6519d8e300c43224f803ca9",
       "size": 526
     },
     "Assets/ExternalTools/Python/pyart/retrieve/_kdp_proc.cp310-win_amd64.pyd": {
@@ -27053,8 +27053,8 @@
     },
     "Assets/_Project/Scripts/Headset/Editor/XR3ReleaseBuild.cs": {
       "executable": false,
-      "sha256": "504ab5199c84b80fb930b03b9d50788b890578de7ea90a62720e7b397ebd4876",
-      "size": 12283
+      "sha256": "7199f3d44f07a0b82ec178cfb07d6f6c189e3aecf5597e0f0ef8fb414bcaf0e2",
+      "size": 15540
     },
     "Assets/_Project/Scripts/Headset/Editor/XR3ReleaseBuild.cs.meta": {
       "executable": false,
@@ -53045,6 +53045,15 @@
         "size": 16045
       }
     },
+    "Assets/ExternalTools/Python/pyart/__check_build/_check_build.c.meta": {
+      "gitPath": "SourceProfiles~/XR3Integration/project-overlay/files/Assets/ExternalTools/Python/pyart/__check_build/_check_build.c.meta",
+      "kind": "replace",
+      "previous": {
+        "executable": false,
+        "sha256": "79d8c20eae276eb437b848f7feffaa5c0ae2fc6788864a9416ba3847b513c100",
+        "size": 526
+      }
+    },
     "Assets/ExternalTools/Python/pyart/__check_build/_check_build.cp310-win_amd64.pyd": {
       "gitPath": "SourceProfiles~/XR3Integration/project-overlay/files/Assets/ExternalTools/Python/pyart/__check_build/_check_build.cp310-win_amd64.pyd",
       "kind": "add",
@@ -53054,6 +53063,15 @@
       "gitPath": "SourceProfiles~/XR3Integration/project-overlay/files/Assets/ExternalTools/Python/pyart/__check_build/_check_build.cp310-win_amd64.pyd.meta",
       "kind": "add",
       "previous": null
+    },
+    "Assets/ExternalTools/Python/pyart/correct/_fast_edge_finder.c.meta": {
+      "gitPath": "SourceProfiles~/XR3Integration/project-overlay/files/Assets/ExternalTools/Python/pyart/correct/_fast_edge_finder.c.meta",
+      "kind": "replace",
+      "previous": {
+        "executable": false,
+        "sha256": "d0b44e3dcc6a709b5df454bc552223297fd6c4b187ec5705f093059d59c7cbe0",
+        "size": 526
+      }
     },
     "Assets/ExternalTools/Python/pyart/correct/_fast_edge_finder.cp310-win_amd64.pyd": {
       "gitPath": "SourceProfiles~/XR3Integration/project-overlay/files/Assets/ExternalTools/Python/pyart/correct/_fast_edge_finder.cp310-win_amd64.pyd",
@@ -53065,6 +53083,15 @@
       "kind": "add",
       "previous": null
     },
+    "Assets/ExternalTools/Python/pyart/correct/_unwrap_1d.c.meta": {
+      "gitPath": "SourceProfiles~/XR3Integration/project-overlay/files/Assets/ExternalTools/Python/pyart/correct/_unwrap_1d.c.meta",
+      "kind": "replace",
+      "previous": {
+        "executable": false,
+        "sha256": "85bbd9c70823075179b728eaf87ac5d0a782efe5633aef0e38eaeb230f690f0e",
+        "size": 526
+      }
+    },
     "Assets/ExternalTools/Python/pyart/correct/_unwrap_1d.cp310-win_amd64.pyd": {
       "gitPath": "SourceProfiles~/XR3Integration/project-overlay/files/Assets/ExternalTools/Python/pyart/correct/_unwrap_1d.cp310-win_amd64.pyd",
       "kind": "add",
@@ -53074,6 +53101,15 @@
       "gitPath": "SourceProfiles~/XR3Integration/project-overlay/files/Assets/ExternalTools/Python/pyart/correct/_unwrap_1d.cp310-win_amd64.pyd.meta",
       "kind": "add",
       "previous": null
+    },
+    "Assets/ExternalTools/Python/pyart/correct/_unwrap_2d.c.meta": {
+      "gitPath": "SourceProfiles~/XR3Integration/project-overlay/files/Assets/ExternalTools/Python/pyart/correct/_unwrap_2d.c.meta",
+      "kind": "replace",
+      "previous": {
+        "executable": false,
+        "sha256": "24f14e1744c24ab90be2540a083526504e9ceaf91c681ffe601b5332b98727c2",
+        "size": 526
+      }
     },
     "Assets/ExternalTools/Python/pyart/correct/_unwrap_2d.cp310-win_amd64.pyd": {
       "gitPath": "SourceProfiles~/XR3Integration/project-overlay/files/Assets/ExternalTools/Python/pyart/correct/_unwrap_2d.cp310-win_amd64.pyd",
@@ -53085,6 +53121,15 @@
       "kind": "add",
       "previous": null
     },
+    "Assets/ExternalTools/Python/pyart/correct/_unwrap_3d.c.meta": {
+      "gitPath": "SourceProfiles~/XR3Integration/project-overlay/files/Assets/ExternalTools/Python/pyart/correct/_unwrap_3d.c.meta",
+      "kind": "replace",
+      "previous": {
+        "executable": false,
+        "sha256": "02c874b7f211fe721b8d5a12db57e1c88179825546893c4201b38f2a1d5721fe",
+        "size": 526
+      }
+    },
     "Assets/ExternalTools/Python/pyart/correct/_unwrap_3d.cp310-win_amd64.pyd": {
       "gitPath": "SourceProfiles~/XR3Integration/project-overlay/files/Assets/ExternalTools/Python/pyart/correct/_unwrap_3d.cp310-win_amd64.pyd",
       "kind": "add",
@@ -53094,6 +53139,60 @@
       "gitPath": "SourceProfiles~/XR3Integration/project-overlay/files/Assets/ExternalTools/Python/pyart/correct/_unwrap_3d.cp310-win_amd64.pyd.meta",
       "kind": "add",
       "previous": null
+    },
+    "Assets/ExternalTools/Python/pyart/correct/src/dealias_fourdd.c.meta": {
+      "gitPath": "SourceProfiles~/XR3Integration/project-overlay/files/Assets/ExternalTools/Python/pyart/correct/src/dealias_fourdd.c.meta",
+      "kind": "replace",
+      "previous": {
+        "executable": false,
+        "sha256": "d9b640d6d131ec1d339fcedbe1074a585d317f72bcc499669f23accc03247d15",
+        "size": 526
+      }
+    },
+    "Assets/ExternalTools/Python/pyart/correct/src/helpers.c.meta": {
+      "gitPath": "SourceProfiles~/XR3Integration/project-overlay/files/Assets/ExternalTools/Python/pyart/correct/src/helpers.c.meta",
+      "kind": "replace",
+      "previous": {
+        "executable": false,
+        "sha256": "a8e2dac7c11b34c539436145e736fa2014d4d1687ba16db0d7387de1465c03b1",
+        "size": 526
+      }
+    },
+    "Assets/ExternalTools/Python/pyart/correct/src/sounding_to_volume.c.meta": {
+      "gitPath": "SourceProfiles~/XR3Integration/project-overlay/files/Assets/ExternalTools/Python/pyart/correct/src/sounding_to_volume.c.meta",
+      "kind": "replace",
+      "previous": {
+        "executable": false,
+        "sha256": "894df2793f5d962869feb61f46778143b3ca565d3f59d915f87f61468b82fbc8",
+        "size": 526
+      }
+    },
+    "Assets/ExternalTools/Python/pyart/correct/unwrap_2d_ljmu.c.meta": {
+      "gitPath": "SourceProfiles~/XR3Integration/project-overlay/files/Assets/ExternalTools/Python/pyart/correct/unwrap_2d_ljmu.c.meta",
+      "kind": "replace",
+      "previous": {
+        "executable": false,
+        "sha256": "4b42e26f383110b1ebc9b66de53ea35427405074c5436ee678fba21fd1e33d1c",
+        "size": 526
+      }
+    },
+    "Assets/ExternalTools/Python/pyart/correct/unwrap_3d_ljmu.c.meta": {
+      "gitPath": "SourceProfiles~/XR3Integration/project-overlay/files/Assets/ExternalTools/Python/pyart/correct/unwrap_3d_ljmu.c.meta",
+      "kind": "replace",
+      "previous": {
+        "executable": false,
+        "sha256": "2bf34f5b5770c4d94f1ef08a35632dc47a432960f843578e7ac316207da69a9d",
+        "size": 526
+      }
+    },
+    "Assets/ExternalTools/Python/pyart/io/_sigmetfile.c.meta": {
+      "gitPath": "SourceProfiles~/XR3Integration/project-overlay/files/Assets/ExternalTools/Python/pyart/io/_sigmetfile.c.meta",
+      "kind": "replace",
+      "previous": {
+        "executable": false,
+        "sha256": "46f8236c55111c7b7b15cf5bda488775b0f5f27017e280e80508449d89032ffc",
+        "size": 526
+      }
     },
     "Assets/ExternalTools/Python/pyart/io/_sigmetfile.cp310-win_amd64.pyd": {
       "gitPath": "SourceProfiles~/XR3Integration/project-overlay/files/Assets/ExternalTools/Python/pyart/io/_sigmetfile.cp310-win_amd64.pyd",
@@ -53105,6 +53204,15 @@
       "kind": "add",
       "previous": null
     },
+    "Assets/ExternalTools/Python/pyart/io/nexrad_interpolate.c.meta": {
+      "gitPath": "SourceProfiles~/XR3Integration/project-overlay/files/Assets/ExternalTools/Python/pyart/io/nexrad_interpolate.c.meta",
+      "kind": "replace",
+      "previous": {
+        "executable": false,
+        "sha256": "ecf916230abf00b7e6a6a31a3c699867a0b86a9539b110456f89ba4d18a389be",
+        "size": 526
+      }
+    },
     "Assets/ExternalTools/Python/pyart/io/nexrad_interpolate.cp310-win_amd64.pyd": {
       "gitPath": "SourceProfiles~/XR3Integration/project-overlay/files/Assets/ExternalTools/Python/pyart/io/nexrad_interpolate.cp310-win_amd64.pyd",
       "kind": "add",
@@ -53114,6 +53222,15 @@
       "gitPath": "SourceProfiles~/XR3Integration/project-overlay/files/Assets/ExternalTools/Python/pyart/io/nexrad_interpolate.cp310-win_amd64.pyd.meta",
       "kind": "add",
       "previous": null
+    },
+    "Assets/ExternalTools/Python/pyart/map/_gate_to_grid_map.c.meta": {
+      "gitPath": "SourceProfiles~/XR3Integration/project-overlay/files/Assets/ExternalTools/Python/pyart/map/_gate_to_grid_map.c.meta",
+      "kind": "replace",
+      "previous": {
+        "executable": false,
+        "sha256": "5b571b062974c97009a76cf7c89cd55ce286125e609fae7d401ba4e8974d08d8",
+        "size": 526
+      }
     },
     "Assets/ExternalTools/Python/pyart/map/_gate_to_grid_map.cp310-win_amd64.pyd": {
       "gitPath": "SourceProfiles~/XR3Integration/project-overlay/files/Assets/ExternalTools/Python/pyart/map/_gate_to_grid_map.cp310-win_amd64.pyd",
@@ -53125,6 +53242,15 @@
       "kind": "add",
       "previous": null
     },
+    "Assets/ExternalTools/Python/pyart/map/_load_nn_field_data.c.meta": {
+      "gitPath": "SourceProfiles~/XR3Integration/project-overlay/files/Assets/ExternalTools/Python/pyart/map/_load_nn_field_data.c.meta",
+      "kind": "replace",
+      "previous": {
+        "executable": false,
+        "sha256": "663b9f56f4c018fb0888c68b869e6a9752c4d5a78a8c281dfd6d15c46dfa418b",
+        "size": 526
+      }
+    },
     "Assets/ExternalTools/Python/pyart/map/_load_nn_field_data.cp310-win_amd64.pyd": {
       "gitPath": "SourceProfiles~/XR3Integration/project-overlay/files/Assets/ExternalTools/Python/pyart/map/_load_nn_field_data.cp310-win_amd64.pyd",
       "kind": "add",
@@ -53135,6 +53261,15 @@
       "kind": "add",
       "previous": null
     },
+    "Assets/ExternalTools/Python/pyart/map/ckdtree.c.meta": {
+      "gitPath": "SourceProfiles~/XR3Integration/project-overlay/files/Assets/ExternalTools/Python/pyart/map/ckdtree.c.meta",
+      "kind": "replace",
+      "previous": {
+        "executable": false,
+        "sha256": "78b64317fd3dccf7249180c2146504f9426033338ec2f0e5688d9559a00ee0e6",
+        "size": 526
+      }
+    },
     "Assets/ExternalTools/Python/pyart/map/ckdtree.cp310-win_amd64.pyd": {
       "gitPath": "SourceProfiles~/XR3Integration/project-overlay/files/Assets/ExternalTools/Python/pyart/map/ckdtree.cp310-win_amd64.pyd",
       "kind": "add",
@@ -53144,6 +53279,15 @@
       "gitPath": "SourceProfiles~/XR3Integration/project-overlay/files/Assets/ExternalTools/Python/pyart/map/ckdtree.cp310-win_amd64.pyd.meta",
       "kind": "add",
       "previous": null
+    },
+    "Assets/ExternalTools/Python/pyart/retrieve/_kdp_proc.c.meta": {
+      "gitPath": "SourceProfiles~/XR3Integration/project-overlay/files/Assets/ExternalTools/Python/pyart/retrieve/_kdp_proc.c.meta",
+      "kind": "replace",
+      "previous": {
+        "executable": false,
+        "sha256": "433498f53bf60d615a8708daefb01468302c2986539d84c51e86f74bc1744ba3",
+        "size": 526
+      }
     },
     "Assets/ExternalTools/Python/pyart/retrieve/_kdp_proc.cp310-win_amd64.pyd": {
       "gitPath": "SourceProfiles~/XR3Integration/project-overlay/files/Assets/ExternalTools/Python/pyart/retrieve/_kdp_proc.cp310-win_amd64.pyd",
