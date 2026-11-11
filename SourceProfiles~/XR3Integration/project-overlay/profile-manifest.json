@@ -156,7 +156,7 @@
   "baselineCommitProvenance": "1d92bbb0",
   "baselineTrees": {
     "Assets": "e6580cd58e9228847fa35199e014c2011b7d3a29",
-    "Packages": "af3496808ead10ed241f7f70abc9d44b4d714a3a",
+    "Packages": "ec75294d4b03e048011e6975629d0a7e58bf34fa",
     "ProjectSettings": "f0aab97c515749e586ec9b2711a2bd4d79b0e84b"
   },
   "countAdjustment": {
@@ -172,7 +172,7 @@
     "baselineFiles": 8033,
     "baselineLfsPointers": 1029,
     "changedFiles": 337,
-    "fullBytes": 4007109211,
+    "fullBytes": 4007109743,
     "fullFiles": 10348,
     "newFiles": 453,
     "overlayBytes": 102599275,
@@ -46948,8 +46948,8 @@
     },
     "Packages/com.ultraleap.tracking/Core/Runtime/Plugins/LeapCSharp/Connection.cs": {
       "executable": false,
-      "sha256": "f314ae0e51c4f168b63e41aec2d74b2873a04001bec6ed3e2f235dc6c2028ecb",
-      "size": 62017
+      "sha256": "709ec75ba4bc873ee4d72750f74eadac1799f019daff985b04cbe8c0c3a250f5",
+      "size": 62549
     },
     "Packages/com.ultraleap.tracking/Core/Runtime/Plugins/LeapCSharp/Connection.cs.meta": {
       "executable": false,

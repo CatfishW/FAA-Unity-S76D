@@ -42,8 +42,11 @@ root trees must match the reviewed baseline:
 | Root | Git tree |
 |---|---|
 | Assets | `e6580cd58e9228847fa35199e014c2011b7d3a29` |
-| Packages | `af3496808ead10ed241f7f70abc9d44b4d714a3a` |
+| Packages | `ec75294d4b03e048011e6975629d0a7e58bf34fa` |
 | ProjectSettings | `f0aab97c515749e586ec9b2711a2bd4d79b0e84b` |
+
+The Packages tree changed on 2026-11-11 (previously `af349680`) for the Ultraleap
+interpolation guard in `LeapCSharp/Connection.cs`, described in `XR3_WINDOWS_BUILD.md`.
 
 Commit `1d92bbb0` is provenance, not a required ancestor object. A depth-one clone
 works when those root trees are unchanged and the committed profile matches the
