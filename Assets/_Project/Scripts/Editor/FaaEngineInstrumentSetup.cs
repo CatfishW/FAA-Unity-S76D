@@ -14,8 +14,8 @@ public static class FaaEngineInstrumentSetup
     {
         if (EditorApplication.isPlayingOrWillChangePlaymode) return;
         var scene = UnityEngine.SceneManagement.SceneManager.GetActiveScene();
-        var bridge = Object.FindObjectsByType<XPlane12ApiHudBridge>(FindObjectsInactive.Include).FirstOrDefault(x => x.gameObject.scene == scene);
-        foreach (var root in Object.FindObjectsByType<Transform>(FindObjectsInactive.Include))
+        var bridge = Object.FindObjectsByType<XPlane12ApiHudBridge>(FindObjectsInactive.Include, UnityEngine.FindObjectsSortMode.None).FirstOrDefault(x => x.gameObject.scene == scene);
+        foreach (var root in Object.FindObjectsByType<Transform>(FindObjectsInactive.Include, UnityEngine.FindObjectsSortMode.None))
         {
             if (root.gameObject.scene != scene) continue;
             FaaEngineInstrument kind;

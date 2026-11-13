@@ -87,6 +87,71 @@ Logs and source-diff evidence remain in the timestamped artifacts directory.
 Set `UNITY_EDITOR` to an alternate path for the same installed editor version.
 No commit, push, server deployment or source-package replacement is performed.
 
+## IL2CPP build on the Windows headset PC (2026-11-11)
+
+The native access-violation captures recorded in October all faulted inside the Mono
+runtime: JIT-compiled frames, Mono's exception unwinder and Mono's managed memcpy.
+Unity 6000.3 and 6000.5 ship the same Mono DLL. The release build can therefore
+compile the scripts ahead of time with IL2CPP instead of running them on the Mono JIT.
+
+`FAA.Headset.Editor.XR3ReleaseBuild.BuildWindows64` takes `-xr3Backend il2cpp`. Mono
+stays the default, because Windows IL2CPP players can only be built by a Windows Editor.
+IL2CPP builds use the Release C++ configuration and Minimal managed stripping. The
+build fails on any error, as before, except error messages from the editor-only MCP for
+Unity bridge, which can log a connection failure while the build reloads domains. Those
+are listed separately in `build-report.json` as `ignoredEditorToolErrors`.
+
+Windows builder requirements: Unity 6000.3.27f1 with the Windows Build Support (IL2CPP)
+module, Visual Studio 2022 Build Tools with MSVC v143 and a Windows 10/11 SDK (tested with
+17.14 and SDK 10.0.26100), Git and Git LFS on PATH (the Varjo package is a Git
+dependency), Python 3 for the profile materializer, and an activated Unity licence.
+
+```bat
+python Tools\prepare_xr3_profile.py --output C:\faa\p --download-cesium
+"C:\Program Files\Unity\Hub\Editor\6000.3.27f1\Editor\Unity.exe" -batchmode -quit ^
+  -projectPath C:/faa/p -buildTarget Win64 ^
+  -executeMethod FAA.Headset.Editor.XR3ReleaseBuild.BuildWindows64 ^
+  -xr3Backend il2cpp -xr3Output C:/faa/out/FAA-XR3.exe -logFile C:/faa/build.log
+```
+
+Run the build from the signed-in desktop session (graphics enabled), not from a
+non-interactive service context. If the materializer runs from an elevated shell, the
+output folder can inherit an administrators-only access list. Grant the building user
+access before opening it in a normal Editor session, otherwise Unity reports
+`Couldn't set project path`. The project's version-control mode is Hidden Meta Files,
+so on Windows every `.meta` file carries the hidden attribute. Unity reads them
+normally; scripts that edit them must clear and restore the attribute.
+
+IL2CPP compiles every enabled C/C++ plugin source in the project into the player. The
+Py-ART `.c` sources under `Assets/ExternalTools/Python` belong to the external Python
+weather toolchain, and their importer settings enabled them for every platform. The full
+profile overlay now disables them for all platforms (16 metadata replacements). Mono
+builds ignored them, so this does not change the Mono player.
+
+### Measured result
+
+The full profile at commit `16fbe8e1`, with the three changes above, built on the 4090
+headset PC with Unity 6000.3.27f1: Result Succeeded, 0 errors, 222 warnings, a
+2,479,049,093-byte player. A 60-minute native mixed-reality run followed: Varjo XR-3
+connected, video passthrough, zero application arguments, no debugger attached. It
+recorded 240 samples at 15-second intervals. The XR display ran in all 240, median
+application frame rate was 89.0 fps (minimum 35.9), private memory was 2,477 MB at the
+start and 2,474 MB at the end, and there was no Windows application-error event. The
+player log contained no exception or error line other than network time-outs. The X-Plane
+link from the headset PC to the 3080 answered in about 20 seconds per request during the
+test, so the flight feed was never eligible. Data-driven traffic and HUD paths were
+therefore not exercised. The previous Mono build ran normally on the same machine
+immediately before the test.
+
+The first IL2CPP start was slow while Windows Defender scanned the new player. A
+second, stalled start was caused by a non-invasive debugger snapshot that was
+interrupted while attached, which left the player's threads suspended. Do not take
+`cdb -pv` snapshots of a run whose duration is being measured.
+
+This is evidence about one bounded run without live flight data. It is not yet proof
+that the October fault cannot recur. Repeat it with a healthy live flight feed and for
+longer endurance before treating IL2CPP as the release default.
+
 ## Physical acceptance check
 
 Before a pilot demonstration, verify both-eye rendering, stable head pose,
@@ -285,6 +350,13 @@ the requested failure mode is disabled.
 
 ## Airborne demo and conformal rendering (2026-10-24)
 
+The optional native HDG/IAS acquisition, checkpoint continuation and sustained
+orbit workflow is documented in
+[S-76 experimental controller](XPLANE_S76_EXPERIMENTAL_CONTROLLER.md).
+It preserves the indexed legacy default described below. Deploy its complete
+paired module set before selecting the new flags; the experimental path refuses
+`--start` until fresh airborne initialization has separate native validation.
+
 `Tools/XPlane3080/flight_demo.py --start` initializes an actual S-76C flight at
 2,500 m MSL and 100 kt using X-Plane's native flight API. Subsequent motion comes
 from simulator physics, native heading/altitude hold and a rate-limited collective
@@ -367,6 +439,22 @@ feedback with native autothrottle off. It never writes synthetic telemetry or
 overrides physics. Only explicit `--start` sets initial conditions; service
 restart attaches to existing flight and recovers validated waypoint progress.
 
+On the stock S-76, collective initialization, assist writes and reported
+`collective` feedback address only `sim/cockpit2/engine/actuators/prop_ratio`
+index 0. The combined `prop_ratio_all` getter can change as the independent tail
+control changes; writing that combined handle also addresses the tail control.
+It remains a separate `aggregatePropRatio` diagnostic and never seeds or drives
+the collective controller. Reports include `collectiveDataref`,
+`collectiveIndex` and the sampled `values.mainCollective` to make the axis explicit.
+
+The indexed transport uses X-Plane's documented REST `?index=0` parameter: an
+indexed GET returns a one-element array, and PATCH sends one scalar. It never
+reads and replaces the full handle array. See the
+[Laminar Web API specification](https://developer.x-plane.com/article/x-plane-web-api/).
+This axis correction alone does not validate the existing HDG/ALT startup,
+control gains or sustained waypoint flight; those require separate native
+flight testing. It is also independent of the unresolved Unity runtime crash.
+
 Safety stops publish an atomic terminal report and specific reason. The verifier
 rejects empty, malformed, frozen, future or nonfinite reports and requires
 advancing simulation time and physical movement. Deploy `flight_demo.py`,
@@ -389,3 +477,44 @@ prefer the same fresh provider used by the hand-status label. This does not
 restart vendor services. A controlled off/on test exposed a separate Varjo
 backend reconstruction stall; only that supervised hand-tracking process was
 restarted, preserving the HMD server and compositor.
+
+### Ultraleap interpolation guard and 2-hour run (2026-11-11)
+
+A later 2-hour attempt with the same IL2CPP player stopped about 5 seconds after start
+with an access violation inside `LeapC.dll`. The stack was
+`LeapServiceProvider.FixedUpdate` -> `HandleUpdateFrameInterpolationAndTransformation` ->
+`Connection.GetInterpolatedFrameFromTime` -> `LeapInterpolateFrameFromTimeEx`. The
+embedded Ultraleap package called the interpolation functions without checking the
+result of the preceding frame-size query, so a failed query passed an unusable buffer
+size to native code. `Connection.cs` now interpolates only when the device handle is
+valid, the size query succeeds, and the size lies between one tracking event and 16 MB.
+The buffer is freed in a `finally` block. When the check fails the frame is skipped.
+
+The rebuilt player (Result Succeeded, 0 errors, 41 minutes) then ran for 120.7 minutes
+in native mixed reality on the same PC, with no debugger attached, and was closed by the
+test script at the deadline. Of 479 samples at 15-second intervals, the XR display ran in
+465; the first runtime report arrived about 3.5 minutes after launch, which accounts for
+samples without XR at the start. Median application frame rate was 89.0 fps (minimum
+13.7, maximum 90.1). Private memory was 2,515 MB at the end. There was no Windows
+application-error event, and the player log held 585 error lines, all of the network
+time-out kind sampled. The Ultraleap provider reported itself enabled. The flight feed was
+again not eligible, so data-driven traffic and HUD paths were not exercised.
+
+This run shows the guarded player surviving the start-up window where the previous one
+faulted, and two hours beyond it. The original fault was timing dependent (the first
+60-minute run did not hit it), so one clean run is supporting evidence, not proof.
+
+Two host conditions affected these runs and are not player defects:
+
+- Smart App Control in Enforce mode. `GameAssembly.dll` in a fresh IL2CPP build is
+  unsigned and unknown to Windows. The first launch of a new build was held for about
+  9 minutes and the DLL was then refused (Code Integrity events 3033 and 3077). The
+  second launch loaded it. Mono players are unaffected because Unity signs their native
+  DLLs. Launch a new IL2CPP build once before any timed run.
+- A long-running Varjo runtime. After about 13 hours up, the compositor logged
+  "Corrupt foveation matrices" continuously, its logs grew past 4 GB, and the player
+  started without XR (0 of 20 samples). Restart Varjo Base before a measured run and
+  check free space on `C:`.
+
+One batch build also stalled in UnityLinker for about 80 minutes with no CPU use; stopping
+it and rebuilding succeeded. The cause was not established.

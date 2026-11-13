@@ -1,0 +1,1478 @@
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.InputSystem;
+using UnityEngine.InputSystem.XR;
+using UnityEngine.SceneManagement;
+using UnityEngine.UI;
+using UnityEngine.XR;
+using UnityEngine.XR.Management;
+using UnityEngine.XR.Interaction.Toolkit.Inputs.Readers;
+using UnityEngine.XR.Interaction.Toolkit.Inputs.Simulation;
+using WeatherRadar;
+
+#pragma warning disable CS0649 // Serialized fields are configured by the editor setup menu.
+
+namespace FAA.Headset
+{
+    /// <summary>
+    /// Bridges the FAA scene output to a native Varjo XR-3 session or to the
+    /// XR Interaction Toolkit's desktop simulator. The legacy SA-147 path is
+    /// left intact and is only suspended while this component is active.
+    /// </summary>
+    [UnityEngine.Scripting.Preserve]
+    [DefaultExecutionOrder(11010)]
+    [DisallowMultipleComponent]
+    [AddComponentMenu("FAA/Headset/Varjo XR-3 Compatibility")]
+    public sealed class XR3HeadsetCompatibility : MonoBehaviour
+    {
+        public enum ActivationMode
+        {
+            Auto,
+            VarjoXR3,
+            UnitySimulator,
+        }
+
+        private const string RuntimeObjectName = "FAA XR-3 Headset Compatibility";
+        private const string SimulatorResourcePath = "FAA/XR3/XR Interaction Simulator";
+        private const string SimulatorUiName = "XR Interaction Simulator UI";
+        private const string SimulatorPlayModeMenuName = "PlayModeMenu";
+        private const string SimulatorInputSelectionWindowName = "InputSelectionWindow";
+        private const string SimulatorInputSelectionClosedWindowName = "InputSelectionClosedWindow";
+        // The simulator canvas is 1920x1080. The input-selection window sits in the empty top-left corner: the FAA heading
+        // tape is bottom-centre (790-850 ref from the top, FaaHeadingTapeOverlay.LaneTopFromScreenTop) and the FMA is
+        // top-centre, so a small top margin keeps it clear of both. It is hidden on the pilot view unless developer mode is on.
+        public const float SimulatorInputSelectionTopMargin = 24f;
+        /// <summary>Developer toggle for the XR Interaction Simulator UI (avoids the pilot keys Tab and R). With the pilot
+        /// chrome present this is the chrome's developer-mode key (FaaPilotChrome.DeveloperKeys), which owns the toggle.</summary>
+        public const string SimulatorUiToggleKeys = "CTRL+SHIFT+D";
+        /// <summary>XRI 'Cycle Devices' moves off Tab, which is the pilot's COMMANDS key.</summary>
+        public const string SimulatorCycleDevicesKey = "<Keyboard>/backslash";
+
+        [Header("Activation")]
+        [SerializeField] private ActivationMode activationMode = ActivationMode.Auto;
+        [SerializeField] private bool autoDetectNativeXr = true;
+        [SerializeField] private bool enableEditorSimulator;
+        [SerializeField] private bool enableSimulatorInPlayer;
+        [SerializeField] private GameObject simulatorPrefab;
+
+        [Header("XR Camera")]
+        [SerializeField] private Camera xrCamera;
+        [Tooltip("Drive the FAA camera from Varjo/XR Interaction Simulator HMD pose input.")]
+        [SerializeField] private bool driveCameraFromXrHmd = true;
+        [SerializeField] private bool routeOverlayCanvasesToXrCamera = true;
+        [Tooltip("Depth of non-conformal camera-space instruments in metres. Does not change optical calibration, FOV or conformal angular geometry.")]
+        [SerializeField, Range(.55f, 3f)] private float overlayDistanceMeters = 1.2f;
+        [Tooltip("Keep FAA HUD and radar canvases in screen-space overlay mode while using the desktop XR simulator. Native Varjo mode uses camera-space canvases for stereo output.")]
+        [SerializeField] private bool useScreenSpaceOverlayForSimulator = true;
+        [Tooltip("Keep the desktop pointer available for FAA's screen-space controls while the Unity XR simulator is running in the Editor. Disable this only when testing controller point-and-click input with a camera-space XR UI.")]
+        [SerializeField] private bool preferEditorPointerInput = true;
+        [Header("Simulator UI Layout")]
+        [Tooltip("Pin the XR Interaction Simulator input-selection window to the empty top-left corner of the view (clear of the top-centre FMA and the bottom-centre heading tape).")]
+        [SerializeField] private bool repositionSimulatorInputSelection = true;
+        [Tooltip("Horizontal and minimum vertical margin in simulator canvas reference pixels from the top-left corner.")]
+        [SerializeField] private Vector2 simulatorInputSelectionMargin = new Vector2(18f, 18f);
+        [Tooltip("Enforce at least SimulatorInputSelectionTopMargin (24 ref) from the top edge in both compact and expanded states. (Legacy name: the heading tape is no longer at the top.)")]
+        [SerializeField] private bool placeSimulatorInputSelectionBelowHeadingTape = true;
+        [Tooltip("Hide the XR Interaction Simulator developer UI (input-selection tab, HMD goggles button) on the pilot view. The simulator keeps running; developer mode (Ctrl+Shift+D) shows it again.")]
+        [SerializeField] private bool hideSimulatorUiOnPilotView = true;
+        [Tooltip("Move XRI simulator keyboard bindings that collide with pilot keys (Tab; and R/V while the desktop aircraft view owns the camera).")]
+        [SerializeField] private bool resolveSimulatorKeyConflicts = true;
+        [SerializeField] private string[] overlayCanvasNames =
+        {
+            "FAASymbologyCanvas",
+            "FAASymbologyCanvasWorldSpace",
+            "FAAHeadingTapeCanvas",
+            "OverlayCanvas",
+            "XPlaneWeatherIndicatorCanvas",
+            "XPlaneWeatherRadarCanvas",
+            "XPlaneTrafficRadarCanvas",
+        };
+
+        [Header("Legacy SA-147 Coordination")]
+        [SerializeField] private bool suspendLegacySa147WhileActive = true;
+        [SerializeField] private bool logActivation = true;
+
+        [Header("Simulator Radar Data")]
+        [Tooltip("Generate a local weather-radar texture while the XR-3 desktop simulator is active and X-Plane is not connected.")]
+        [SerializeField] private bool enableSimulatorWeatherFallback = true;
+
+        private readonly Dictionary<Canvas, CanvasState> _canvasStates = new Dictionary<Canvas, CanvasState>();
+        private readonly List<Behaviour> _suspendedSa147Components = new List<Behaviour>();
+        private readonly List<GameObject> _suspendedSa147Objects = new List<GameObject>();
+        private GameObject _simulatorInstance;
+        private bool _ownsSimulatorInstance;
+        private bool _simulatorPointAndClickStateCaptured;
+        private bool _simulatorOriginalPointAndClick;
+        private TrackedPoseDriver _trackedPoseDriver;
+        private Camera _trackedPoseDriverCamera;
+        private bool _createdTrackedPoseDriver;
+        private bool _existingTrackedPoseDriverEnabled;
+        private bool _existingTrackedPoseDriverStateCaptured;
+        private bool _active;
+        private ActivationMode _activeMode;
+        private bool _simulatorInputSelectionLayoutConfigured;
+        private int _nativeDetectionFrames;
+        private bool _reportedUnavailable;
+        private CanvasGroup _simulatorUiGroup;
+        private bool _ownsSimulatorUiGroup;
+        private bool _developerSimulatorUiVisible;
+        private float _nextSimulatorUiSearch;
+        private float _simulatorUiRetryInterval = .25f;
+        private Transform _simulatorUiTransform;
+        private readonly List<InputAction> _simulatorKeyOverrides = new List<InputAction>();
+
+        public bool IsCompatibilityActive => _active;
+        public bool IsNativeVarjoMode => _active && _activeMode == ActivationMode.VarjoXR3;
+        public static bool ExplicitSimulatorRequested { get; } = RequestsExplicitSimulator(Environment.GetCommandLineArgs());
+
+        public static bool RequestsExplicitSimulator(string[] arguments) => HasArgument(arguments, "--xr3-sim", "-xr3-sim");
+
+        public static ActivationMode ResolveActivationMode(ActivationMode configured, bool autoDetect, bool nativeActive,
+            bool editorSimulator, bool playerSimulator, bool isEditor, string[] arguments)
+        {
+            if (RequestsExplicitSimulator(arguments)) return ActivationMode.UnitySimulator;
+            bool native = configured == ActivationMode.VarjoXR3 || HasArgument(arguments,
+                "-xr3", "--xr3", "-varjo", "--varjo", "-varjo-xr3", "--varjo-xr3");
+            if (native || autoDetect && nativeActive) return ActivationMode.VarjoXR3;
+            bool simulator = configured == ActivationMode.UnitySimulator || HasArgument(arguments,
+                "-xr-simulator", "--xr-simulator", "-varjo-sim", "--varjo-sim");
+            return simulator || isEditor && editorSimulator || !isEditor && playerSimulator ? ActivationMode.UnitySimulator : ActivationMode.Auto;
+        }
+
+        public static bool PreferSimulatorDesktopPointer(bool explicitSimulator, bool isEditor, bool simulatorMode, bool overlay, bool preferPointer)
+            => simulatorMode && (explicitSimulator || isEditor && overlay && preferPointer);
+
+        public static bool UseNativeLayoutDefaults(bool nativeXr, bool compatibilityActive, bool nativeVarjoMode, bool explicitSimulator)
+            => !explicitSimulator && (nativeXr || compatibilityActive || nativeVarjoMode);
+
+        public static void ConfigureOutputCamera(Camera view, bool explicitSimulator)
+        {
+            if (view == null) return;
+            view.stereoTargetEye = explicitSimulator ? StereoTargetEyeMask.None : StereoTargetEyeMask.Both;
+            view.targetDisplay = 0;
+            if (explicitSimulator) { view.ResetProjectionMatrix(); view.ResetWorldToCameraMatrix(); }
+        }
+
+        /// <summary>Release only this application's XR session. XR Management stops its subsystems before deinitializing.</summary>
+        public static bool StopApplicationXr(XRManagerSettings manager)
+        {
+            if (manager == null || !manager.isInitializationComplete || manager.activeLoader == null) return false;
+            manager.DeinitializeLoader();
+            return manager.activeLoader == null;
+        }
+
+        private static bool s_ExplicitSimulatorStartupSuppressed;
+        private static bool s_ExplicitSimulatorStartupFailureReported;
+
+        /// <summary>Suppress configured providers before XR Management initializes them. Never tears down a live session.</summary>
+        public static bool TrySuppressApplicationXrBeforeInitialization(XRManagerSettings manager, bool explicitSimulator)
+        {
+            if (!explicitSimulator || manager == null || manager.isInitializationComplete || manager.activeLoader != null)
+                return false;
+            return manager.TrySetLoaders(new List<XRLoader>());
+        }
+
+        public static bool CanActivateExplicitSimulator(bool startupSuppressed, XRManagerSettings manager, bool nativeActive)
+            => startupSuppressed && !nativeActive && (manager == null ||
+                !manager.isInitializationComplete && manager.activeLoader == null && manager.activeLoaders.Count == 0);
+
+        private static XRGeneralSettings[] ApplicationXrSettings()
+        {
+            XRGeneralSettings settings = XRGeneralSettings.Instance;
+            return settings != null ? new[] { settings } : Resources.FindObjectsOfTypeAll<XRGeneralSettings>();
+        }
+
+        // XR Management initializes at AfterAssembliesLoaded and starts before the splash screen.
+        // Clearing the supported loader list here prevents provider initialization instead of releasing live eye textures.
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        private static void SuppressExplicitSimulatorXrStartup()
+        {
+            s_ExplicitSimulatorStartupSuppressed = false;
+            s_ExplicitSimulatorStartupFailureReported = false;
+            if (!ExplicitSimulatorRequested) return;
+            XRGeneralSettings[] settings = ApplicationXrSettings();
+            bool suppressed = settings.Length > 0;
+            var managers = new HashSet<XRManagerSettings>();
+            foreach (XRGeneralSettings setting in settings)
+            {
+                XRManagerSettings manager = setting != null ? setting.Manager : null;
+                if (manager != null && managers.Add(manager) && !TrySuppressApplicationXrBeforeInitialization(manager, true))
+                    suppressed = false;
+            }
+            s_ExplicitSimulatorStartupSuppressed = suppressed;
+            if (suppressed)
+                Debug.Log($"[FAA XR] Explicit desktop simulator requested; suppressed {managers.Count} application XR manager(s) before provider initialization.");
+        }
+
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
+        private static void ApplyExplicitSimulatorStartup()
+        {
+            if (ExplicitSimulatorRequested) VerifyExplicitSimulatorStartup();
+        }
+
+        private static bool VerifyExplicitSimulatorStartup()
+        {
+            if (!ExplicitSimulatorRequested) return true;
+            XRGeneralSettings[] settings = ApplicationXrSettings();
+            bool safe = s_ExplicitSimulatorStartupSuppressed && settings.Length > 0;
+            bool nativeActive = IsNativeXrActive();
+            foreach (XRGeneralSettings setting in settings)
+                safe &= CanActivateExplicitSimulator(s_ExplicitSimulatorStartupSuppressed,
+                    setting != null ? setting.Manager : null, nativeActive);
+            if (safe) return true;
+            if (!s_ExplicitSimulatorStartupFailureReported)
+            {
+                s_ExplicitSimulatorStartupFailureReported = true;
+                Debug.LogError("[FAA XR] --xr3-sim configuration error: early XR suppression was missed or a native loader/display is active. " +
+                    "Desktop simulator activation is refused; the player will exit with code 78. Correct the startup policy before launching again.");
+#if !UNITY_EDITOR
+                Application.Quit(78);
+#endif
+            }
+            return false;
+        }
+
+        private static bool HasArgument(string[] arguments, params string[] flags)
+        {
+            if (arguments == null) return false;
+            foreach (string argument in arguments)
+                foreach (string flag in flags)
+                    if (string.Equals(argument, flag, StringComparison.OrdinalIgnoreCase)) return true;
+            return false;
+        }
+
+        private struct CanvasState
+        {
+            public Canvas canvas;
+            public RenderMode renderMode;
+            public Camera worldCamera;
+            public float planeDistance;
+            public int targetDisplay;
+            public RectTransform rectTransform;
+            public bool hasRectTransformState;
+            public Vector2 anchorMin;
+            public Vector2 anchorMax;
+            public Vector2 anchoredPosition;
+            public Vector2 sizeDelta;
+            public Vector2 pivot;
+            public Vector3 localPosition;
+            public Quaternion localRotation;
+            public Vector3 localScale;
+        }
+
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
+        private static void EnsureRuntimeHost()
+        {
+            if (FindFirstObjectByType<XR3HeadsetCompatibility>(FindObjectsInactive.Include) != null)
+            {
+                return;
+            }
+
+            GameObject host = new GameObject(RuntimeObjectName);
+            DontDestroyOnLoad(host);
+            host.AddComponent<XR3HeadsetCompatibility>();
+        }
+
+        private void Awake()
+        {
+            SceneManager.sceneLoaded += OnSceneLoaded;
+            EvaluateActivation();
+        }
+
+        private void Start()
+        {
+            EvaluateActivation();
+            if (!_active && autoDetectNativeXr && !ExplicitSimulatorRequested)
+            {
+                StartCoroutine(WaitForNativeXrStartup());
+            }
+        }
+
+        private void Update()
+        {
+            if (!_active && autoDetectNativeXr && activationMode == ActivationMode.Auto && !ExplicitSimulatorRequested)
+            {
+                // Varjo's loader can finish initialization after the first
+                // scene frame. Keep this check cheap and bounded for projects
+                // that do not have an XR runtime installed.
+                _nativeDetectionFrames++;
+                if ((_nativeDetectionFrames & 15) == 0 && IsNativeXrActive())
+                {
+                    Activate(ActivationMode.VarjoXR3, false);
+                }
+            }
+
+            // The simulator UI is instantiated by XRI one frame after the
+            // simulator root in some editor versions. Retry only until the
+            // two input-selection windows have been positioned, rather than
+            // walking the full UI hierarchy every frame for the rest of the
+            // session.
+            if (_active && _activeMode == ActivationMode.UnitySimulator &&
+                !_simulatorInputSelectionLayoutConfigured)
+            {
+                ConfigureSimulatorInputSelectionLayout();
+            }
+
+            if (_active && _activeMode == ActivationMode.UnitySimulator)
+            {
+                if (FAA.Customization.FaaPilotChrome.Current != null)
+                {
+                    // One developer switch: the chrome owns Ctrl+Shift+D (developer mode); the simulator UI follows it.
+                    _developerSimulatorUiVisible = FAA.Customization.FaaPilotChrome.DeveloperMode;
+                }
+                else
+                {
+                    Keyboard keyboard = Keyboard.current;
+                    if (keyboard != null && keyboard.dKey.wasPressedThisFrame &&
+                        (keyboard.leftCtrlKey.isPressed || keyboard.rightCtrlKey.isPressed) &&
+                        (keyboard.leftShiftKey.isPressed || keyboard.rightShiftKey.isPressed))
+                    {
+                        _developerSimulatorUiVisible = !_developerSimulatorUiVisible;
+                    }
+                }
+
+                UpdateSimulatorUiVisibility();
+            }
+        }
+
+        /// <summary>
+        /// The simulator UI is a developer tool: hidden on the pilot view unless the developer toggle is on. Only a
+        /// CanvasGroup is changed (alpha, raycasts), never SetActive, so XRI keeps simulating input and its own menus
+        /// keep working when shown again.
+        /// </summary>
+        public static bool SimulatorUiShouldShow(bool hideOnPilotView, bool developerToggle)
+            => !hideOnPilotView || developerToggle;
+
+        public bool SimulatorUiVisible => _simulatorUiGroup == null || _simulatorUiGroup.alpha > 0f;
+
+        private void UpdateSimulatorUiVisibility()
+        {
+            if (_simulatorUiGroup == null)
+            {
+                Transform simulatorUi = FindSimulatorUiCached();
+                if (simulatorUi == null)
+                {
+                    return;
+                }
+
+                _simulatorUiGroup = simulatorUi.GetComponent<CanvasGroup>();
+                _ownsSimulatorUiGroup = _simulatorUiGroup == null;
+                if (_ownsSimulatorUiGroup)
+                {
+                    _simulatorUiGroup = simulatorUi.gameObject.AddComponent<CanvasGroup>();
+                }
+            }
+
+            bool show = SimulatorUiShouldShow(hideSimulatorUiOnPilotView, _developerSimulatorUiVisible);
+            float alpha = show ? 1f : 0f;
+            if (!Mathf.Approximately(_simulatorUiGroup.alpha, alpha))
+            {
+                _simulatorUiGroup.alpha = alpha;
+                _simulatorUiGroup.blocksRaycasts = show;
+                _simulatorUiGroup.interactable = show;
+            }
+        }
+
+        private void RestoreSimulatorUiVisibility()
+        {
+            if (_simulatorUiGroup != null)
+            {
+                if (_ownsSimulatorUiGroup)
+                {
+                    if (Application.isPlaying) Destroy(_simulatorUiGroup); else DestroyImmediate(_simulatorUiGroup);
+                }
+                else
+                {
+                    _simulatorUiGroup.alpha = 1f;
+                    _simulatorUiGroup.blocksRaycasts = true;
+                    _simulatorUiGroup.interactable = true;
+                }
+            }
+
+            _simulatorUiGroup = null;
+            _ownsSimulatorUiGroup = false;
+            ResetSimulatorUiSearch();
+        }
+
+        private void ResetSimulatorUiSearch()
+        {
+            _simulatorUiTransform = null;
+            _nextSimulatorUiSearch = 0f;
+            _simulatorUiRetryInterval = .25f;
+        }
+
+        /// <summary>
+        /// XRI instantiates its UI a frame or more after the simulator root, and the fallback lookup scans every
+        /// transform. Cache the result and back off (0.25 s doubling to 8 s) so a missing UI never costs a scan per frame.
+        /// </summary>
+        private Transform FindSimulatorUiCached()
+        {
+            if (_simulatorUiTransform != null) return _simulatorUiTransform;
+            if (Time.unscaledTime < _nextSimulatorUiSearch) return null;
+            Transform found = FindSimulatorUiTransform();
+            if (found == null)
+            {
+                _nextSimulatorUiSearch = Time.unscaledTime + _simulatorUiRetryInterval;
+                _simulatorUiRetryInterval = Mathf.Min(8f, _simulatorUiRetryInterval * 2f);
+                return null;
+            }
+
+            _simulatorUiTransform = found;
+            _simulatorUiRetryInterval = .25f;
+            return found;
+        }
+
+        /// <summary>
+        /// Pilot-safe replacement for an XRI simulator keyboard binding, or null to keep it. Tab is the pilot COMMANDS
+        /// key, so 'Cycle Devices' always moves to backslash. While the desktop aircraft view owns the camera the
+        /// simulated HMD is not displayed, so XRI 'Reset' (R = FORWARD) and 'X Constraint' (V = camera mode) are
+        /// unbound instead of firing a second, invisible action. Returns "" to unbind.
+        /// </summary>
+        public static string PilotSafeSimulatorBinding(string xriAction, string keyboardPath, bool desktopAircraftView)
+        {
+            if (xriAction == "Cycle Devices" && keyboardPath == "<Keyboard>/tab") return SimulatorCycleDevicesKey;
+            if (!desktopAircraftView) return null;
+            if (xriAction == "Reset" && keyboardPath == "<Keyboard>/r") return string.Empty;
+            if (xriAction == "X Constraint" && keyboardPath == "<Keyboard>/v") return string.Empty;
+            return null;
+        }
+
+        private static InputAction ActionOf(XRInputButtonReader reader)
+        {
+            if (reader == null) return null;
+            switch (reader.inputSourceMode)
+            {
+                case XRInputButtonReader.InputSourceMode.InputActionReference:
+                    return reader.inputActionReferencePerformed != null ? reader.inputActionReferencePerformed.action : null;
+                case XRInputButtonReader.InputSourceMode.InputAction:
+                    return reader.inputActionPerformed;
+                default:
+                    return null;
+            }
+        }
+
+        private void ApplySimulatorKeyOverrides(XRInteractionSimulator simulator, bool desktopAircraftView)
+        {
+            RemoveSimulatorKeyOverrides();
+            if (!resolveSimulatorKeyConflicts || simulator == null || !Application.isPlaying)
+            {
+                return;
+            }
+
+            OverrideSimulatorKey(ActionOf(simulator.cycleDevicesInput), "Cycle Devices", "<Keyboard>/tab", desktopAircraftView);
+            OverrideSimulatorKey(ActionOf(simulator.resetInput), "Reset", "<Keyboard>/r", desktopAircraftView);
+            OverrideSimulatorKey(ActionOf(simulator.xConstraintInput), "X Constraint", "<Keyboard>/v", desktopAircraftView);
+        }
+
+        private void OverrideSimulatorKey(InputAction action, string xriAction, string keyboardPath, bool desktopAircraftView)
+        {
+            string replacement = PilotSafeSimulatorBinding(xriAction, keyboardPath, desktopAircraftView);
+            if (action == null || replacement == null)
+            {
+                return;
+            }
+
+            // Runtime-only override (never saved to the asset); removed again in RemoveSimulatorKeyOverrides.
+            action.ApplyBindingOverride(new InputBinding { path = keyboardPath, overridePath = replacement });
+            _simulatorKeyOverrides.Add(action);
+        }
+
+        private void RemoveSimulatorKeyOverrides()
+        {
+            foreach (InputAction action in _simulatorKeyOverrides)
+            {
+                if (action == null) continue;
+                action.RemoveBindingOverride(new InputBinding { path = "<Keyboard>/tab" });
+                action.RemoveBindingOverride(new InputBinding { path = "<Keyboard>/r" });
+                action.RemoveBindingOverride(new InputBinding { path = "<Keyboard>/v" });
+            }
+
+            _simulatorKeyOverrides.Clear();
+        }
+
+        private void RegisterSimulatorHelp(bool simulatorActive)
+        {
+            // Never create the chrome while tearing down; only register when the simulator is live.
+            var chrome = simulatorActive ? FAA.Customization.FaaPilotChrome.Ensure() : FAA.Customization.FaaPilotChrome.Current;
+            if (chrome == null) return;
+            // Developer lines only: the chrome lists them while developer mode is on. The chrome owns the CTRL+SHIFT+D line
+            // (developer mode), so it is only re-worded here, never removed.
+            if (simulatorActive)
+            {
+                chrome.SetHelpEntry(SimulatorUiToggleKeys, "Developer mode on / off (shows XR simulator controls)", 900, true);
+                chrome.SetHelpEntry("\\", "XR simulator: cycle devices", 920, true);
+            }
+            else
+            {
+                chrome.SetHelpEntry(SimulatorUiToggleKeys, "Developer mode on / off", 900, true);
+                chrome.RemoveHelpEntry("\\");
+            }
+        }
+
+        private void OnDestroy()
+        {
+            SceneManager.sceneLoaded -= OnSceneLoaded;
+            ConfigureSimulatorWeatherFallback(false);
+            RestoreCanvases();
+            RestoreLegacySa147();
+            RestoreTrackedPoseDriver();
+            DestroySimulator();
+        }
+
+        private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
+        {
+            if (ExplicitSimulatorRequested && !VerifyExplicitSimulatorStartup()) return;
+            if (_active)
+            {
+                _simulatorInputSelectionLayoutConfigured = false;
+                if (_simulatorUiGroup == null) ResetSimulatorUiSearch();
+                if (suspendLegacySa147WhileActive)
+                {
+                    SuspendLegacySa147();
+                }
+
+                ConfigureXrCamera();
+                EnsureTrackedPoseDriver();
+                RouteOverlayCanvases();
+                ConfigureSimulatorPointerInput();
+                ConfigureSimulatorWeatherFallback(_activeMode == ActivationMode.UnitySimulator);
+            }
+            else
+            {
+                EvaluateActivation();
+            }
+        }
+
+        [ContextMenu("Enable Varjo XR-3 Mode")]
+        public void EnableVarjoXR3()
+        {
+            Activate(ActivationMode.VarjoXR3, false);
+        }
+
+        [ContextMenu("Enable Unity XR Interaction Simulator")]
+        public void EnableUnitySimulator()
+        {
+            Activate(ActivationMode.UnitySimulator, true);
+        }
+
+        [ContextMenu("Disable XR-3 Compatibility")]
+        public void DisableCompatibility()
+        {
+            _active = false;
+            ConfigureSimulatorWeatherFallback(false);
+            RestoreCanvases();
+            RestoreLegacySa147();
+            RestoreTrackedPoseDriver();
+            DestroySimulator();
+        }
+
+        private void EvaluateActivation()
+        {
+            if (ExplicitSimulatorRequested && !VerifyExplicitSimulatorStartup()) return;
+            ActivationMode requested = ResolveActivationMode(activationMode, autoDetectNativeXr, IsNativeXrActive(),
+                enableEditorSimulator, enableSimulatorInPlayer, Application.isEditor, Environment.GetCommandLineArgs());
+            if (requested != ActivationMode.Auto) Activate(requested, requested == ActivationMode.UnitySimulator);
+        }
+
+        private IEnumerator WaitForNativeXrStartup()
+        {
+            const int maxFrames = 180;
+            for (int i = 0; i < maxFrames && !_active && !ExplicitSimulatorRequested; i++)
+            {
+                if (IsNativeXrActive())
+                {
+                    Activate(ActivationMode.VarjoXR3, false);
+                    yield break;
+                }
+
+                yield return null;
+            }
+        }
+
+        private void Activate(ActivationMode mode, bool startSimulator)
+        {
+            if (ExplicitSimulatorRequested)
+            {
+                if (!VerifyExplicitSimulatorStartup()) return;
+                mode = ActivationMode.UnitySimulator; startSimulator = true;
+            }
+            bool modeChanged = _active && _activeMode != mode;
+            if (modeChanged)
+            {
+                ConfigureSimulatorWeatherFallback(false);
+                RestoreCanvases();
+                _simulatorInputSelectionLayoutConfigured = false;
+            }
+
+            bool wasActive = _active && _activeMode == mode;
+            _active = true;
+            _activeMode = mode;
+            Application.runInBackground = true;
+
+            if (suspendLegacySa147WhileActive)
+            {
+                SuspendLegacySa147();
+            }
+
+            ConfigureXrCamera();
+            EnsureTrackedPoseDriver();
+            RouteOverlayCanvases();
+
+            if (startSimulator || mode == ActivationMode.UnitySimulator)
+            {
+                EnsureSimulator();
+                ConfigureSimulatorPointerInput();
+                ConfigureSimulatorInputSelectionLayout();
+            }
+            else
+            {
+                _simulatorInputSelectionLayoutConfigured = false;
+                DestroySimulator();
+            }
+
+            ConfigureSimulatorWeatherFallback(mode == ActivationMode.UnitySimulator);
+
+            if (!wasActive && logActivation)
+            {
+                string provider = mode == ActivationMode.UnitySimulator ? "Unity XR Interaction Simulator" : "Varjo XR-3";
+                Debug.Log($"[FAA XR] {provider} output active. HUD/weather/traffic overlays are routed to the XR camera.", this);
+            }
+        }
+
+        private void ConfigureXrCamera()
+        {
+            if (xrCamera == null || !xrCamera.isActiveAndEnabled)
+            {
+                xrCamera = Camera.main;
+            }
+
+            if (xrCamera == null)
+            {
+                if (!_reportedUnavailable)
+                {
+                    Debug.LogWarning("[FAA XR] No MainCamera is available; XR-3 tracking will be picked up when a camera appears.", this);
+                    _reportedUnavailable = true;
+                }
+
+                return;
+            }
+
+            _reportedUnavailable = false;
+            ConfigureOutputCamera(xrCamera, ExplicitSimulatorRequested);
+        }
+
+        private void EnsureTrackedPoseDriver()
+        {
+            if (xrCamera == null || !driveCameraFromXrHmd && !ExplicitSimulatorRequested)
+            {
+                return;
+            }
+
+            // A scene transition can replace the camera while this bridge is
+            // kept alive. Restore the old camera before binding the new one.
+            if (_trackedPoseDriverCamera != null && _trackedPoseDriverCamera != xrCamera)
+            {
+                RestoreTrackedPoseDriver();
+            }
+
+            // Desktop mouse look belongs to the aircraft camera. A simulated
+            // HMD otherwise overwrites it again before rendering (often with
+            // world-north/identity), leaving the map and screen cues at odds.
+            // Native head tracking and explicit XR-controller testing are unchanged.
+            if (UseDesktopAircraftView(_activeMode, ExplicitSimulatorRequested || preferEditorPointerInput,
+                xrCamera.GetComponent<AircraftControl.Camera.AircraftCameraController>() != null))
+            {
+                if (_trackedPoseDriver == null)
+                {
+                    _trackedPoseDriverCamera = xrCamera;
+                    _trackedPoseDriver = xrCamera.GetComponent<TrackedPoseDriver>();
+                    if (_trackedPoseDriver != null)
+                    {
+                        _existingTrackedPoseDriverEnabled = _trackedPoseDriver.enabled;
+                        _existingTrackedPoseDriverStateCaptured = true;
+                    }
+                }
+                if (_trackedPoseDriver != null) _trackedPoseDriver.enabled = false;
+                return;
+            }
+
+            if (_trackedPoseDriver != null)
+            {
+                if (!_trackedPoseDriver.enabled)
+                {
+                    _trackedPoseDriver.enabled = true;
+                }
+
+                return;
+            }
+
+            _trackedPoseDriverCamera = xrCamera;
+            _trackedPoseDriver = xrCamera.GetComponent<TrackedPoseDriver>();
+            if (_trackedPoseDriver != null)
+            {
+                _existingTrackedPoseDriverEnabled = _trackedPoseDriver.enabled;
+                _existingTrackedPoseDriverStateCaptured = true;
+                _trackedPoseDriver.enabled = true;
+                return;
+            }
+
+            _trackedPoseDriver = xrCamera.gameObject.AddComponent<TrackedPoseDriver>();
+            _createdTrackedPoseDriver = true;
+            _trackedPoseDriver.trackingType = TrackedPoseDriver.TrackingType.RotationAndPosition;
+            _trackedPoseDriver.updateType = TrackedPoseDriver.UpdateType.UpdateAndBeforeRender;
+            _trackedPoseDriver.ignoreTrackingState = false;
+
+            // These bindings are the same camera bindings used by Unity's XR
+            // Main Camera factory. The AR fallback keeps the simulator useful
+            // on machines where a native HMD is not connected.
+            var positionAction = new InputAction(
+                "Position",
+                binding: "<XRHMD>/centerEyePosition",
+                expectedControlType: "Vector3");
+            positionAction.AddBinding("<HandheldARInputDevice>/devicePosition");
+
+            var rotationAction = new InputAction(
+                "Rotation",
+                binding: "<XRHMD>/centerEyeRotation",
+                expectedControlType: "Quaternion");
+            rotationAction.AddBinding("<HandheldARInputDevice>/deviceRotation");
+
+            var trackingStateAction = new InputAction(
+                "Tracking State",
+                binding: "<XRHMD>/trackingState",
+                expectedControlType: "Integer");
+
+            _trackedPoseDriver.positionInput = new InputActionProperty(positionAction);
+            _trackedPoseDriver.rotationInput = new InputActionProperty(rotationAction);
+            _trackedPoseDriver.trackingStateInput = new InputActionProperty(trackingStateAction);
+        }
+
+        public static bool UseDesktopAircraftView(ActivationMode mode, bool desktopPointer, bool hasAircraftCamera)
+            => mode == ActivationMode.UnitySimulator && desktopPointer && hasAircraftCamera;
+
+        private void RestoreTrackedPoseDriver()
+        {
+            if (_trackedPoseDriver != null)
+            {
+                if (_createdTrackedPoseDriver)
+                {
+                    if (Application.isPlaying)
+                    {
+                        Destroy(_trackedPoseDriver);
+                    }
+                    else
+                    {
+                        DestroyImmediate(_trackedPoseDriver);
+                    }
+                }
+                else if (_existingTrackedPoseDriverStateCaptured)
+                {
+                    _trackedPoseDriver.enabled = _existingTrackedPoseDriverEnabled;
+                }
+            }
+
+            _trackedPoseDriver = null;
+            _trackedPoseDriverCamera = null;
+            _createdTrackedPoseDriver = false;
+            _existingTrackedPoseDriverStateCaptured = false;
+        }
+
+        private void RouteOverlayCanvases()
+        {
+            if (!routeOverlayCanvasesToXrCamera || xrCamera == null)
+            {
+                return;
+            }
+
+            Canvas[] canvases = FindObjectsByType<Canvas>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+            foreach (Canvas canvas in canvases)
+            {
+                if (canvas == null || !ShouldRouteCanvas(canvas))
+                {
+                    continue;
+                }
+
+                if (!_canvasStates.ContainsKey(canvas))
+                {
+                    CanvasState state = new CanvasState
+                    {
+                        canvas = canvas,
+                        renderMode = canvas.renderMode,
+                        worldCamera = canvas.worldCamera,
+                        planeDistance = canvas.planeDistance,
+                        targetDisplay = canvas.targetDisplay,
+                    };
+
+                    if (IsRootCanvas(canvas))
+                    {
+                        RectTransform rectTransform = canvas.GetComponent<RectTransform>();
+                        if (rectTransform != null)
+                        {
+                            state.rectTransform = rectTransform;
+                            state.hasRectTransformState = true;
+                            state.anchorMin = rectTransform.anchorMin;
+                            state.anchorMax = rectTransform.anchorMax;
+                            state.anchoredPosition = rectTransform.anchoredPosition;
+                            state.sizeDelta = rectTransform.sizeDelta;
+                            state.pivot = rectTransform.pivot;
+                            state.localPosition = rectTransform.localPosition;
+                            state.localRotation = rectTransform.localRotation;
+                            state.localScale = rectTransform.localScale;
+                        }
+                    }
+
+                    _canvasStates.Add(canvas, state);
+                }
+
+                // World-space canvases already follow the XR camera naturally.
+                // The desktop simulator renders the FAA UI in the Game view,
+                // where screen-space overlay is the most reliable presentation.
+                // Native Varjo mode uses camera-space canvases for stereo output.
+                if (canvas.renderMode != RenderMode.WorldSpace &&
+                    _activeMode == ActivationMode.UnitySimulator &&
+                    (useScreenSpaceOverlayForSimulator || ExplicitSimulatorRequested))
+                {
+                    canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+                    canvas.worldCamera = null;
+                    canvas.targetDisplay = 0;
+                    NormalizeOverlayCanvasLayout(canvas);
+                }
+                else if (canvas.renderMode != RenderMode.WorldSpace)
+                {
+                    canvas.renderMode = RenderMode.ScreenSpaceCamera;
+                    canvas.worldCamera = xrCamera;
+                    canvas.planeDistance = Mathf.Max(xrCamera.nearClipPlane + 0.05f, overlayDistanceMeters);
+                    canvas.targetDisplay = 0;
+                    NormalizeCameraCanvasLayout(canvas);
+                }
+
+                if (_activeMode != ActivationMode.UnitySimulator || !useScreenSpaceOverlayForSimulator)
+                {
+                    xrCamera.cullingMask |= 1 << canvas.gameObject.layer;
+                }
+            }
+        }
+
+        private static bool IsRootCanvas(Canvas canvas)
+        {
+            if (canvas == null)
+            {
+                return false;
+            }
+
+            Transform parent = canvas.transform.parent;
+            while (parent != null)
+            {
+                if (parent.GetComponent<Canvas>() != null)
+                {
+                    return false;
+                }
+
+                parent = parent.parent;
+            }
+
+            return true;
+        }
+
+        private static void NormalizeCameraCanvasLayout(Canvas canvas)
+        {
+            if (!IsRootCanvas(canvas))
+            {
+                return;
+            }
+
+            RectTransform rectTransform = canvas.GetComponent<RectTransform>();
+            if (rectTransform == null)
+            {
+                return;
+            }
+
+            // A ScreenSpaceOverlay canvas stores pixel coordinates (for example
+            // 960,540). Once it becomes camera-space those values are world
+            // coordinates, which moves the whole HUD outside the frustum.
+            rectTransform.anchorMin = Vector2.zero;
+            rectTransform.anchorMax = Vector2.one;
+            rectTransform.pivot = new Vector2(0.5f, 0.5f);
+            rectTransform.anchoredPosition = Vector2.zero;
+            rectTransform.sizeDelta = Vector2.zero;
+            rectTransform.localPosition = Vector3.zero;
+            rectTransform.localRotation = Quaternion.identity;
+            rectTransform.localScale = Vector3.one;
+        }
+
+        private static void NormalizeOverlayCanvasLayout(Canvas canvas)
+        {
+            // The sanitizer already applies this layout, but reassert it when
+            // switching from native camera-space mode back to the simulator.
+            NormalizeCameraCanvasLayout(canvas);
+        }
+
+        private bool ShouldRouteCanvas(Canvas canvas)
+        {
+            // Spatial radar canvases belong to the pilot's cockpit layout, not head-fixed routing.
+            if (FAA.Customization.FaaSpatialWorkspace.OwnsCanvas(canvas)) return false;
+            string path = GetHierarchyPath(canvas.transform);
+            if (overlayCanvasNames == null)
+            {
+                return false;
+            }
+
+            for (int i = 0; i < overlayCanvasNames.Length; i++)
+            {
+                string name = overlayCanvasNames[i];
+                if (!string.IsNullOrWhiteSpace(name) && path.IndexOf(name, StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private void RestoreCanvases()
+        {
+            foreach (CanvasState state in _canvasStates.Values)
+            {
+                if (state.canvas == null || FAA.Customization.FaaSpatialWorkspace.OwnsCanvas(state.canvas))
+                {
+                    continue;
+                }
+
+                state.canvas.renderMode = state.renderMode;
+                state.canvas.worldCamera = state.worldCamera;
+                state.canvas.planeDistance = state.planeDistance;
+                state.canvas.targetDisplay = state.targetDisplay;
+
+                if (state.hasRectTransformState && state.rectTransform != null)
+                {
+                    state.rectTransform.anchorMin = state.anchorMin;
+                    state.rectTransform.anchorMax = state.anchorMax;
+                    state.rectTransform.anchoredPosition = state.anchoredPosition;
+                    state.rectTransform.sizeDelta = state.sizeDelta;
+                    state.rectTransform.pivot = state.pivot;
+                    state.rectTransform.localPosition = state.localPosition;
+                    state.rectTransform.localRotation = state.localRotation;
+                    state.rectTransform.localScale = state.localScale;
+                }
+            }
+
+            _canvasStates.Clear();
+        }
+
+        private void ConfigureSimulatorWeatherFallback(bool simulatorActive)
+        {
+            bool enableFallback = simulatorActive && enableSimulatorWeatherFallback;
+            XPlaneOriginalWeatherRadarProvider[] providers =
+                FindObjectsByType<XPlaneOriginalWeatherRadarProvider>(FindObjectsInactive.Include, UnityEngine.FindObjectsSortMode.None);
+
+            foreach (XPlaneOriginalWeatherRadarProvider provider in providers)
+            {
+                if (provider != null)
+                {
+                    provider.SetSimulatorFallbackEnabled(enableFallback);
+                }
+            }
+        }
+
+        private void SuspendLegacySa147()
+        {
+            _suspendedSa147Components.RemoveAll(component => component == null);
+            _suspendedSa147Objects.RemoveAll(legacyObject => legacyObject == null);
+            SA147HeadsetCompatibility[] compatibilityComponents =
+                FindObjectsByType<SA147HeadsetCompatibility>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+            foreach (SA147HeadsetCompatibility component in compatibilityComponents)
+            {
+                if (component != null && component.enabled)
+                {
+                    component.enabled = false;
+                    if (!_suspendedSa147Components.Contains(component))
+                    {
+                        _suspendedSa147Components.Add(component);
+                    }
+                }
+            }
+
+            GameObject[] legacyObjects = FindObjectsByType<GameObject>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+            foreach (GameObject legacyObject in legacyObjects)
+            {
+                if (legacyObject == null)
+                {
+                    continue;
+                }
+
+                if (legacyObject.name == "SA_147_Prefab" || legacyObject.name == "SA-147 Archer Head Tracker")
+                {
+                    if (legacyObject.activeSelf)
+                    {
+                        legacyObject.SetActive(false);
+                        if (!_suspendedSa147Objects.Contains(legacyObject))
+                        {
+                            _suspendedSa147Objects.Add(legacyObject);
+                        }
+                    }
+                }
+            }
+        }
+
+        private void RestoreLegacySa147()
+        {
+            foreach (Behaviour component in _suspendedSa147Components)
+            {
+                if (component != null)
+                {
+                    component.enabled = true;
+                }
+            }
+
+            _suspendedSa147Components.Clear();
+
+            foreach (GameObject legacyObject in _suspendedSa147Objects)
+            {
+                if (legacyObject != null)
+                {
+                    legacyObject.SetActive(true);
+                }
+            }
+
+            _suspendedSa147Objects.Clear();
+        }
+
+        private void EnsureSimulator()
+        {
+            if (_simulatorInstance != null)
+            {
+                return;
+            }
+
+            // The editor setup places a clearly named simulator prefab in the
+            // scene so it is visible in the Hierarchy. Reuse that object at
+            // runtime instead of creating a second simulator instance.
+            GameObject sceneSimulator = FindSceneSimulator();
+            if (sceneSimulator != null)
+            {
+                _simulatorInstance = sceneSimulator;
+                _ownsSimulatorInstance = false;
+                _simulatorInstance.SetActive(true);
+                if (Application.isPlaying)
+                {
+                    DontDestroyOnLoad(_simulatorInstance);
+                }
+
+                return;
+            }
+
+            GameObject prefab = simulatorPrefab;
+            if (prefab == null)
+            {
+                prefab = Resources.Load<GameObject>(SimulatorResourcePath);
+            }
+
+#if UNITY_EDITOR
+            if (prefab == null)
+            {
+                prefab = FindEditorSimulatorPrefab();
+            }
+#endif
+
+            if (prefab == null)
+            {
+                if (!_reportedUnavailable)
+                {
+                    Debug.LogWarning("[FAA XR] XR Interaction Simulator sample is not imported. Use FAA/Headset/Install XR-3 Simulator Sample.", this);
+                    _reportedUnavailable = true;
+                }
+
+                return;
+            }
+
+            _simulatorInstance = Instantiate(prefab);
+            _simulatorInstance.name = "FAA XR-3 Unity Simulator";
+            DontDestroyOnLoad(_simulatorInstance);
+            _ownsSimulatorInstance = true;
+        }
+
+        /// <summary>
+        /// XRI's simulator disables XRUI mouse/touch input while its
+        /// point-and-click controller mode is active. FAA's editor simulator
+        /// presents the radar and control strip as ScreenSpaceOverlay, so keep
+        /// the normal desktop pointer path enabled for those controls. Native
+        /// Varjo mode and camera-space XR UI retain the simulator's original
+        /// setting.
+        /// </summary>
+        private void ConfigureSimulatorPointerInput()
+        {
+            if (_simulatorInstance == null)
+            {
+                return;
+            }
+
+            XRInteractionSimulator simulator = _simulatorInstance.GetComponent<XRInteractionSimulator>();
+            if (simulator == null)
+            {
+                return;
+            }
+
+            if (!_simulatorPointAndClickStateCaptured)
+            {
+                _simulatorOriginalPointAndClick = simulator.usePointAndClick;
+                _simulatorPointAndClickStateCaptured = true;
+            }
+
+            bool useEditorPointer = PreferSimulatorDesktopPointer(ExplicitSimulatorRequested, Application.isEditor,
+                _activeMode == ActivationMode.UnitySimulator, useScreenSpaceOverlayForSimulator, preferEditorPointerInput);
+            simulator.usePointAndClick = useEditorPointer ? false : _simulatorOriginalPointAndClick;
+            bool desktopAircraftView = xrCamera != null && UseDesktopAircraftView(_activeMode, ExplicitSimulatorRequested || preferEditorPointerInput,
+                xrCamera.GetComponent<AircraftControl.Camera.AircraftCameraController>() != null);
+            ApplySimulatorKeyOverrides(simulator, desktopAircraftView);
+            RegisterSimulatorHelp(_activeMode == ActivationMode.UnitySimulator);
+        }
+
+        /// <summary>
+        /// XRI's sample UI places its input-selection strip at the lower-left
+        /// corner by default. FAA uses both lower corners for the weather and
+        /// traffic radar displays, so the strip can obscure the radar image
+        /// and intercept its pointer events. Keep the XRI menu functional but
+        /// move both its collapsed and expanded windows into the upper-left
+        /// safe area. The windows are children of a VerticalLayoutGroup; an
+        /// ignored LayoutElement is required so that group's next rebuild does
+        /// not snap them back to the lower-left position. The vertical margin
+        /// is clamped below the heading tape so the same layout is safe in the
+        /// serialized prefab and in a runtime-instantiated sample UI.
+        /// </summary>
+        private void ConfigureSimulatorInputSelectionLayout()
+        {
+            if (!repositionSimulatorInputSelection)
+            {
+                // Avoid a per-frame retry loop when a project deliberately
+                // opts out of the safe-area relocation.
+                _simulatorInputSelectionLayoutConfigured = true;
+                return;
+            }
+
+            if (_simulatorInstance == null || _activeMode != ActivationMode.UnitySimulator)
+            {
+                return;
+            }
+
+            Transform simulatorUi = FindSimulatorUiCached();
+            if (simulatorUi == null)
+            {
+                return;
+            }
+
+            Transform playModeMenu = FindDescendantByName(simulatorUi, SimulatorPlayModeMenuName);
+            if (playModeMenu == null)
+            {
+                return;
+            }
+
+            RectTransform menuRect = playModeMenu as RectTransform;
+            if (menuRect == null)
+            {
+                menuRect = playModeMenu.GetComponent<RectTransform>();
+            }
+
+            RectTransform canvasRect = simulatorUi as RectTransform;
+            if (canvasRect == null)
+            {
+                canvasRect = simulatorUi.GetComponent<RectTransform>();
+            }
+
+            bool configured = false;
+            configured |= PositionSimulatorInputSelectionWindow(
+                FindDescendantByName(playModeMenu, SimulatorInputSelectionClosedWindowName),
+                menuRect,
+                canvasRect);
+            configured |= PositionSimulatorInputSelectionWindow(
+                FindDescendantByName(playModeMenu, SimulatorInputSelectionWindowName),
+                menuRect,
+                canvasRect);
+
+            if (configured)
+            {
+                _simulatorInputSelectionLayoutConfigured = true;
+            }
+        }
+
+        private Transform FindSimulatorUiTransform()
+        {
+            if (_simulatorInstance != null)
+            {
+                Transform[] descendants = _simulatorInstance.GetComponentsInChildren<Transform>(true);
+                for (int i = 0; i < descendants.Length; i++)
+                {
+                    Transform candidate = descendants[i];
+                    if (candidate != null && IsSimulatorUiName(candidate.name))
+                    {
+                        return candidate;
+                    }
+                }
+            }
+
+            // A nested UI prefab can be promoted out of the simulator root by
+            // XRI's DontDestroyOnLoad handling. Fall back to a global lookup so
+            // the layout still applies after a scene transition.
+            Transform[] allTransforms = FindObjectsByType<Transform>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+            for (int i = 0; i < allTransforms.Length; i++)
+            {
+                Transform candidate = allTransforms[i];
+                if (candidate != null && IsSimulatorUiName(candidate.name))
+                {
+                    return candidate;
+                }
+            }
+
+            return null;
+        }
+
+        private static bool IsSimulatorUiName(string objectName)
+        {
+            return !string.IsNullOrEmpty(objectName) &&
+                objectName.StartsWith(SimulatorUiName, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static Transform FindDescendantByName(Transform root, string objectName)
+        {
+            if (root == null || string.IsNullOrEmpty(objectName))
+            {
+                return null;
+            }
+
+            Transform[] descendants = root.GetComponentsInChildren<Transform>(true);
+            for (int i = 0; i < descendants.Length; i++)
+            {
+                Transform candidate = descendants[i];
+                if (candidate != null && string.Equals(candidate.name, objectName, StringComparison.Ordinal))
+                {
+                    return candidate;
+                }
+            }
+
+            return null;
+        }
+
+        private bool PositionSimulatorInputSelectionWindow(
+            Transform window,
+            RectTransform menuRect,
+            RectTransform canvasRect)
+        {
+            if (window == null)
+            {
+                return false;
+            }
+
+            RectTransform rect = window as RectTransform;
+            if (rect == null)
+            {
+                rect = window.GetComponent<RectTransform>();
+            }
+
+            if (rect == null)
+            {
+                return false;
+            }
+
+            LayoutElement layoutElement = window.GetComponent<LayoutElement>();
+            if (layoutElement == null)
+            {
+                layoutElement = window.gameObject.AddComponent<LayoutElement>();
+            }
+
+            layoutElement.ignoreLayout = true;
+            rect.anchorMin = new Vector2(0f, 1f);
+            rect.anchorMax = new Vector2(0f, 1f);
+            // Preserve XRI's centered pivot. Its child labels and buttons are
+            // laid out around that pivot; changing it to top-left clips the
+            // closed tab and makes only a small dark corner visible. We move
+            // the center to the desired top-left margin instead.
+            rect.pivot = new Vector2(0.5f, 0.5f);
+            Vector2 margin = new Vector2(
+                Mathf.Max(0f, simulatorInputSelectionMargin.x),
+                Mathf.Max(0f, simulatorInputSelectionMargin.y));
+            if (placeSimulatorInputSelectionBelowHeadingTape)
+            {
+                margin.y = Mathf.Max(margin.y, SimulatorInputSelectionTopMargin);
+            }
+
+            float width = Mathf.Max(0f, rect.rect.width);
+            float height = Mathf.Max(0f, rect.rect.height);
+            if (width <= 0f)
+            {
+                width = Mathf.Max(0f, rect.sizeDelta.x);
+            }
+
+            if (height <= 0f)
+            {
+                height = Mathf.Max(0f, rect.sizeDelta.y);
+            }
+
+            if (canvasRect != null)
+            {
+                // The XRI windows live inside PlayModeMenu's layout tree,
+                // whose origin is near the lower-left. Position in the root
+                // simulator canvas instead so the window's top edge is truly
+                // `margin.y` pixels below the FAA heading tape in Edit and
+                // Play Mode, independent of the parent layout geometry.
+                Vector3 canvasLocalPosition = new Vector3(
+                    canvasRect.rect.xMin + margin.x + width * 0.5f,
+                    canvasRect.rect.yMax - margin.y - height * 0.5f,
+                    0f);
+                rect.position = canvasRect.TransformPoint(canvasLocalPosition);
+            }
+            else
+            {
+                rect.anchoredPosition = new Vector2(
+                    margin.x + width * 0.5f,
+                    -(margin.y + height * 0.5f));
+            }
+
+            // Keep the menu above other simulator controls while preserving
+            // XRI's own interaction and active-state toggling.
+            rect.SetAsLastSibling();
+            if (menuRect != null)
+            {
+                LayoutRebuilder.MarkLayoutForRebuild(menuRect);
+            }
+
+            return true;
+        }
+
+        private void RestoreSimulatorPointerInput()
+        {
+            RemoveSimulatorKeyOverrides();
+            RestoreSimulatorUiVisibility();
+            RegisterSimulatorHelp(false);
+            if (!_simulatorPointAndClickStateCaptured)
+            {
+                return;
+            }
+
+            if (_simulatorInstance != null)
+            {
+                XRInteractionSimulator simulator = _simulatorInstance.GetComponent<XRInteractionSimulator>();
+                if (simulator != null)
+                {
+                    simulator.usePointAndClick = _simulatorOriginalPointAndClick;
+                }
+            }
+
+            _simulatorPointAndClickStateCaptured = false;
+        }
+
+        private static GameObject FindSceneSimulator()
+        {
+            GameObject[] objects = FindObjectsByType<GameObject>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+            foreach (GameObject candidate in objects)
+            {
+                if (candidate != null && candidate.name == "FAA XR-3 Unity Simulator")
+                {
+                    return candidate;
+                }
+            }
+
+            return null;
+        }
+
+#if UNITY_EDITOR
+        private static GameObject FindEditorSimulatorPrefab()
+        {
+            string[] guids = UnityEditor.AssetDatabase.FindAssets("XR Interaction Simulator t:Prefab");
+            foreach (string guid in guids)
+            {
+                string path = UnityEditor.AssetDatabase.GUIDToAssetPath(guid);
+                GameObject candidate = UnityEditor.AssetDatabase.LoadAssetAtPath<GameObject>(path);
+                if (candidate != null && candidate.name == "XR Interaction Simulator")
+                {
+                    return candidate;
+                }
+            }
+
+            return null;
+        }
+#endif
+
+        private void DestroySimulator()
+        {
+            RestoreSimulatorPointerInput();
+
+            if (_simulatorInstance == null)
+            {
+                return;
+            }
+
+            if (!_ownsSimulatorInstance)
+            {
+                _simulatorInstance = null;
+                return;
+            }
+
+            if (Application.isPlaying)
+            {
+                Destroy(_simulatorInstance);
+            }
+            else
+            {
+                DestroyImmediate(_simulatorInstance);
+            }
+
+            _simulatorInstance = null;
+            _ownsSimulatorInstance = false;
+        }
+
+        private static bool IsNativeXrActive()
+        {
+            if (XRSettings.isDeviceActive)
+            {
+                return true;
+            }
+
+            var displays = new List<XRDisplaySubsystem>();
+            SubsystemManager.GetSubsystems(displays);
+            foreach (XRDisplaySubsystem display in displays)
+            {
+                if (display != null && display.running)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool HasAnyCommandLineFlag(params string[] flags)
+        {
+            string[] args = Environment.GetCommandLineArgs();
+            for (int i = 0; i < args.Length; i++)
+            {
+                for (int j = 0; j < flags.Length; j++)
+                {
+                    if (string.Equals(args[i], flags[j], StringComparison.OrdinalIgnoreCase))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        private static string GetHierarchyPath(Transform transform)
+        {
+            if (transform == null)
+            {
+                return string.Empty;
+            }
+
+            var names = new Stack<string>();
+            while (transform != null)
+            {
+                names.Push(transform.name);
+                transform = transform.parent;
+            }
+
+            return string.Join("/", names);
+        }
+    }
+}

@@ -24,6 +24,8 @@ namespace FAA.Headset
             public float displayRefreshHz, appGpuSeconds;
             public int droppedFrames, framePresents;
             public Vector3 worldEyePosition, localEyePosition, worldEyeEuler;
+            public bool nearRenderSpaceActive;
+            public Vector3 renderWorldOffset, dataWorldEyePosition;
             public float cameraAlpha, bodyReferenceErrorDegrees = -1;
             public int cameraCullingMask, desktopWidth, desktopHeight;
         }
@@ -83,6 +85,10 @@ namespace FAA.Headset
             if (view != null)
             {
                 report.worldEyePosition = view.transform.position; report.localEyePosition = view.transform.localPosition;
+                var renderSpace = AircraftControl.Camera.AircraftViewRenderSpace.ForCamera(view);
+                report.nearRenderSpaceActive = renderSpace != null && renderSpace.IsActive;
+                report.renderWorldOffset = renderSpace != null ? renderSpace.Offset : Vector3.zero;
+                report.dataWorldEyePosition = renderSpace != null ? renderSpace.RenderToDataPoint(view.transform.position) : view.transform.position;
                 report.worldEyeEuler = view.transform.eulerAngles; report.cameraAlpha = view.backgroundColor.a;
                 report.cameraCullingMask = view.cullingMask;
                 var controller = view.GetComponent<AircraftControl.Camera.AircraftCameraController>();

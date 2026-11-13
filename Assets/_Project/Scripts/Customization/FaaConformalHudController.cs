@@ -72,6 +72,14 @@ namespace FAA.Customization
         private Vector2 _headingHeadFixedAnchoredPosition;
         private Quaternion _headingHeadFixedLocalRotation;
         private bool _headingHeadFixedRootCaptured;
+        // The optional legacy canvas must render near the MR eye without becoming a child of
+        // the disposable native tracking origin. Preserve its original aircraft-local contract.
+        private Transform _legacyRenderAnchor, _legacyCanvasParent;
+        private Canvas _legacyRenderCanvas;
+        private AircraftCameraController _legacyRenderOwner;
+        private Vector3 _legacyLocalPosition, _legacyLocalScale;
+        private Quaternion _legacyLocalRotation;
+        private int _legacySibling;
         private static FaaConformalHudController _runtimeInstance;
 
         public HudPresentationMode PresentationMode => presentationMode;
@@ -133,21 +141,27 @@ namespace FAA.Customization
             Canvas.preWillRenderCanvases -= RefreshRenderProjection;
             Application.onBeforeRender -= RefreshRenderProjection;
             RestoreHeadFixedRoot();
+            RestoreLegacyRenderFrame();
         }
 
         // Reproject only; never integrate input or telemetry smoothing here.
         // The canvas callback also covers a pose changed during XR before-render.
-        [BeforeRenderOrder(200)]
+        [BeforeRenderOrder(300)]
         private void RefreshRenderProjection()
         {
             AircraftControl.Camera.RenderPhaseAudit.Mark("Projection begin");
             if (isActiveAndEnabled && UsesScreenProjection && _screenHudRoot != null)
                 UpdateScreenConformalProjection();
+            else if (isActiveAndEnabled && presentationMode == HudPresentationMode.Conformal &&
+                useWorldSpaceConformalCanvas && _conformalCanvas != null &&
+                (_legacyRenderCanvas != null || AircraftViewRenderSpace.ForCamera(projectionCamera)?.IsActive == true))
+                ConfigureConformalCanvas();
             AircraftControl.Camera.RenderPhaseAudit.Mark("Projection end");
         }
 
         private void OnDestroy()
         {
+            RestoreLegacyRenderFrame();
             if (_runtimeInstance == this)
             {
                 _runtimeInstance = null;
@@ -158,6 +172,7 @@ namespace FAA.Customization
         {
             if (!ResolveTargets())
             {
+                RestoreLegacyRenderFrame();
                 return;
             }
 
@@ -204,6 +219,7 @@ namespace FAA.Customization
             Scene activeScene = SceneManager.GetActiveScene();
             if (_boundScene != activeScene)
             {
+                RestoreLegacyRenderFrame();
                 _boundScene = activeScene;
                 _screenCanvas = null;
                 _conformalCanvas = null;
@@ -284,6 +300,8 @@ namespace FAA.Customization
         {
             bool useWorldSpace = presentationMode == HudPresentationMode.Conformal &&
                                  useWorldSpaceConformalCanvas && _conformalCanvas != null;
+
+            if (!useWorldSpace) RestoreLegacyRenderFrame();
 
             SetCanvasVisible(_screenCanvas, !useWorldSpace);
             SetCanvasVisible(_conformalCanvas, useWorldSpace);
@@ -457,11 +475,41 @@ namespace FAA.Customization
             }
 
             Transform canvasTransform = _conformalCanvas.transform;
-            if (aircraftTransform != null && canvasTransform.parent != aircraftTransform)
+            var renderSpace = AircraftViewRenderSpace.ForCamera(projectionCamera);
+            bool nearRender = renderSpace != null && renderSpace.IsActive;
+            if (_legacyRenderCanvas != null && (!nearRender || _legacyRenderCanvas != _conformalCanvas ||
+                _legacyRenderOwner != renderSpace.Owner || _legacyCanvasParent != aircraftTransform))
+                RestoreLegacyRenderFrame();
+            if (_legacyRenderCanvas == null && aircraftTransform != null && canvasTransform.parent != aircraftTransform)
             {
                 // Preserve the authored local placement when repairing an old
                 // scene whose duplicate canvas was detached from the aircraft.
                 canvasTransform.SetParent(aircraftTransform, false);
+            }
+
+            if (nearRender)
+            {
+                if (_legacyRenderCanvas == null)
+                {
+                    _legacyRenderCanvas = _conformalCanvas;
+                    _legacyCanvasParent = canvasTransform.parent;
+                    _legacyLocalPosition = canvasTransform.localPosition;
+                    _legacyLocalRotation = canvasTransform.localRotation;
+                    _legacyLocalScale = canvasTransform.localScale;
+                    _legacySibling = canvasTransform.GetSiblingIndex();
+                    _legacyRenderOwner = renderSpace.Owner;
+                    _legacyRenderOwner.NativeRenderSpaceChanged += LegacyRenderSpaceChanged;
+                    _legacyRenderAnchor = new GameObject("FAA legacy conformal near render frame").transform;
+                    canvasTransform.SetParent(_legacyRenderAnchor, false);
+                    canvasTransform.SetLocalPositionAndRotation(_legacyLocalPosition, _legacyLocalRotation);
+                    canvasTransform.localScale = _legacyLocalScale;
+                }
+                // Copy only the original parent's linear pose and translated origin. The saved
+                // canvas local pose stays small; a tracking-origin teardown cannot destroy it.
+                _legacyRenderAnchor.SetPositionAndRotation(
+                    renderSpace.DataToRenderPoint(_legacyCanvasParent != null ? _legacyCanvasParent.position : Vector3.zero),
+                    _legacyCanvasParent != null ? _legacyCanvasParent.rotation : Quaternion.identity);
+                _legacyRenderAnchor.localScale = _legacyCanvasParent != null ? _legacyCanvasParent.lossyScale : Vector3.one;
             }
 
             if (aircraftTransform != null && alignToAircraftReference)
@@ -481,7 +529,8 @@ namespace FAA.Customization
                 // mode. It is derived from aircraft attitude, not camera
                 // look-offset, so a side-window scan cannot drag the HUD.
                 canvasTransform.SetPositionAndRotation(
-                    aircraftTransform.position + aircraftReference * (Vector3.forward * Mathf.Max(1f, conformalDistance)),
+                    (nearRender ? renderSpace.DataToRenderPoint(aircraftTransform.position) : aircraftTransform.position) +
+                    aircraftReference * (Vector3.forward * Mathf.Max(1f, conformalDistance)),
                     aircraftReference);
             }
 
@@ -525,6 +574,39 @@ namespace FAA.Customization
             {
                 scaler.enabled = true;
             }
+        }
+
+        private void LegacyRenderSpaceChanged(bool active)
+        {
+            if (active) return;
+            RestoreLegacyRenderFrame();
+            // A release may precede this controller's next LateUpdate. Restore the current
+            // aircraft-relative plane immediately while its normal legacy mode still owns it.
+            if (isActiveAndEnabled && presentationMode == HudPresentationMode.Conformal &&
+                useWorldSpaceConformalCanvas && _conformalCanvas != null)
+                ConfigureConformalCanvas();
+        }
+
+        private void RestoreLegacyRenderFrame()
+        {
+            if (!ReferenceEquals(_legacyRenderOwner, null))
+                _legacyRenderOwner.NativeRenderSpaceChanged -= LegacyRenderSpaceChanged;
+            if (_legacyRenderCanvas != null)
+            {
+                var target = _legacyRenderCanvas.transform;
+                target.SetParent(_legacyCanvasParent, false);
+                target.SetLocalPositionAndRotation(_legacyLocalPosition, _legacyLocalRotation);
+                target.localScale = _legacyLocalScale;
+                target.SetSiblingIndex(_legacySibling);
+            }
+            if (_legacyRenderAnchor != null)
+            {
+                if (Application.isPlaying) Destroy(_legacyRenderAnchor.gameObject);
+                else DestroyImmediate(_legacyRenderAnchor.gameObject);
+            }
+            _legacyRenderAnchor = _legacyCanvasParent = null;
+            _legacyRenderCanvas = null;
+            _legacyRenderOwner = null;
         }
 
         private static void SetCanvasVisible(Canvas canvas, bool visible)

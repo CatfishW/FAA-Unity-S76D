@@ -168,16 +168,18 @@ namespace FAA.Customization
                     Camera uiCamera = g.canvas.renderMode == RenderMode.ScreenSpaceOverlay ? null : g.canvas.worldCamera;
                     if(g.canvas.rootCanvas.renderMode==RenderMode.WorldSpace&&uiCamera!=null)
                     {
-                        g.rectTransform.GetLocalCorners(corners);
-                        if(!IndicatorSystem.Core.IndicatorCanvasProjection.TryProjectLocal(g.rectTransform,corners[0],uiCamera,out var first)||
-                            !IndicatorSystem.Core.IndicatorCanvasProjection.TryProjectLocal(g.rectTransform,corners[2],uiCamera,out var last))continue;
-                        a=first;b=last;
+                        if(!IndicatorSystem.Core.IndicatorCanvasProjection.TryProjectLocalBounds(g.rectTransform,g.rectTransform.rect,uiCamera,out Rect projected))continue;
+                        a=projected.min;b=projected.max;
                     }
                     else
                     {
                         g.rectTransform.GetWorldCorners(corners);
-                        a = RectTransformUtility.WorldToScreenPoint(uiCamera, corners[0]);
-                        b = RectTransformUtility.WorldToScreenPoint(uiCamera, corners[2]);
+                        a=new Vector2(float.PositiveInfinity,float.PositiveInfinity);b=-a;
+                        for(int i=0;i<4;i++)
+                        {
+                            Vector2 point=RectTransformUtility.WorldToScreenPoint(uiCamera,corners[i]);
+                            a=Vector2.Min(a,point);b=Vector2.Max(b,point);
+                        }
                     }
                 }
                 if (Mathf.Abs(b.x - a.x) > view.pixelWidth || Mathf.Abs(b.y - a.y) > view.pixelHeight) continue;

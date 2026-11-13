@@ -152,9 +152,10 @@ namespace FAA.Customization
             if (Canvas == null || Radar == null) return;
             // Keep a desktop camera-canvas presentation through both normal and before-render updates. Restore before
             // a close, late native loader, tracked camera or ordinary spatial placement uses the original hierarchy.
-            bool keepDesktop=desktopCameraPresentation&&owner!=null&&owner.InspectedPanelId==Id&&owner.InspectionZoomAllowed&&DesktopCameraAllowed(view,false);
+            bool settingsDesktop=IsUtility&&Id=="settings"&&owner!=null&&owner.IsDesktopSettingsInspectionCamera(Canvas.worldCamera);
+            bool keepDesktop=desktopCameraPresentation&&(settingsDesktop||owner!=null&&owner.InspectedPanelId==Id&&owner.InspectionZoomAllowed&&DesktopCameraAllowed(view,false));
             if(desktopCameraPresentation&&!keepDesktop)EndDesktopInspection();
-            if(owner!=null&&owner.InspectedPanelId!=Id)desktopFitValid=false;
+            if(owner!=null&&owner.InspectedPanelId!=Id&&!settingsDesktop)desktopFitValid=false;
             ProtectedPhysicalSize = IsUtility ? new Vector2(physicalWidth, PhysicalHeight) : footprint.Measure(Canvas, Radar) * (2f * physicalWidth);
             // Utilities also stay inside a comfortable elevation band (no extreme look-down onto terrain when inspected).
             if (IsUtility) FaaPeripheralPanelLayout.ProtectUtility(Layout,ProtectedPhysicalSize.x,ProtectedPhysicalSize.y,DefaultLayout.yaw);
@@ -282,8 +283,16 @@ namespace FAA.Customization
         /// <summary>Temporary untracked desktop inspection pose: the complete visible radar UI is upright and on screen.
         /// The saved cockpit layout is unchanged; the next ordinary Apply restores the authored spatial pose.</summary>
         public bool ApplyDesktopInspection(Camera view,Rect screenTarget,bool nativeXr,IReadOnlyList<Rect> protectedRects=null)
+            =>ApplyDesktopInspectionCore(view,screenTarget,nativeXr,protectedRects,false);
+
+        /// <summary>The explicit window Settings route admits only its verified owned mono spectator.</summary>
+        public bool ApplyDesktopSettingsInspection(Camera view,Rect screenTarget)
+            =>ApplyDesktopInspectionCore(view,screenTarget,false,null,true);
+
+        private bool ApplyDesktopInspectionCore(Camera view,Rect screenTarget,bool nativeXr,IReadOnlyList<Rect> protectedRects,bool desktopSettings)
         {
-            if(!DesktopCameraAllowed(view,nativeXr)||IsUtility&&Id!="settings"||!IsSpatial)
+            bool allowed=desktopSettings?IsUtility&&Id=="settings"&&owner!=null&&owner.IsDesktopSettingsInspectionCamera(view):DesktopCameraAllowed(view,nativeXr);
+            if(!allowed||IsUtility&&Id!="settings"||!IsSpatial)
             {EndDesktopInspection();return false;}
             if(desktopCameraPresentation)CaptureDesktopChildren();
             if(!TryVisibleCanvasRect(out Rect content))return false;
@@ -393,11 +402,11 @@ namespace FAA.Customization
         {
             if(!desktopCameraPresentation)return;
             desktopCameraPresentation=false;
-            foreach(var child in desktopChildren)if(child.transform!=null){MoveLayout(child.transform,canvasRect);child.transform.SetSiblingIndex(child.sibling);}
+            foreach(var child in desktopChildren)if(child.transform!=null&&canvasRect!=null){MoveLayout(child.transform,canvasRect);child.transform.SetSiblingIndex(child.sibling);}
             desktopChildren.Clear();if(desktopRoot!=null){desktopRoot.gameObject.SetActive(false);desktopRoot.SetParent(null,false);}
-            Canvas.renderMode=desktopOriginal.mode;Canvas.worldCamera=desktopOriginal.camera;Canvas.planeDistance=desktopOriginal.planeDistance;Canvas.scaleFactor=desktopOriginal.scaleFactor;
-            canvasRect.anchorMin=desktopOriginal.anchorMin;canvasRect.anchorMax=desktopOriginal.anchorMax;canvasRect.pivot=desktopOriginal.pivot;canvasRect.sizeDelta=desktopOriginal.size;
-            canvasRect.anchoredPosition=desktopOriginal.anchored;canvasRect.localPosition=desktopOriginal.position;canvasRect.localRotation=desktopOriginal.rotation;canvasRect.localScale=desktopOriginal.scale;
+            if(Canvas!=null){Canvas.renderMode=desktopOriginal.mode;Canvas.worldCamera=desktopOriginal.camera;Canvas.planeDistance=desktopOriginal.planeDistance;Canvas.scaleFactor=desktopOriginal.scaleFactor;}
+            if(canvasRect!=null){canvasRect.anchorMin=desktopOriginal.anchorMin;canvasRect.anchorMax=desktopOriginal.anchorMax;canvasRect.pivot=desktopOriginal.pivot;canvasRect.sizeDelta=desktopOriginal.size;
+                canvasRect.anchoredPosition=desktopOriginal.anchored;canvasRect.localPosition=desktopOriginal.position;canvasRect.localRotation=desktopOriginal.rotation;canvasRect.localScale=desktopOriginal.scale;}
             if(scaler!=null)scaler.enabled=desktopOriginal.scalerEnabled;
         }
 

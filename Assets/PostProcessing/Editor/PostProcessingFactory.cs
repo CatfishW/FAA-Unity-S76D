@@ -11,7 +11,7 @@ namespace UnityEditor.PostProcessing
         static void MenuCreatePostProcessingProfile()
         {
             var icon = EditorGUIUtility.FindTexture("ScriptableObject Icon");
-#if UNITY_6000_2_OR_NEWER
+#if UNITY_6000_5_OR_NEWER
             ProjectWindowUtil.StartNameEditingIfProjectWindowExists(
                 EntityId.FromULong(0),
                 ScriptableObject.CreateInstance<DoCreatePostProcessingProfile>(),
@@ -33,7 +33,7 @@ namespace UnityEditor.PostProcessing
         }
     }
 
-#if UNITY_6000_2_OR_NEWER
+#if UNITY_6000_5_OR_NEWER
     class DoCreatePostProcessingProfile : AssetCreationEndAction
     {
         public override void Action(EntityId entityId, string pathName, string resourceFile)

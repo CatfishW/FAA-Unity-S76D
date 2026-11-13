@@ -58,7 +58,7 @@ namespace IndicatorSystem.Core
                 data.PitchDegrees = data.HasPitch ? traffic.PitchDegrees : 0f;
                 data.RollDegrees = data.HasRoll ? traffic.RollDegrees : 0f;
                 data.VerticalSpeedFpm = data.HasVerticalSpeed ? traffic.VerticalSpeedFpm : 0f;
-                Vector3 sight = target.WorldPosition - camera.transform.position;
+                Vector3 sight = AircraftControl.Camera.AircraftViewRenderSpace.DataToRenderPoint(camera, target.WorldPosition) - camera.transform.position;
                 // Keep reported field validity distinct from view-pose validity:
                 // a coincident/invalid sight line cannot define observer axes.
                 if (data.HasHeading && data.HasPitch && data.HasRoll) data.ViewRelativeRotation = new Quaternion();
@@ -90,7 +90,8 @@ namespace IndicatorSystem.Core
             }
 
             // Get viewport position (0-1 range)
-            Vector3 viewportPos = camera.WorldToViewportPoint(target.WorldPosition);
+            Vector3 renderPosition = AircraftControl.Camera.AircraftViewRenderSpace.DataToRenderPoint(camera, target.WorldPosition);
+            Vector3 viewportPos = camera.WorldToViewportPoint(renderPosition);
             
             // Check if behind camera
             if (viewportPos.z < 0)
@@ -139,7 +140,7 @@ namespace IndicatorSystem.Core
                 // explicit aft cue at the bottom edge, never an on-screen target.
                 // Calibrated asymmetric XR projections need not put the eye's
                 // physical forward/back axis at viewport (0.5,0.5).
-                Vector3 viewDirection = camera.transform.InverseTransformPoint(target.WorldPosition);
+                Vector3 viewDirection = camera.transform.InverseTransformPoint(renderPosition);
                 bool directlyBehind = viewDirection.z < 0f &&
                     viewDirection.x * viewDirection.x + viewDirection.y * viewDirection.y <=
                     viewDirection.z * viewDirection.z * 0.000001f;

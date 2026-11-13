@@ -1,6 +1,26 @@
 # Full XR-3 integration source profile
 
-This folder preserves corrected source from the archived full integration project used for the installed Windows release. The repository's standard scene profile uses earlier canvas-based conformal components and does not import the optional spatial-workspace dependencies of this implementation. Unity ignores the `SourceProfiles~` directory.
+Prepare the complete source in a **new directory** with
+`Tools/prepare_xr3_profile.py`; see
+[the reproducibility guide](../../docs/XR3_REPRODUCIBLE_PROFILE.md). Its committed
+overlay contains the full dependency closure, authored Experiment scene and
+release build entry. Source commit `54fc2c03` includes 24 reviewed lifecycle,
+Settings/input and traffic repair paths plus two Editor-only raster fixture
+paths. Its freshly materialized project passed **1,632 tests, zero failures and
+11 explicit GPU/benchmark skips**, built for Windows with zero errors, and
+completed a normal 30-minute remote run on `4090` with the XR-3 runtime active.
+The shutdown review found no reproduced exception or camera teardown warning;
+residual font/network warnings remain documented. Separate 30-, six- and ten-minute S-76 phases passed their full journal audits
+and ended paused.
+[Validation and recording limits](../../docs/XR3_CLASSIC_REMOTE_VALIDATION.md)
+distinguish automated tests, the complete planned core UI recording, separate
+cue-visibility stills and unperformed physical wearer checks.
+
+Ten affected flattened runtime sources and their original metadata are
+synchronized to the complete profile. These source snapshots are preserved
+outside Unity import; copying the flattened files alone into Assets is not a
+complete build recipe. The repository's standard scene profile retains its own
+dependency graph. Unity ignores the `SourceProfiles~` directory.
 
 `FaaRotorcraftConformalLayer.cs` is the exact implementation built for the deployed full integration profile. Its native mesh and world-text objects use the FAA HUD layer, and its camera callback admits the explicitly owned centered preview camera. These fixes preserve the terrain-free mixed-reality culling policy and the headset's calibrated stereo projection.
 
@@ -59,3 +79,19 @@ Full-map entry/exit honors the temporary desktop layout host instead of reparent
 The pilot toolbar reserves its status slot so changes between live-data, invalid-data and terrain-loading messages do not move neighbouring buttons. At narrow widths, status text and controls use separate rows, with full alert wrapping and flyouts placed above the current bar. The full-profile Status partial and Brief placement consumer are preserved beside the chrome snapshot; they are not replacements for the standard imported profile. Nine new cases plus the existing chrome regressions pass45/45 focused tests.
 
 Screen-cue canvases now retain a sorting-order floor above conformal strokes, including after HUD normalization. Existing higher authored orders are preserved. This fixes a bright horizon rendering over the traffic readout plate without changing its geometry, transparency or projection. Fourteen focused full-profile cases include normal-camera GPU rendering; the standard profile passes13cases with one explicit optional-shader skip.
+
+## LTS and native MR rendering origin
+
+The current integration candidate uses Unity6000.3.27f1 LTS with UGUI2.0.0, InputSystem1.20.1 and Burst1.8.31. Equivalent explicit `FindObjectsSortMode.None` calls preserve the older API contract. The standard imported profile has its own validated package lock and retains its existing Cesium source; the integration build uses an embedded Cesium copy.
+
+`AircraftViewRenderSpace` keeps only the active passthrough camera and its owned spectator near the rendering origin. The cached translation is committed with the tracked rig pose, while original geographic/physics points remain data-world values. Traffic projection and glyphs, cached weather-camera references, authored scene cues, landing-surface physics rays and the optional legacy conformal canvas cross that boundary explicitly. The conformal before-render cache observes translation changes even when the near camera pose stays unchanged. Disabling MR restores the prior coordinate behavior. Tracked local HMD pose and stereo projection remain unchanged.
+
+The standard controller and legacy HUD retain their earlier dependencies through targeted equivalent ports. Exact full implementations and full tests are preserved here; optional scene-layer/discovery tests explicitly skip in the standard profile. The source-health logging change preserves the one-second invalidation limit and records loss/recovery transitions. The failed NoOpt/local-accumulator experiments are absent. The original manual projection fallback matches `bb754107` and remains beneath the explicitly owned near-space path.
+
+Validation:1561 full-profile functional checks plus6 dedicated normal-render GPU checks passed. The private standard-profile clone passed819 functional checks; five missing optional-profile cases and three explicit GPU cases were documented. Its new normal-render GPU regression was separately run and passed. The same120-frame original/near/restored comparison measured a561–565px ring-center range before/restored and exactly563px while near rendering was active. These are rendering/automated results; native crash endurance and desktop-input verification remain separate ongoing checks. See [the repair notes](../../docs/XR3_RENDER_ORIGIN_STABILITY.md).
+
+## Owned near-space geometry and complete bounds
+
+The shared imported profile now includes the explicit canvas/view ownership registry and one-call four-corner projection API. All six final runtime sources are preserved here exactly; `FaaCanvasLocalGeometry.cs` is newly included. The three optional canvas/module/keep-out implementations remain outside Assets. The archived manual fallback and independent view/projection/input semantics are retained. See [the source and validation notes](../../docs/XR3_NEAR_SPACE_GEOMETRY.md) for profile-specific coverage,24-root cost measurements and their limits.
+
+The near-space public port was independently compiled under Unity 6000.3.27f1 in an isolated standard-profile copy: 840 functional checks passed with no failures; six absent optional-profile cases and nine explicit graphics/benchmark methods skipped in that suite. Four supported normal-graphics checks then passed, with four full-profile-only consumer/layer/shader cases explicitly skipped. Full runtime snapshots remain byte-identical to the final integration source; the standard imported variants retain their own dependency graph.

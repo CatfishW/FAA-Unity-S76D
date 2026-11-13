@@ -14,9 +14,9 @@ public static class FaaRadarPresentationSetup
     {
         if (EditorApplication.isPlayingOrWillChangePlaymode) return;
         Scene scene = SceneManager.GetActiveScene();
-        var bridge = Object.FindObjectsByType<XPlane12ApiHudBridge>(FindObjectsInactive.Include)
+        var bridge = Object.FindObjectsByType<XPlane12ApiHudBridge>(FindObjectsInactive.Include, UnityEngine.FindObjectsSortMode.None)
             .FirstOrDefault(x => x.gameObject.scene == scene);
-        foreach (var root in Object.FindObjectsByType<RectTransform>(FindObjectsInactive.Include))
+        foreach (var root in Object.FindObjectsByType<RectTransform>(FindObjectsInactive.Include, UnityEngine.FindObjectsSortMode.None))
         {
             if (root.gameObject.scene != scene) continue;
             bool weather = root.name == "X-Plane Weather Radar System";

@@ -1,0 +1,1135 @@
+{
+    "engine": "6000.3.27f1",
+    "graphics": "Apple M5 Pro",
+    "method": "80 enabled-camera RenderTexture frames after5 warmups; actual MR binding, distant moving data aircraft and dynamic nested UI; archived/manual versus production projection; no Camera.Render and no optical/wearer claim.",
+    "maximumRenderedErrorPixels": 0.5672022104263306,
+    "maximumBaselineDifferencePixels": 0.0001258271950064227,
+    "maximumInverseErrorUnits": 0.0009462882298976183,
+    "maximumRenderedBoundsErrorPixels": 1.07244873046875,
+    "residualXRangePixels": 0.903472900390625,
+    "residualYRangePixels": 0.837432861328125,
+    "nearViewHits": 320,
+    "nearLocalHits": 80,
+    "samples": [
+        {
+            "frame": 0,
+            "greenPixels": 195,
+            "intended": {
+                "x": 337.2000732421875,
+                "y": 324.45001220703127
+            },
+            "observed": {
+                "x": 337.5,
+                "y": 324.5
+            },
+            "baselineDifferencePixels": 0.0000431583721365314,
+            "inverseErrorUnits": 0.00010923630907200277
+        },
+        {
+            "frame": 1,
+            "greenPixels": 210,
+            "intended": {
+                "x": 341.9310607910156,
+                "y": 324.348876953125
+            },
+            "observed": {
+                "x": 342.0,
+                "y": 324.5
+            },
+            "baselineDifferencePixels": 0.0001258271950064227,
+            "inverseErrorUnits": 0.00043541056220419705
+        },
+        {
+            "frame": 2,
+            "greenPixels": 219,
+            "intended": {
+                "x": 346.6135559082031,
+                "y": 324.0464172363281
+            },
+            "observed": {
+                "x": 346.5,
+                "y": 324.0
+            },
+            "baselineDifferencePixels": 0.000091552734375,
+            "inverseErrorUnits": 0.00035301927709951997
+        },
+        {
+            "frame": 3,
+            "greenPixels": 223,
+            "intended": {
+                "x": 351.1993713378906,
+                "y": 323.54412841796877
+            },
+            "observed": {
+                "x": 351.5,
+                "y": 323.5
+            },
+            "baselineDifferencePixels": 0.0000431583721365314,
+            "inverseErrorUnits": 0.0001332416431978345
+        },
+        {
+            "frame": 4,
+            "greenPixels": 197,
+            "intended": {
+                "x": 355.6410827636719,
+                "y": 322.845458984375
+            },
+            "observed": {
+                "x": 356.0,
+                "y": 323.0
+            },
+            "baselineDifferencePixels": 0.00006103515625,
+            "inverseErrorUnits": 0.0003187042020726949
+        },
+        {
+            "frame": 5,
+            "greenPixels": 222,
+            "intended": {
+                "x": 359.8933410644531,
+                "y": 321.95489501953127
+            },
+            "observed": {
+                "x": 360.0,
+                "y": 322.0
+            },
+            "baselineDifferencePixels": 0.000030517578125,
+            "inverseErrorUnits": 0.00022542246733792126
+        },
+        {
+            "frame": 6,
+            "greenPixels": 213,
+            "intended": {
+                "x": 363.912353515625,
+                "y": 320.87799072265627
+            },
+            "observed": {
+                "x": 363.5,
+                "y": 321.0
+            },
+            "baselineDifferencePixels": 0.00006103515625,
+            "inverseErrorUnits": 0.00022438722953666002
+        },
+        {
+            "frame": 7,
+            "greenPixels": 230,
+            "intended": {
+                "x": 367.6566467285156,
+                "y": 319.62158203125
+            },
+            "observed": {
+                "x": 368.0,
+                "y": 320.0
+            },
+            "baselineDifferencePixels": 0.0001100326917367056,
+            "inverseErrorUnits": 0.00008252452244050801
+        },
+        {
+            "frame": 8,
+            "greenPixels": 201,
+            "intended": {
+                "x": 371.0878601074219,
+                "y": 318.1938781738281
+            },
+            "observed": {
+                "x": 371.0,
+                "y": 318.0
+            },
+            "baselineDifferencePixels": 0.00006823938019806519,
+            "inverseErrorUnits": 0.00014734808064531535
+        },
+        {
+            "frame": 9,
+            "greenPixels": 216,
+            "intended": {
+                "x": 374.17071533203127,
+                "y": 316.6039123535156
+            },
+            "observed": {
+                "x": 374.5,
+                "y": 317.0
+            },
+            "baselineDifferencePixels": 0.00006823938019806519,
+            "inverseErrorUnits": 0.00039378320798277855
+        },
+        {
+            "frame": 10,
+            "greenPixels": 217,
+            "intended": {
+                "x": 376.8730163574219,
+                "y": 314.8621826171875
+            },
+            "observed": {
+                "x": 377.0,
+                "y": 315.0
+            },
+            "baselineDifferencePixels": 0.0001100326917367056,
+            "inverseErrorUnits": 0.00025635218480601907
+        },
+        {
+            "frame": 11,
+            "greenPixels": 231,
+            "intended": {
+                "x": 379.16754150390627,
+                "y": 312.98016357421877
+            },
+            "observed": {
+                "x": 379.0,
+                "y": 313.0
+            },
+            "baselineDifferencePixels": 0.0000863167442730628,
+            "inverseErrorUnits": 0.00020271804532967508
+        },
+        {
+            "frame": 12,
+            "greenPixels": 200,
+            "intended": {
+                "x": 381.0303039550781,
+                "y": 310.9701843261719
+            },
+            "observed": {
+                "x": 381.0,
+                "y": 311.0
+            },
+            "baselineDifferencePixels": 0.00006823938019806519,
+            "inverseErrorUnits": 0.0002518855908419937
+        },
+        {
+            "frame": 13,
+            "greenPixels": 215,
+            "intended": {
+                "x": 382.4423522949219,
+                "y": 308.8459777832031
+            },
+            "observed": {
+                "x": 382.5,
+                "y": 309.0
+            },
+            "baselineDifferencePixels": 0.00009650505671743304,
+            "inverseErrorUnits": 0.00022243316925596446
+        },
+        {
+            "frame": 14,
+            "greenPixels": 213,
+            "intended": {
+                "x": 383.3890075683594,
+                "y": 306.6217041015625
+            },
+            "observed": {
+                "x": 383.0,
+                "y": 307.0
+            },
+            "baselineDifferencePixels": 0.0,
+            "inverseErrorUnits": 0.00011844005348393694
+        },
+        {
+            "frame": 15,
+            "greenPixels": 231,
+            "intended": {
+                "x": 383.86083984375,
+                "y": 304.312744140625
+            },
+            "observed": {
+                "x": 384.0,
+                "y": 304.5
+            },
+            "baselineDifferencePixels": 0.00009650505671743304,
+            "inverseErrorUnits": 0.00026876700576394796
+        },
+        {
+            "frame": 16,
+            "greenPixels": 200,
+            "intended": {
+                "x": 383.85321044921877,
+                "y": 301.9349060058594
+            },
+            "observed": {
+                "x": 383.5,
+                "y": 302.0
+            },
+            "baselineDifferencePixels": 0.000030517578125,
+            "inverseErrorUnits": 0.0000137540864670882
+        },
+        {
+            "frame": 17,
+            "greenPixels": 214,
+            "intended": {
+                "x": 383.3663024902344,
+                "y": 299.5052185058594
+            },
+            "observed": {
+                "x": 383.5,
+                "y": 299.5
+            },
+            "baselineDifferencePixels": 0.000030517578125,
+            "inverseErrorUnits": 0.00009947513171937317
+        },
+        {
+            "frame": 18,
+            "greenPixels": 213,
+            "intended": {
+                "x": 382.40576171875,
+                "y": 297.0408935546875
+            },
+            "observed": {
+                "x": 382.0,
+                "y": 297.0
+            },
+            "baselineDifferencePixels": 0.00006103515625,
+            "inverseErrorUnits": 0.00015320652164518833
+        },
+        {
+            "frame": 19,
+            "greenPixels": 228,
+            "intended": {
+                "x": 380.98175048828127,
+                "y": 294.5595397949219
+            },
+            "observed": {
+                "x": 381.0,
+                "y": 294.5
+            },
+            "baselineDifferencePixels": 0.0000431583721365314,
+            "inverseErrorUnits": 0.000081548911111895
+        },
+        {
+            "frame": 20,
+            "greenPixels": 197,
+            "intended": {
+                "x": 379.1095886230469,
+                "y": 292.0794982910156
+            },
+            "observed": {
+                "x": 379.5,
+                "y": 292.0
+            },
+            "baselineDifferencePixels": 0.0000863167442730628,
+            "inverseErrorUnits": 0.00003890243169735186
+        },
+        {
+            "frame": 21,
+            "greenPixels": 211,
+            "intended": {
+                "x": 376.8095397949219,
+                "y": 289.61944580078127
+            },
+            "observed": {
+                "x": 377.0,
+                "y": 289.5
+            },
+            "baselineDifferencePixels": 0.00006823938019806519,
+            "inverseErrorUnits": 0.00014675433340016752
+        },
+        {
+            "frame": 22,
+            "greenPixels": 212,
+            "intended": {
+                "x": 374.1063232421875,
+                "y": 287.19775390625
+            },
+            "observed": {
+                "x": 374.0,
+                "y": 287.0
+            },
+            "baselineDifferencePixels": 0.0000431583721365314,
+            "inverseErrorUnits": 0.0003588300314731896
+        },
+        {
+            "frame": 23,
+            "greenPixels": 224,
+            "intended": {
+                "x": 371.02880859375,
+                "y": 284.8330383300781
+            },
+            "observed": {
+                "x": 371.0,
+                "y": 285.0
+            },
+            "baselineDifferencePixels": 0.0,
+            "inverseErrorUnits": 0.00009947513171937317
+        },
+        {
+            "frame": 24,
+            "greenPixels": 195,
+            "intended": {
+                "x": 367.6102600097656,
+                "y": 282.54345703125
+            },
+            "observed": {
+                "x": 367.5,
+                "y": 282.5
+            },
+            "baselineDifferencePixels": 0.00009650505671743304,
+            "inverseErrorUnits": 0.000305324763758108
+        },
+        {
+            "frame": 25,
+            "greenPixels": 207,
+            "intended": {
+                "x": 363.8872375488281,
+                "y": 280.3477478027344
+            },
+            "observed": {
+                "x": 364.0,
+                "y": 280.5
+            },
+            "baselineDifferencePixels": 0.0,
+            "inverseErrorUnits": 0.0005040599498897791
+        },
+        {
+            "frame": 26,
+            "greenPixels": 207,
+            "intended": {
+                "x": 359.9002685546875,
+                "y": 278.2629699707031
+            },
+            "observed": {
+                "x": 360.0,
+                "y": 278.0
+            },
+            "baselineDifferencePixels": 0.00006103515625,
+            "inverseErrorUnits": 0.00038227473851293325
+        },
+        {
+            "frame": 27,
+            "greenPixels": 220,
+            "intended": {
+                "x": 355.6921081542969,
+                "y": 276.3064270019531
+            },
+            "observed": {
+                "x": 356.0,
+                "y": 276.5
+            },
+            "baselineDifferencePixels": 0.000030517578125,
+            "inverseErrorUnits": 0.00041220360435545444
+        },
+        {
+            "frame": 28,
+            "greenPixels": 192,
+            "intended": {
+                "x": 351.3085021972656,
+                "y": 274.49420166015627
+            },
+            "observed": {
+                "x": 351.5,
+                "y": 274.5
+            },
+            "baselineDifferencePixels": 0.00009650505671743304,
+            "inverseErrorUnits": 0.00010708365152822807
+        },
+        {
+            "frame": 29,
+            "greenPixels": 206,
+            "intended": {
+                "x": 346.7972106933594,
+                "y": 272.84149169921877
+            },
+            "observed": {
+                "x": 346.5,
+                "y": 273.0
+            },
+            "baselineDifferencePixels": 0.00006823938019806519,
+            "inverseErrorUnits": 0.00008148197230184451
+        },
+        {
+            "frame": 30,
+            "greenPixels": 206,
+            "intended": {
+                "x": 342.2068176269531,
+                "y": 271.3623352050781
+            },
+            "observed": {
+                "x": 342.0,
+                "y": 271.0
+            },
+            "baselineDifferencePixels": 0.0000863167442730628,
+            "inverseErrorUnits": 0.0003663544193841517
+        },
+        {
+            "frame": 31,
+            "greenPixels": 217,
+            "intended": {
+                "x": 337.5876159667969,
+                "y": 270.0693664550781
+            },
+            "observed": {
+                "x": 338.0,
+                "y": 270.0
+            },
+            "baselineDifferencePixels": 0.000030517578125,
+            "inverseErrorUnits": 0.00036629545502364635
+        },
+        {
+            "frame": 32,
+            "greenPixels": 191,
+            "intended": {
+                "x": 332.98992919921877,
+                "y": 268.9739074707031
+            },
+            "observed": {
+                "x": 333.0,
+                "y": 269.0
+            },
+            "baselineDifferencePixels": 0.000030517578125,
+            "inverseErrorUnits": 0.0001844145735958591
+        },
+        {
+            "frame": 33,
+            "greenPixels": 207,
+            "intended": {
+                "x": 328.4637756347656,
+                "y": 268.0855407714844
+            },
+            "observed": {
+                "x": 328.5,
+                "y": 268.0
+            },
+            "baselineDifferencePixels": 0.0000863167442730628,
+            "inverseErrorUnits": 0.000015619601981597953
+        },
+        {
+            "frame": 34,
+            "greenPixels": 202,
+            "intended": {
+                "x": 324.0587158203125,
+                "y": 267.4122619628906
+            },
+            "observed": {
+                "x": 324.0,
+                "y": 267.5
+            },
+            "baselineDifferencePixels": 0.000091552734375,
+            "inverseErrorUnits": 0.00038149385363794863
+        },
+        {
+            "frame": 35,
+            "greenPixels": 217,
+            "intended": {
+                "x": 319.8227844238281,
+                "y": 266.9596862792969
+            },
+            "observed": {
+                "x": 320.0,
+                "y": 267.0
+            },
+            "baselineDifferencePixels": 0.00006823938019806519,
+            "inverseErrorUnits": 0.0005494904471561313
+        },
+        {
+            "frame": 36,
+            "greenPixels": 188,
+            "intended": {
+                "x": 315.8019714355469,
+                "y": 266.7322082519531
+            },
+            "observed": {
+                "x": 316.0,
+                "y": 266.5
+            },
+            "baselineDifferencePixels": 0.0,
+            "inverseErrorUnits": 0.0006568595999851823
+        },
+        {
+            "frame": 37,
+            "greenPixels": 202,
+            "intended": {
+                "x": 312.0402526855469,
+                "y": 266.731201171875
+            },
+            "observed": {
+                "x": 312.0,
+                "y": 267.0
+            },
+            "baselineDifferencePixels": 0.0000431583721365314,
+            "inverseErrorUnits": 0.00002226375181635376
+        },
+        {
+            "frame": 38,
+            "greenPixels": 203,
+            "intended": {
+                "x": 308.5783386230469,
+                "y": 266.9568786621094
+            },
+            "observed": {
+                "x": 308.5,
+                "y": 267.0
+            },
+            "baselineDifferencePixels": 0.0000431583721365314,
+            "inverseErrorUnits": 0.00008148197230184451
+        },
+        {
+            "frame": 39,
+            "greenPixels": 217,
+            "intended": {
+                "x": 305.45355224609377,
+                "y": 267.4068298339844
+            },
+            "observed": {
+                "x": 305.5,
+                "y": 267.0
+            },
+            "baselineDifferencePixels": 0.00006823938019806519,
+            "inverseErrorUnits": 0.0005495152436196804
+        },
+        {
+            "frame": 40,
+            "greenPixels": 188,
+            "intended": {
+                "x": 302.6994323730469,
+                "y": 268.07598876953127
+            },
+            "observed": {
+                "x": 303.0,
+                "y": 268.0
+            },
+            "baselineDifferencePixels": 0.00006103515625,
+            "inverseErrorUnits": 0.0005189048824831843
+        },
+        {
+            "frame": 41,
+            "greenPixels": 204,
+            "intended": {
+                "x": 300.34490966796877,
+                "y": 268.9580383300781
+            },
+            "observed": {
+                "x": 300.0,
+                "y": 269.0
+            },
+            "baselineDifferencePixels": 0.00006823938019806519,
+            "inverseErrorUnits": 0.00024414248764514923
+        },
+        {
+            "frame": 42,
+            "greenPixels": 200,
+            "intended": {
+                "x": 298.41455078125,
+                "y": 270.0444030761719
+            },
+            "observed": {
+                "x": 298.5,
+                "y": 270.0
+            },
+            "baselineDifferencePixels": 0.000030517578125,
+            "inverseErrorUnits": 0.00015330221503973007
+        },
+        {
+            "frame": 43,
+            "greenPixels": 212,
+            "intended": {
+                "x": 296.927734375,
+                "y": 271.32366943359377
+            },
+            "observed": {
+                "x": 296.5,
+                "y": 271.0
+            },
+            "baselineDifferencePixels": 0.00006103515625,
+            "inverseErrorUnits": 0.000001430511474609375
+        },
+        {
+            "frame": 44,
+            "greenPixels": 190,
+            "intended": {
+                "x": 295.8987121582031,
+                "y": 272.7835693359375
+            },
+            "observed": {
+                "x": 296.0,
+                "y": 272.5
+            },
+            "baselineDifferencePixels": 0.00006823938019806519,
+            "inverseErrorUnits": 0.00042791079613380134
+        },
+        {
+            "frame": 45,
+            "greenPixels": 197,
+            "intended": {
+                "x": 295.33599853515627,
+                "y": 274.4095153808594
+            },
+            "observed": {
+                "x": 295.0,
+                "y": 274.5
+            },
+            "baselineDifferencePixels": 0.0000431583721365314,
+            "inverseErrorUnits": 0.0009462882298976183
+        },
+        {
+            "frame": 46,
+            "greenPixels": 209,
+            "intended": {
+                "x": 295.2432861328125,
+                "y": 276.18536376953127
+            },
+            "observed": {
+                "x": 295.0,
+                "y": 276.5
+            },
+            "baselineDifferencePixels": 0.00006103515625,
+            "inverseErrorUnits": 0.0007324721664190292
+        },
+        {
+            "frame": 47,
+            "greenPixels": 240,
+            "intended": {
+                "x": 295.61785888671877,
+                "y": 278.09393310546877
+            },
+            "observed": {
+                "x": 295.5,
+                "y": 278.0
+            },
+            "baselineDifferencePixels": 0.0000863167442730628,
+            "inverseErrorUnits": 0.000702054938301444
+        },
+        {
+            "frame": 48,
+            "greenPixels": 195,
+            "intended": {
+                "x": 296.4519958496094,
+                "y": 280.1162109375
+            },
+            "observed": {
+                "x": 296.5,
+                "y": 280.5
+            },
+            "baselineDifferencePixels": 0.0,
+            "inverseErrorUnits": 0.0003663715615402907
+        },
+        {
+            "frame": 49,
+            "greenPixels": 205,
+            "intended": {
+                "x": 297.732421875,
+                "y": 282.2326965332031
+            },
+            "observed": {
+                "x": 298.0,
+                "y": 282.0
+            },
+            "baselineDifferencePixels": 0.000030517578125,
+            "inverseErrorUnits": 0.0001848088577389717
+        },
+        {
+            "frame": 50,
+            "greenPixels": 209,
+            "intended": {
+                "x": 299.4404602050781,
+                "y": 284.42315673828127
+            },
+            "observed": {
+                "x": 299.5,
+                "y": 284.5
+            },
+            "baselineDifferencePixels": 0.000030517578125,
+            "inverseErrorUnits": 0.00021565906354226172
+        },
+        {
+            "frame": 51,
+            "greenPixels": 228,
+            "intended": {
+                "x": 301.5528869628906,
+                "y": 286.6667175292969
+            },
+            "observed": {
+                "x": 301.5,
+                "y": 287.0
+            },
+            "baselineDifferencePixels": 0.000030517578125,
+            "inverseErrorUnits": 0.00021363634732551873
+        },
+        {
+            "frame": 52,
+            "greenPixels": 197,
+            "intended": {
+                "x": 304.0411682128906,
+                "y": 288.9419860839844
+            },
+            "observed": {
+                "x": 304.0,
+                "y": 289.0
+            },
+            "baselineDifferencePixels": 0.000030517578125,
+            "inverseErrorUnits": 0.00042745465179905295
+        },
+        {
+            "frame": 53,
+            "greenPixels": 214,
+            "intended": {
+                "x": 306.8728942871094,
+                "y": 291.2282409667969
+            },
+            "observed": {
+                "x": 307.0,
+                "y": 291.0
+            },
+            "baselineDifferencePixels": 0.00006823938019806519,
+            "inverseErrorUnits": 0.0006564633222296834
+        },
+        {
+            "frame": 54,
+            "greenPixels": 210,
+            "intended": {
+                "x": 310.0115966796875,
+                "y": 293.5045471191406
+            },
+            "observed": {
+                "x": 310.0,
+                "y": 293.5
+            },
+            "baselineDifferencePixels": 0.0,
+            "inverseErrorUnits": 0.000230546691454947
+        },
+        {
+            "frame": 55,
+            "greenPixels": 229,
+            "intended": {
+                "x": 313.41748046875,
+                "y": 295.7503662109375
+            },
+            "observed": {
+                "x": 313.5,
+                "y": 296.0
+            },
+            "baselineDifferencePixels": 0.000030517578125,
+            "inverseErrorUnits": 0.0003818557597696781
+        },
+        {
+            "frame": 56,
+            "greenPixels": 198,
+            "intended": {
+                "x": 317.0480041503906,
+                "y": 297.9462890625
+            },
+            "observed": {
+                "x": 317.0,
+                "y": 298.0
+            },
+            "baselineDifferencePixels": 0.0000431583721365314,
+            "inverseErrorUnits": 0.00007327794446609914
+        },
+        {
+            "frame": 57,
+            "greenPixels": 215,
+            "intended": {
+                "x": 320.8583984375,
+                "y": 300.0734558105469
+            },
+            "observed": {
+                "x": 320.5,
+                "y": 300.0
+            },
+            "baselineDifferencePixels": 0.0000431583721365314,
+            "inverseErrorUnits": 0.0001222043501911685
+        },
+        {
+            "frame": 58,
+            "greenPixels": 213,
+            "intended": {
+                "x": 324.8019104003906,
+                "y": 302.11444091796877
+            },
+            "observed": {
+                "x": 324.5,
+                "y": 302.0
+            },
+            "baselineDifferencePixels": 0.0000431583721365314,
+            "inverseErrorUnits": 0.0005963142029941082
+        },
+        {
+            "frame": 59,
+            "greenPixels": 229,
+            "intended": {
+                "x": 328.8310241699219,
+                "y": 304.052978515625
+            },
+            "observed": {
+                "x": 329.0,
+                "y": 304.0
+            },
+            "baselineDifferencePixels": 0.00006823938019806519,
+            "inverseErrorUnits": 0.0005512204370461404
+        },
+        {
+            "frame": 60,
+            "greenPixels": 201,
+            "intended": {
+                "x": 332.89764404296877,
+                "y": 305.8742370605469
+            },
+            "observed": {
+                "x": 333.0,
+                "y": 306.0
+            },
+            "baselineDifferencePixels": 0.0000431583721365314,
+            "inverseErrorUnits": 0.000024425980882369913
+        },
+        {
+            "frame": 61,
+            "greenPixels": 217,
+            "intended": {
+                "x": 336.9538879394531,
+                "y": 307.5648498535156
+            },
+            "observed": {
+                "x": 337.0,
+                "y": 307.5
+            },
+            "baselineDifferencePixels": 0.000091552734375,
+            "inverseErrorUnits": 0.0005497930105775595
+        },
+        {
+            "frame": 62,
+            "greenPixels": 218,
+            "intended": {
+                "x": 340.9526062011719,
+                "y": 309.1132507324219
+            },
+            "observed": {
+                "x": 341.0,
+                "y": 309.0
+            },
+            "baselineDifferencePixels": 0.00009650505671743304,
+            "inverseErrorUnits": 0.00014600875147152692
+        },
+        {
+            "frame": 63,
+            "greenPixels": 233,
+            "intended": {
+                "x": 344.84820556640627,
+                "y": 310.5096435546875
+            },
+            "observed": {
+                "x": 345.0,
+                "y": 310.5
+            },
+            "baselineDifferencePixels": 0.00006103515625,
+            "inverseErrorUnits": 0.000152587890625
+        },
+        {
+            "frame": 64,
+            "greenPixels": 202,
+            "intended": {
+                "x": 348.5968322753906,
+                "y": 311.7462158203125
+            },
+            "observed": {
+                "x": 348.5,
+                "y": 312.0
+            },
+            "baselineDifferencePixels": 0.0,
+            "inverseErrorUnits": 0.0004982087993994355
+        },
+        {
+            "frame": 65,
+            "greenPixels": 218,
+            "intended": {
+                "x": 352.1572265625,
+                "y": 312.8164978027344
+            },
+            "observed": {
+                "x": 352.0,
+                "y": 312.5
+            },
+            "baselineDifferencePixels": 0.00006103515625,
+            "inverseErrorUnits": 0.0005196956335566938
+        },
+        {
+            "frame": 66,
+            "greenPixels": 215,
+            "intended": {
+                "x": 355.4910888671875,
+                "y": 313.7161865234375
+            },
+            "observed": {
+                "x": 355.0,
+                "y": 314.0
+            },
+            "baselineDifferencePixels": 0.0,
+            "inverseErrorUnits": 0.00043616187758743763
+        },
+        {
+            "frame": 67,
+            "greenPixels": 232,
+            "intended": {
+                "x": 358.5634460449219,
+                "y": 314.442626953125
+            },
+            "observed": {
+                "x": 358.5,
+                "y": 314.5
+            },
+            "baselineDifferencePixels": 0.00006103515625,
+            "inverseErrorUnits": 0.0004894867306575179
+        },
+        {
+            "frame": 68,
+            "greenPixels": 204,
+            "intended": {
+                "x": 361.3432312011719,
+                "y": 314.9953308105469
+            },
+            "observed": {
+                "x": 361.5,
+                "y": 315.0
+            },
+            "baselineDifferencePixels": 0.0000431583721365314,
+            "inverseErrorUnits": 0.0002899169921875
+        },
+        {
+            "frame": 69,
+            "greenPixels": 217,
+            "intended": {
+                "x": 363.8033752441406,
+                "y": 315.3746643066406
+            },
+            "observed": {
+                "x": 364.0,
+                "y": 315.5
+            },
+            "baselineDifferencePixels": 0.00006823938019806519,
+            "inverseErrorUnits": 0.00030555701232515275
+        },
+        {
+            "frame": 70,
+            "greenPixels": 216,
+            "intended": {
+                "x": 365.921142578125,
+                "y": 315.58367919921877
+            },
+            "observed": {
+                "x": 366.0,
+                "y": 315.5
+            },
+            "baselineDifferencePixels": 0.00006103515625,
+            "inverseErrorUnits": 0.00015654208255000412
+        },
+        {
+            "frame": 71,
+            "greenPixels": 231,
+            "intended": {
+                "x": 367.67852783203127,
+                "y": 315.6258239746094
+            },
+            "observed": {
+                "x": 367.5,
+                "y": 315.5
+            },
+            "baselineDifferencePixels": 0.00006103515625,
+            "inverseErrorUnits": 0.00019168616563547403
+        },
+        {
+            "frame": 72,
+            "greenPixels": 198,
+            "intended": {
+                "x": 369.0621032714844,
+                "y": 315.5069274902344
+            },
+            "observed": {
+                "x": 369.0,
+                "y": 315.5
+            },
+            "baselineDifferencePixels": 0.000030517578125,
+            "inverseErrorUnits": 0.0003764006542041898
+        },
+        {
+            "frame": 73,
+            "greenPixels": 214,
+            "intended": {
+                "x": 370.063232421875,
+                "y": 315.2334289550781
+            },
+            "observed": {
+                "x": 370.0,
+                "y": 315.5
+            },
+            "baselineDifferencePixels": 0.000030517578125,
+            "inverseErrorUnits": 0.00036070580244995654
+        },
+        {
+            "frame": 74,
+            "greenPixels": 213,
+            "intended": {
+                "x": 370.67816162109377,
+                "y": 314.81329345703127
+            },
+            "observed": {
+                "x": 371.0,
+                "y": 315.0
+            },
+            "baselineDifferencePixels": 0.00006103515625,
+            "inverseErrorUnits": 0.0003433439414948225
+        },
+        {
+            "frame": 75,
+            "greenPixels": 229,
+            "intended": {
+                "x": 370.9076232910156,
+                "y": 314.25531005859377
+            },
+            "observed": {
+                "x": 371.0,
+                "y": 314.5
+            },
+            "baselineDifferencePixels": 0.000030517578125,
+            "inverseErrorUnits": 0.00003833723167190328
+        },
+        {
+            "frame": 76,
+            "greenPixels": 196,
+            "intended": {
+                "x": 370.7572021484375,
+                "y": 313.56939697265627
+            },
+            "observed": {
+                "x": 370.5,
+                "y": 314.0
+            },
+            "baselineDifferencePixels": 0.000030517578125,
+            "inverseErrorUnits": 0.00016166397836059332
+        },
+        {
+            "frame": 77,
+            "greenPixels": 212,
+            "intended": {
+                "x": 370.2366027832031,
+                "y": 312.7656555175781
+            },
+            "observed": {
+                "x": 370.0,
+                "y": 313.0
+            },
+            "baselineDifferencePixels": 0.000030517578125,
+            "inverseErrorUnits": 0.000058103738410864025
+        },
+        {
+            "frame": 78,
+            "greenPixels": 211,
+            "intended": {
+                "x": 369.360107421875,
+                "y": 311.85552978515627
+            },
+            "observed": {
+                "x": 369.0,
+                "y": 312.0
+            },
+            "baselineDifferencePixels": 0.000030517578125,
+            "inverseErrorUnits": 0.0003700846282299608
+        },
+        {
+            "frame": 79,
+            "greenPixels": 226,
+            "intended": {
+                "x": 368.1454772949219,
+                "y": 310.85015869140627
+            },
+            "observed": {
+                "x": 368.0,
+                "y": 311.0
+            },
+            "baselineDifferencePixels": 0.0000431583721365314,
+            "inverseErrorUnits": 0.00014896868378855288
+        }
+    ]
+}

@@ -46,9 +46,14 @@ namespace FAA.Customization
         }
         public void OpenDataSourceSettings()
         {
+            Camera desktop=null;
+            bool desktopIntent=FAA.Headset.XR3DesktopPointerInput.IsDesktopMouseDispatch&&
+                FAA.Headset.XR3DesktopHudPreview.TryGetDesktopInspectionCamera(View,out desktop);
+            if(!desktopIntent)ReleaseDesktopSettingsInspection();
             OpenMenu();SetPage(PageData);
-            // The 'DATA:' status plate turns the view to Settings; no second turn when it is already in view.
-            if(InspectedPanelId!="settings")InspectUtility("settings");
+            // The status plate opens this page idempotently; window dispatch uses the owned Settings host.
+            if(desktopIntent)OpenDesktopSettingsInspection(desktop);
+            else if(InspectedPanelId!="settings")InspectUtility("settings");
             nextSourceRefresh=0f;RefreshDataSourceControls();
         }
         private void DisarmDataGuards(){foreach(var g in dataGuards)if(g!=null&&g.Armed)g.Disarm();}

@@ -51,24 +51,21 @@ namespace FAA.Customization
             var root=canvas.rootCanvas;
             Camera cam=root.renderMode==RenderMode.ScreenSpaceOverlay?null:(root.worldCamera!=null?root.worldCamera:Camera.main);
             bool physical=root.renderMode==RenderMode.WorldSpace&&cam!=null;
-            if(physical)rt.GetLocalCorners(corners);else rt.GetWorldCorners(corners);
             float xMin=float.MaxValue,yMin=float.MaxValue,xMax=float.MinValue,yMax=float.MinValue;
-            for(int i=0;i<4;i++)
+            if(physical)
             {
-                Vector2 p;
-                if(physical)
+                if(!IndicatorSystem.Core.IndicatorCanvasProjection.TryProjectLocalBounds(rt,rt.rect,cam,out Rect body,true))return false;
+                xMin=body.xMin;yMin=body.yMin;xMax=body.xMax;yMax=body.yMax;
+            }
+            else
+            {
+                rt.GetWorldCorners(corners);
+                for(int i=0;i<4;i++)
                 {
-                    // Keep tiny HUD coordinates local until projection; a metre-scale canvas at flight coordinates
-                    // must not turn a small world-origin rounding error into a moving protected readout boundary.
-                    if(!IndicatorSystem.Core.IndicatorCanvasProjection.TryProjectLocal(rt,corners[i],cam,out var screen)||screen.z<0)return false;
-                    p=screen;
-                }
-                else
-                {
-                    p=cam==null?(Vector2)corners[i]:RectTransformUtility.WorldToScreenPoint(cam,corners[i]);
+                    Vector2 p=cam==null?(Vector2)corners[i]:RectTransformUtility.WorldToScreenPoint(cam,corners[i]);
                     if(cam!=null&&cam.WorldToViewportPoint(corners[i]).z<0)return false;
+                    xMin=Mathf.Min(xMin,p.x);yMin=Mathf.Min(yMin,p.y);xMax=Mathf.Max(xMax,p.x);yMax=Mathf.Max(yMax,p.y);
                 }
-                xMin=Mathf.Min(xMin,p.x);yMin=Mathf.Min(yMin,p.y);xMax=Mathf.Max(xMax,p.x);yMax=Mathf.Max(yMax,p.y);
             }
             float pad=padding*Mathf.Max(.01f,root.scaleFactor);
             rect=Rect.MinMaxRect(xMin-pad,yMin-pad,xMax+pad,yMax+pad);

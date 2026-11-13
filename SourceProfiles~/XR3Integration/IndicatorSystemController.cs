@@ -59,6 +59,7 @@ namespace IndicatorSystem.Controller
         private int _trafficVisible, _weatherVisible, _onScreenVisible, _offScreenVisible;
         private sealed class CuePresentation
         {
+            public readonly ScreenIndicatorCalculator.VisibilityHistory Visibility = new ScreenIndicatorCalculator.VisibilityHistory();
             public bool HasSide, Left, HasEdgePosition, Displaced, Suppressed;
             public float EdgeY, Scale;
             public Rect Region;
@@ -66,6 +67,13 @@ namespace IndicatorSystem.Controller
         private readonly Dictionary<string,CuePresentation> _presentation = new Dictionary<string,CuePresentation>();
         private readonly List<string> _presentationRemoved = new List<string>();
         private string _projectionPhase="refresh";
+        private Camera _visibilityView;
+        private Canvas _visibilityCanvas, _visibilityRootCanvas;
+        private RenderMode _visibilityRenderMode;
+        private bool _visibilityStereo, _visibilityPilotStyle;
+        // Eight reference pixels rejects subpixel boundary chatter without delaying real exits.
+        // The calculator further caps this at 10% of the usable frame's shorter side.
+        public const float VisibilityReentryInset = 8f;
         
         #endregion
         
@@ -94,6 +102,7 @@ namespace IndicatorSystem.Controller
         public void SetTypeVisible(IndicatorType type, bool visible)
         {
             if (settings == null) return;
+            foreach (var target in _targets) if (target.Value.Type == type) _presentation.Remove(target.Key);
             if (type == IndicatorType.Traffic) settings.showTrafficIndicators = visible;
             if (type == IndicatorType.Weather) settings.showWeatherIndicators = visible;
             if (visible)
@@ -140,6 +149,7 @@ namespace IndicatorSystem.Controller
                 _pool?.ReleaseAll();
                 _trafficVisible = _weatherVisible = _onScreenVisible = _offScreenVisible = 0;
                 _indicatorDataList.Clear();
+                _presentation.Clear();
                 return;
             }
             
@@ -270,6 +280,7 @@ namespace IndicatorSystem.Controller
                 return;
             
             targetCanvas = canvas;
+            _presentation.Clear();
             
             // Reinitialize pool if already running
             if (_isInitialized)
@@ -316,6 +327,9 @@ namespace IndicatorSystem.Controller
             if (target == null || string.IsNullOrEmpty(target.Id))
                 return;
             
+            if (_targets.TryGetValue(target.Id, out var previous) &&
+                (previous.Type != target.Type || previous.GetType() != target.GetType() || previous.Label != target.Label))
+                _presentation.Remove(target.Id);
             _targets[target.Id] = target;
         }
         
@@ -712,6 +726,7 @@ namespace IndicatorSystem.Controller
             Canvas projectionCanvas = ProjectionCanvas;
             Rect projectionRect = GetProjectionRect(projectionCanvas, targetCamera);
             float canvasScale = PixelsPerReferenceUnit(projectionCanvas, targetCamera);
+            ResetVisibilityForView(projectionCanvas);
             if (settings.usePilotCueStyle)
                 _edgeConfig.EdgePadding = Mathf.Max(Mathf.Max(72f, 60f * settings.globalScale), settings.edgePadding) * canvasScale;
             
@@ -722,17 +737,30 @@ namespace IndicatorSystem.Controller
                 
                 // Skip by type if disabled
                 if (!ShouldShowType(target.Type))
+                {
+                    _presentation.Remove(target.Id);
                     continue;
+                }
 
                 if (declutter && !KeepDuringUnusualAttitude(target.Type, target.Priority))
                     continue;
                 
                 // Skip by distance
                 if (target.DistanceNM < settings.minDisplayDistance)
+                {
+                    _presentation.Remove(target.Id);
                     continue;
+                }
                 
                 // Calculate screen-space data
-                var data = ScreenIndicatorCalculator.CalculateIndicatorInRect(target, targetCamera, _edgeConfig, projectionRect);
+                IndicatorData data;
+                if (settings.usePilotCueStyle && target.Type == IndicatorType.Traffic)
+                {
+                    if (!_presentation.TryGetValue(target.Id, out var state)) _presentation[target.Id] = state = new CuePresentation();
+                    data = ScreenIndicatorCalculator.CalculateIndicatorWithVisibilityHistory(target, targetCamera, _edgeConfig, projectionRect,
+                        state.Visibility, VisibilityReentryInset * canvasScale * settings.globalScale);
+                }
+                else data = ScreenIndicatorCalculator.CalculateIndicatorInRect(target, targetCamera, _edgeConfig, projectionRect);
                 
                 if (data.IsActive)
                 {
@@ -773,6 +801,18 @@ namespace IndicatorSystem.Controller
             
             // Release indicators for targets no longer present
             _pool.ReleaseExcept(_activeIds);
+        }
+
+        private void ResetVisibilityForView(Canvas canvas)
+        {
+            Canvas root = canvas != null ? canvas.rootCanvas : null;
+            RenderMode mode = canvas != null ? canvas.renderMode : RenderMode.ScreenSpaceOverlay;
+            bool stereo = targetCamera != null && targetCamera.stereoEnabled;
+            if (_visibilityView != targetCamera || _visibilityCanvas != canvas || _visibilityRootCanvas != root ||
+                _visibilityRenderMode != mode || _visibilityStereo != stereo || _visibilityPilotStyle != settings.usePilotCueStyle)
+                _presentation.Clear();
+            _visibilityView = targetCamera; _visibilityCanvas = canvas; _visibilityRootCanvas = root;
+            _visibilityRenderMode = mode; _visibilityStereo = stereo; _visibilityPilotStyle = settings.usePilotCueStyle;
         }
         
         /// <summary>Cues kept while an unusual attitude is annunciated: traffic advisories only (TA priority 2, RA priority 3).</summary>

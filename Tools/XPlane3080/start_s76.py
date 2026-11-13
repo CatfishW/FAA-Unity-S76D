@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 import time
 
-from flight_demo import AIRCRAFT, B, DemoError, NativeApi, P, aircraft_matches, decoded, number, reset_autopilot, safe_pause, wait_until
+from flight_demo import AIRCRAFT, B, DemoError, MAIN_COLLECTIVE_INDEX, NativeApi, P, PROP_HANDLES, aircraft_matches, decoded, number, reset_autopilot, safe_pause, wait_until
 
 
 def reset_parked(api, clock=time):
@@ -42,7 +42,7 @@ def reset_parked(api, clock=time):
             raise DemoError('Mouse-flight input became active during reset')
         def parked_controls():
             api.write('sim/cockpit2/controls/parking_brake_ratio', 1.)
-            api.write('sim/cockpit2/engine/actuators/prop_ratio_all', 0.)
+            api.write_index(PROP_HANDLES, MAIN_COLLECTIVE_INDEX, 0.)
             api.write('sim/cockpit2/switches/rotor_brake_ratio', 0.)
             api.write('sim/cockpit2/engine/actuators/governor_on', [1, 1] + [0] * 14)
             api.write('sim/cockpit2/engine/actuators/throttle_ratio_all', 1.)

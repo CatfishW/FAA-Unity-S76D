@@ -125,9 +125,10 @@ namespace FAA.Customization
         private Vector3 eyePosition;
         private FaaRotorcraftCueAnchor userLandingReference;
         private readonly RaycastHit[] landingHits = new RaycastHit[64];
-        private CanvasGroup[] visibilityGroups;
+        private readonly List<CanvasGroup> visibilityGroups = new(4);
+        private bool lastHudVisible;
         private int lastRefreshFrame = -1;
-        private Vector3 lastViewPosition;
+        private Vector3 lastViewPosition, lastRenderWorldOffset;
         private Quaternion lastViewRotation;
         private string actionFeedback;
         private float feedbackUntil;
@@ -217,7 +218,6 @@ namespace FAA.Customization
             RestoreLegacy();
             sourceCanvas = fixedFlightCanvas;
             primaryHudRoot = sourceCanvas != null ? sourceCanvas.transform.Find("Second Interation GUI") : null;
-            visibilityGroups = primaryHudRoot != null ? primaryHudRoot.GetComponentsInParent<CanvasGroup>(true) : null;
             lastSignatureLength = -1;
             RetireLegacy();
         }
@@ -299,8 +299,12 @@ namespace FAA.Customization
         private void RefreshBeforeRender()
         {
             AircraftControl.Camera.RenderPhaseAudit.Mark("Conformal begin");
+            var space = AircraftControl.Camera.AircraftViewRenderSpace.ForCamera(view);
+            Vector3 offset = space != null ? space.Offset : Vector3.zero;
+            bool hudVisible = IsSourceHudVisible();
             if (isActiveAndEnabled && view != null && (lastRefreshFrame != Time.frameCount ||
-                lastViewPosition != view.transform.position || lastViewRotation != view.transform.rotation))
+                lastViewPosition != view.transform.position || lastViewRotation != view.transform.rotation ||
+                lastRenderWorldOffset != offset || lastHudVisible != hudVisible))
                 RefreshPresentation();
             AircraftControl.Camera.RenderPhaseAudit.Mark("Conformal end");
         }
@@ -308,7 +312,8 @@ namespace FAA.Customization
         private void CameraReady(Camera camera)
         {
             if (!isActiveAndEnabled) return;
-            if (camera == view) RefreshBeforeRender(); // Final pose; avoid rebuilding the same mesh three times each frame.
+            if (camera == view || FAA.Headset.XR3DesktopHudPreview.IsPreviewCamera(camera))
+                RefreshBeforeRender(); // Final pose and live HUD visibility, including the desktop pass.
             SetRenderVisibility((camera == view || FAA.Headset.XR3DesktopHudPreview.IsPreviewCamera(camera)) && frameVisible);
         }
 
@@ -372,6 +377,31 @@ namespace FAA.Customization
             return true;
         }
 
+        private bool IsSourceHudVisible()
+        {
+            if (sourceCanvas == null || !sourceCanvas.isActiveAndEnabled) return false;
+            if (primaryHudRoot == null) primaryHudRoot = sourceCanvas.transform.Find("Second Interation GUI");
+            Transform node = primaryHudRoot != null ? primaryHudRoot : sourceCanvas.transform;
+            if (!node.gameObject.activeInHierarchy) return false;
+            float alpha = 1f;
+            // The real symbology.hide command can add a CanvasGroup after Bind. Read the live
+            // hierarchy without allocating, and obey active groups/ignoreParentGroups just as UI does.
+            for (; node != null; node = node.parent)
+            {
+                node.GetComponents(visibilityGroups);
+                bool ignoreParents = false;
+                foreach (CanvasGroup group in visibilityGroups)
+                {
+                    if (group == null || !group.isActiveAndEnabled) continue;
+                    alpha *= group.alpha;
+                    ignoreParents |= group.ignoreParentGroups;
+                }
+                if (alpha <= .001f) return false;
+                if (ignoreParents) break;
+            }
+            return true;
+        }
+
         public void RefreshPresentation()
         {
             var data = flightData != null ? flightData.LatestFlightData : null;
@@ -384,11 +414,8 @@ namespace FAA.Customization
             isUnusual = HasLiveAttitude && FaaRotorcraftCueMath.UnusualAttitude(data.pitch, data.roll, isUnusual);
             UnusualAttitudeActive = isUnusual;
 
-            frameVisible = view != null && !view.orthographic && aircraft != null && sourceCanvas != null &&
-                sourceCanvas.isActiveAndEnabled && (primaryHudRoot == null || primaryHudRoot.gameObject.activeInHierarchy);
-            if (visibilityGroups != null)
-                foreach (var group in visibilityGroups)
-                    if (group != null && group.alpha <= .001f) frameVisible = false;
+            lastHudVisible = IsSourceHudVisible();
+            frameVisible = view != null && !view.orthographic && aircraft != null && lastHudVisible;
             if (!frameVisible || !EnsureBuilt())
             {
                 SetRenderVisibility(false);
@@ -398,6 +425,8 @@ namespace FAA.Customization
             eyePosition = view.transform.position;
             lastRefreshFrame = Time.frameCount;
             lastViewPosition = eyePosition;
+            var space = AircraftControl.Camera.AircraftViewRenderSpace.ForCamera(view);
+            lastRenderWorldOffset = space != null ? space.Offset : Vector3.zero;
             lastViewRotation = view.transform.rotation;
             geometryRoot.SetPositionAndRotation(eyePosition, Quaternion.identity);
             geometryRoot.localScale = Vector3.one;
@@ -736,7 +765,7 @@ namespace FAA.Customization
             }
             if (showSceneCues && HasLiveAttitude)
             {
-                Sig(eyePosition);
+                Sig(AircraftControl.Camera.AircraftViewRenderSpace.RenderToDataPoint(view, eyePosition));
                 Vector3 sum = Vector3.zero, ends = Vector3.zero; float flags = 0f; int count = 0;
                 // HashSet struct enumerator (no allocation); a mutable local, not a readonly 'using' copy.
                 var anchors = FaaRotorcraftCueAnchor.EnumerateActive();
@@ -1194,7 +1223,7 @@ namespace FAA.Customization
                     bool landing = anchor.kind == FaaRotorcraftCueAnchor.CueType.LandingArea;
                     bool hoverTarget = anchor.kind == FaaRotorcraftCueAnchor.CueType.HoverReference;
                     if ((landing || hoverTarget) && !anchor.selected) continue;
-                    Vector3 center = position - eyePosition;
+                    Vector3 center = AircraftControl.Camera.AircraftViewRenderSpace.DataToRenderPoint(view, position) - eyePosition;
                     float distance = center.magnitude;
                     if (distance <= view.nearClipPlane + .1f || distance > anchor.maximumRangeMeters || distance > view.farClipPlane * .9f) continue;
                     if (!FaaRotorcraftCueMath.InView(view, center) || !ToPixel(center, out Vector2 p) || InKeepOut(p)) continue;
@@ -1207,7 +1236,7 @@ namespace FAA.Customization
                     {
                         SceneLine(center + u, center - u - r, tint); SceneLine(center - u - r, center - u + r, tint); SceneLine(center - u + r, center + u, tint);
                         if (anchor.lineEnd != null && FaaRotorcraftCueMath.Finite(anchor.lineEnd.position))
-                            SceneLine(center, anchor.lineEnd.position - eyePosition, tint);
+                            SceneLine(center, AircraftControl.Camera.AircraftViewRenderSpace.DataToRenderPoint(view, anchor.lineEnd.position) - eyePosition, tint);
                     }
                     else
                     {
@@ -1582,7 +1611,7 @@ namespace FAA.Customization
         public void MarkLandingReference()
         {
             if (view == null || !HasLiveAttitude) { Feedback("LZ NOT MARKED: fresh attitude and camera required"); return; }
-            Ray ray = new Ray(view.transform.position, view.transform.forward);
+            Ray ray = new Ray(AircraftControl.Camera.AircraftViewRenderSpace.RenderToDataPoint(view, view.transform.position), view.transform.forward);
             int count = UnityEngine.Physics.RaycastNonAlloc(ray, landingHits, Mathf.Min(15000f, view.farClipPlane * .85f),
                 landingSurfaceLayers, QueryTriggerInteraction.Ignore);
             // A saturated hit buffer is incomplete; fail closed instead of choosing a possibly occluded surface.

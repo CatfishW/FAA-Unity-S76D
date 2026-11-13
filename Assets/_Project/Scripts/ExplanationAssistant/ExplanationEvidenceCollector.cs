@@ -120,7 +120,7 @@ namespace FAA.Explanations
             chartData["limitations"] = "Raster context only. Download time does not establish chart currency. Partial tile coverage or retained last-good texture may not cover requested area. Visual contents require the image tool; do not infer labels from location metadata.";
             snapshot.Add("read_chart_status", "Chart & coverage", "FAASectionalChartProvider + TrafficRadarDisplay", chart == null ? "UNAVAILABLE" : chart.IsUsingProceduralFallback ? "PROCEDURAL FALLBACK" : chart.Status.ToString().ToUpperInvariant(), chartData, chart != null ? chart.SecondsSinceLastSuccess : (double?)null);
 
-            var displays = new JArray(UnityEngine.Object.FindObjectsByType<FaaRadarPresentation>().Where(p => p.isActiveAndEnabled).Select(p => new JObject
+            var displays = new JArray(UnityEngine.Object.FindObjectsByType<FaaRadarPresentation>(UnityEngine.FindObjectsSortMode.None).Where(p => p.isActiveAndEnabled).Select(p => new JObject
             {
                 ["instrument"] = p.RadarKind.ToString(), ["display_on"] = p.IsDisplayOn,
                 ["state"] = p.CurrentState.ToString(), ["status_text"] = Short(p.StatusText, 120)

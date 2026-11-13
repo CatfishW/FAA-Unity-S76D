@@ -75,9 +75,12 @@ namespace FAA.Customization
             if (Current == null) Current = this;
             Application.onBeforeRender += RefreshBeforeRender;
             FaaHudKeepOut.Register(this);
+            FAA.Headset.XR3DesktopHudPreview.DesktopCameraUnavailable-=DesktopSettingsCameraUnavailable;
+            FAA.Headset.XR3DesktopHudPreview.DesktopCameraUnavailable+=DesktopSettingsCameraUnavailable;
         }
         private void OnDisable()
         {
+            FAA.Headset.XR3DesktopHudPreview.DesktopCameraUnavailable-=DesktopSettingsCameraUnavailable;
             Application.onBeforeRender -= RefreshBeforeRender;
             FaaHudKeepOut.Unregister(this);
             CancelManipulation();
@@ -143,6 +146,7 @@ namespace FAA.Customization
 
         public void RefreshTransforms()
         {
+            ValidateDesktopSettingsInspection();
             if (aircraft == null || View == null || CockpitFrame == null) return;
             // Never use view.rotation here: head turns must reveal, not drag, cockpit panels.
             // Desktop aircraft-camera smoothing may intentionally lag the physical aircraft by metres.
@@ -182,6 +186,7 @@ namespace FAA.Customization
             // Apply after normal cockpit poses (including before-render refresh), so animated drawers fit as one upright group.
             if(InspectionZoomAllowed&&InspectedPanelId!=null)
                 GetPanel(InspectedPanelId)?.ApplyDesktopInspection(View,LastInspectionFrame.ScreenRect,false,framingKeepOuts);
+            ApplyDesktopSettingsInspection();
         }
 
         private bool TryBind()
@@ -439,13 +444,15 @@ namespace FAA.Customization
         {
             Keyboard keyboard = Keyboard.current; if (keyboard == null) return;
             // F8 already switches the existing HUD implementation. Do not steal it.
-            // F9 opens Settings and turns the desktop view to it; a second press closes it and returns forward.
-            if (keyboard.f9Key.wasPressedThisFrame) ToggleSettingsInspection();
+            // F9 supplies desktop intent: the owned spectator hosts Settings without moving a tracked head.
+            if (keyboard.f9Key.wasPressedThisFrame) ToggleDesktopSettingsInspection();
             if (keyboard.f10Key.wasPressedThisFrame) RecallPanels();
-            if (keyboard.escapeKey.wasPressedThisFrame && EditMode) SetEditMode(false);
+            if (keyboard.escapeKey.wasPressedThisFrame&&!HandleSettingsEscape()&&EditMode) SetEditMode(false);
         }
         private void ReleaseBindings()
         {
+            ReleaseDesktopSettingsInspection();
+            MenuOpen=false;DisarmDataGuards();
             LaptopCamera?.StopCamera();
             CancelManipulation();
             ReleaseModuleKeepOuts();

@@ -493,7 +493,7 @@ namespace FAA.Explanations
             Plate(dock, Ink, true);
             FaaRadarVisualStyle.EnsureDropShadow(dock.gameObject, new Color(0, 0, 0, .3f), new Vector2(0, -4));
             Glyph(dock, "Brief symbol", ExplanationGlyph.Kind.Spark, 13, 7, 17, Accent);
-            var heading = Label(dock, "Heading", "PILOT BRIEF", LabelSize, Text); Place(heading.rectTransform, 36, 5, 120, 28); heading.fontStyle = FontStyles.Bold;
+            var heading = Label(dock, "Heading", "PILOT BRIEF", LabelSize, Text); Place(heading.rectTransform, 36, 5, 120, 28); heading.fontStyle = FontStyles.Bold; heading.overflowMode = TextOverflowModes.Truncate;
             dockState = Label(dock, "State", "", SmallSize, Muted); StretchTop(dockState.rectTransform, 160, 160, 5, 28);
             // One dismissal control on every flyout: CLOSE [Esc] at the top right.
             var close = FaaPilotChrome.CreateCloseButton(dock, ToggleOpen, 5, 8);
@@ -528,7 +528,9 @@ namespace FAA.Explanations
                 var icon = Rect(item, "SVG icon"); Place(icon, 10, willDock ? 6 : 9, 22, 22);
                 var graphic = icon.gameObject.AddComponent<FaaSvgIconGraphic>(); graphic.SetIcon(icons[i]); graphic.color = Accent; graphic.raycastTarget = false;
                 var label = Label(item, "Label", caption, LabelSize, Text); StretchTop(label.rectTransform, 38, 5, 0, willDock ? ActionRowHeight : 40);
-                label.fontStyle = FontStyles.Bold;
+                // The static font has no Bold typeface ellipsis. Use TMP's existing fallback
+                // appearance directly, preserving its baked atlas and the normal labels' ellipsis.
+                label.fontStyle = FontStyles.Bold; label.overflowMode = TextOverflowModes.Truncate;
             }
             FaaHudKeepOutRegion.Ensure(dock.gameObject, "chrome:brief-dock", FaaKeepOutKind.Chrome, 4f);
 
@@ -538,7 +540,7 @@ namespace FAA.Explanations
             resultGroup = result.gameObject.AddComponent<CanvasGroup>();
             var headingButton = Rect(result, "Back to brief"); StretchTop(headingButton, 14, 220, 7, 28);
             var headingHit = headingButton.gameObject.AddComponent<Image>(); headingHit.color = Color.clear; Action(headingButton, () => SetTab(0));
-            titleText = Label(headingButton, "Title", "", LabelSize, Text); Fill(titleText.rectTransform, 0); titleText.fontStyle = FontStyles.Bold;
+            titleText = Label(headingButton, "Title", "", LabelSize, Text); Fill(titleText.rectTransform, 0); titleText.fontStyle = FontStyles.Bold; titleText.overflowMode = TextOverflowModes.Truncate;
             sourcesText = SmallButton(result, "Brief sources", "SOURCES", 116, 7, 104, () => SetTab(1));
             SmallButton(result, "Brief tools", "TOOLS", 46, 7, 64, () => SetTab(2));
             SmallButton(result, "Collapse brief result", "–", 8, 7, 32, HideResult);

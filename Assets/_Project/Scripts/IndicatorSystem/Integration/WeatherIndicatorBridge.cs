@@ -500,7 +500,7 @@ namespace IndicatorSystem.Integration
                     distanceMeters / 1852f,
                     (weatherProvider != null ? weatherProvider.Heading : 0f) + relativeBearingDegrees,
                     indicatorVerticalOffsetMeters / 0.3048f,
-                    GetPositionReference().position);
+                    DataPositionReference());
             }
 
             float absoluteBearing = Mathf.Repeat(
@@ -508,7 +508,7 @@ namespace IndicatorSystem.Integration
                 360f);
             float bearingRad = absoluteBearing * Mathf.Deg2Rad;
             Transform reference = GetPositionReference();
-            Vector3 origin = reference != null ? reference.position : Vector3.zero;
+            Vector3 origin = reference != null ? AircraftControl.Camera.AircraftViewRenderSpace.ReferenceToDataPoint(reference, reference.position) : Vector3.zero;
 
             return origin + new Vector3(
                 distanceMeters * Mathf.Sin(bearingRad),
@@ -526,6 +526,12 @@ namespace IndicatorSystem.Integration
             bearing = Mathf.Atan2(x, y) * Mathf.Rad2Deg;
             return rangeFraction >= 0.10f && rangeFraction <= 0.98f && y >= 0f &&
                 Mathf.Abs(bearing) < XPlaneWeatherRadarGeometry.HalfAngle - 2f;
+        }
+
+        private Vector3 DataPositionReference()
+        {
+            Transform reference = GetPositionReference();
+            return reference != null ? AircraftControl.Camera.AircraftViewRenderSpace.ReferenceToDataPoint(reference, reference.position) : Vector3.zero;
         }
 
         private Transform GetPositionReference()
