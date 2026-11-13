@@ -477,3 +477,44 @@ prefer the same fresh provider used by the hand-status label. This does not
 restart vendor services. A controlled off/on test exposed a separate Varjo
 backend reconstruction stall; only that supervised hand-tracking process was
 restarted, preserving the HMD server and compositor.
+
+### Ultraleap interpolation guard and 2-hour run (2026-11-11)
+
+A later 2-hour attempt with the same IL2CPP player stopped about 5 seconds after start
+with an access violation inside `LeapC.dll`. The stack was
+`LeapServiceProvider.FixedUpdate` -> `HandleUpdateFrameInterpolationAndTransformation` ->
+`Connection.GetInterpolatedFrameFromTime` -> `LeapInterpolateFrameFromTimeEx`. The
+embedded Ultraleap package called the interpolation functions without checking the
+result of the preceding frame-size query, so a failed query passed an unusable buffer
+size to native code. `Connection.cs` now interpolates only when the device handle is
+valid, the size query succeeds, and the size lies between one tracking event and 16 MB.
+The buffer is freed in a `finally` block. When the check fails the frame is skipped.
+
+The rebuilt player (Result Succeeded, 0 errors, 41 minutes) then ran for 120.7 minutes
+in native mixed reality on the same PC, with no debugger attached, and was closed by the
+test script at the deadline. Of 479 samples at 15-second intervals, the XR display ran in
+465; the first runtime report arrived about 3.5 minutes after launch, which accounts for
+samples without XR at the start. Median application frame rate was 89.0 fps (minimum
+13.7, maximum 90.1). Private memory was 2,515 MB at the end. There was no Windows
+application-error event, and the player log held 585 error lines, all of the network
+time-out kind sampled. The Ultraleap provider reported itself enabled. The flight feed was
+again not eligible, so data-driven traffic and HUD paths were not exercised.
+
+This run shows the guarded player surviving the start-up window where the previous one
+faulted, and two hours beyond it. The original fault was timing dependent (the first
+60-minute run did not hit it), so one clean run is supporting evidence, not proof.
+
+Two host conditions affected these runs and are not player defects:
+
+- Smart App Control in Enforce mode. `GameAssembly.dll` in a fresh IL2CPP build is
+  unsigned and unknown to Windows. The first launch of a new build was held for about
+  9 minutes and the DLL was then refused (Code Integrity events 3033 and 3077). The
+  second launch loaded it. Mono players are unaffected because Unity signs their native
+  DLLs. Launch a new IL2CPP build once before any timed run.
+- A long-running Varjo runtime. After about 13 hours up, the compositor logged
+  "Corrupt foveation matrices" continuously, its logs grew past 4 GB, and the player
+  started without XR (0 of 20 samples). Restart Varjo Base before a measured run and
+  check free space on `C:`.
+
+One batch build also stalled in UnityLinker for about 80 minutes with no CPU use; stopping
+it and rebuilding succeeded. The cause was not established.
